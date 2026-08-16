@@ -8,9 +8,17 @@ final class EditorViewController: NSViewController,
     NSMenuItemValidation,
     NSTextViewDelegate
 {
+    struct HeadingDestination {
+        let id: String
+        let title: String
+        let level: Int
+        let line: Int
+        let range: NSRange
+    }
+
     private let textView: MarkdownTextView
     private let editorScrollView = NSScrollView()
-    private let readerViewController = ReaderViewController()
+    private var readerViewController: ReaderViewController?
     private let contentView = NSView()
     private let banner = NSStackView()
     private let bannerLabel = NSTextField(wrappingLabelWithString: "")
@@ -65,7 +73,6 @@ final class EditorViewController: NSViewController,
 
         configureBanner()
         configureEditor()
-        configureReader()
         configureStatus()
 
         banner.translatesAutoresizingMaskIntoConstraints = false
@@ -91,8 +98,10 @@ final class EditorViewController: NSViewController,
             statusLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 16),
         ])
 
-        highlighter = MarkdownHighlighter(textView: textView)
         clearDocument()
+        DispatchQueue.main.async { [weak self] in
+            self?.installHighlighterIfNeeded()
+        }
     }
 
     func connectComments(_ controller: CommentsViewController) {
@@ -105,7 +114,7 @@ final class EditorViewController: NSViewController,
         controller.onComposerDismiss = { [weak self] in
             guard let self else { return }
             self.view.window?.makeFirstResponder(
-                self.isReaderMode ? self.readerViewController.textView : self.textView
+                self.isReaderMode ? (self.readerViewController?.textView ?? self.textView) : self.textView
             )
         }
         refreshCommentsPresentation()
@@ -148,7 +157,9 @@ final class EditorViewController: NSViewController,
                     self.applyLoadedDocument(body: value.0.body, bodyData: value.0.bodyData, comments: value.1)
                     self.textView.isEditable = FileManager.default.isWritableFile(atPath: url.path)
                     self.watchDocument(url)
-                    self.textView.window?.makeFirstResponder(self.isReaderMode ? self.readerViewController.textView : self.textView)
+                    self.textView.window?.makeFirstResponder(
+                        self.isReaderMode ? (self.readerViewController?.textView ?? self.textView) : self.textView
+                    )
                 case .failure(let error):
                     self.showBanner("Margin could not safely open this document: \(error.localizedDescription)")
                     self.textView.isEditable = false
@@ -174,7 +185,7 @@ final class EditorViewController: NSViewController,
         textView.isEditable = false
         textView.setAccessibilityHelp("Use File, Open to choose a Markdown document or directory")
         highlighter?.invalidate()
-        readerViewController.render(markdown: "", baseURL: nil)
+        readerViewController?.render(markdown: "", baseURL: nil)
         commentsViewController?.display(comments: [], source: "")
         setDirty(false)
         statusLabel.stringValue = ""
@@ -188,19 +199,20 @@ final class EditorViewController: NSViewController,
         let sourceSelection = textView.selectedRange()
         isReaderMode.toggle()
         if isReaderMode {
-            readerViewController.render(
+            let reader = ensureReaderViewController()
+            reader.render(
                 markdown: textView.string,
                 baseURL: documentURL?.deletingLastPathComponent()
             )
             updateReaderHighlights()
-            readerViewController.selectSourceRange(sourceSelection, scrollToVisible: true)
+            reader.selectSourceRange(sourceSelection, scrollToVisible: true)
             editorScrollView.isHidden = true
-            readerViewController.view.isHidden = false
-            view.window?.makeFirstResponder(readerViewController.textView)
+            reader.view.isHidden = false
+            view.window?.makeFirstResponder(reader.textView)
             statusLabel.stringValue = "Reader"
         } else {
-            let readerSelection = readerViewController.selectedSourceRange
-            readerViewController.view.isHidden = true
+            let readerSelection = readerViewController?.selectedSourceRange
+            readerViewController?.view.isHidden = true
             editorScrollView.isHidden = false
             if let readerSelection { textView.setSelectedRange(clamped(readerSelection, limit: textView.string.utf16.count)) }
             view.window?.makeFirstResponder(textView)
@@ -290,11 +302,46 @@ final class EditorViewController: NSViewController,
         return !isDirty
     }
 
+    func focusEditor() {
+        _ = view
+        view.window?.makeFirstResponder(
+            isReaderMode ? (readerViewController?.textView ?? textView) : textView
+        )
+    }
+
+    func headingDestinations() -> [HeadingDestination] {
+        let source = textView.string
+        let outline = MarkdownOutline(markdown: source)
+        return outline.headings.compactMap { heading in
+            guard let range = sourceRange(forLine: heading.line, in: source) else { return nil }
+            return HeadingDestination(
+                id: heading.id,
+                title: heading.title,
+                level: heading.level,
+                line: heading.line,
+                range: range
+            )
+        }
+    }
+
+    func revealHeading(_ destination: HeadingDestination) {
+        _ = view
+        if isReaderMode {
+            readerViewController?.selectSourceRange(destination.range)
+            view.window?.makeFirstResponder(readerViewController?.textView)
+        } else {
+            textView.setSelectedRange(destination.range)
+            textView.scrollRangeToVisible(destination.range)
+            view.window?.makeFirstResponder(textView)
+            updateStatus()
+        }
+    }
+
     @objc func beginComment(_ sender: Any?) {
         guard documentURL != nil else { return }
         let selected: NSRange
         if isReaderMode {
-            selected = readerViewController.selectedSourceRange ?? NSRange(location: 0, length: 0)
+            selected = readerViewController?.selectedSourceRange ?? NSRange(location: 0, length: 0)
         } else {
             selected = textView.selectedRange()
         }
@@ -347,6 +394,7 @@ final class EditorViewController: NSViewController,
             commentsViewController?.selectComment(next)
             updateCommentHighlights()
         }
+        updateStatus()
     }
 
     private func configureBanner() {
@@ -367,6 +415,7 @@ final class EditorViewController: NSViewController,
 
     private func configureEditor() {
         textView.delegate = self
+        MarkdownHighlighter.prepare(textView)
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
@@ -388,9 +437,11 @@ final class EditorViewController: NSViewController,
         ])
     }
 
-    private func configureReader() {
-        addChild(readerViewController)
-        let readerView = readerViewController.view
+    private func ensureReaderViewController() -> ReaderViewController {
+        if let readerViewController { return readerViewController }
+        let controller = ReaderViewController()
+        addChild(controller)
+        let readerView = controller.view
         readerView.translatesAutoresizingMaskIntoConstraints = false
         readerView.isHidden = true
         contentView.addSubview(readerView)
@@ -400,6 +451,13 @@ final class EditorViewController: NSViewController,
             readerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             readerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
         ])
+        readerViewController = controller
+        return controller
+    }
+
+    private func installHighlighterIfNeeded() {
+        guard highlighter == nil else { return }
+        highlighter = MarkdownHighlighter(textView: textView)
     }
 
     private func configureStatus() {
@@ -418,11 +476,15 @@ final class EditorViewController: NSViewController,
         textView.setAccessibilityHelp("Editing \(name) as literal Markdown. Formatting marks remain visible.")
         lastSavedBodyData = bodyData
         setDirty(false)
+        installHighlighterIfNeeded()
         highlighter?.invalidate()
         rebuildAnchors(from: comments)
         refreshCommentsPresentation(comments: comments)
         if isReaderMode {
-            readerViewController.render(markdown: body, baseURL: documentURL?.deletingLastPathComponent())
+            ensureReaderViewController().render(
+                markdown: body,
+                baseURL: documentURL?.deletingLastPathComponent()
+            )
             updateReaderHighlights()
         }
         updateStatus()
@@ -532,7 +594,7 @@ final class EditorViewController: NSViewController,
     }
 
     private func updateReaderHighlights() {
-        guard isReaderMode else { return }
+        guard isReaderMode, let readerViewController else { return }
         let values = anchorRanges.compactMap { id, range -> ReaderViewController.CommentHighlight? in
             guard !anchorsDeletedByEdit.contains(id) else { return nil }
             return .init(id: id, sourceRange: range, state: id == selectedThreadID ? .active : .normal)
@@ -594,7 +656,7 @@ final class EditorViewController: NSViewController,
         selectedThreadID = id
         guard let range = anchorRanges[id] else { return }
         if isReaderMode {
-            readerViewController.selectSourceRange(range)
+            readerViewController?.selectSourceRange(range)
         } else {
             textView.setSelectedRange(range)
             textView.scrollRangeToVisible(range)
@@ -699,6 +761,31 @@ final class EditorViewController: NSViewController,
         while range.length > 0 {
             let last = nsText.character(at: NSMaxRange(range) - 1)
             if last == 0x0A || last == 0x0D { range.length -= 1 } else { break }
+        }
+        return range
+    }
+
+    private func sourceRange(forLine targetLine: Int, in source: String) -> NSRange? {
+        guard targetLine > 0 else { return nil }
+        let text = source as NSString
+        var line = 1
+        var location = 0
+        while line < targetLine, location < text.length {
+            let range = text.lineRange(for: NSRange(location: location, length: 0))
+            let next = NSMaxRange(range)
+            guard next > location else { return nil }
+            location = next
+            line += 1
+        }
+        guard line == targetLine, location <= text.length else { return nil }
+        var range = text.lineRange(for: NSRange(location: location, length: 0))
+        while range.length > 0 {
+            let scalar = text.character(at: NSMaxRange(range) - 1)
+            if scalar == 0x0A || scalar == 0x0D {
+                range.length -= 1
+            } else {
+                break
+            }
         }
         return range
     }

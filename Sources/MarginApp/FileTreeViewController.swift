@@ -122,6 +122,44 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
         )
     }
 
+    var hasVisibleFiles: Bool {
+        (0..<outlineView.numberOfRows).contains { row in
+            guard let node = outlineView.item(atRow: row) as? FileNode else { return false }
+            return !node.isDirectory
+        }
+    }
+
+    func focusNavigator() {
+        _ = view
+        view.window?.makeFirstResponder(outlineView)
+    }
+
+    /// Moves through the files currently revealed in the navigator. Collapsed
+    /// folders remain collapsed, so keyboard traversal preserves the user's
+    /// chosen working set instead of unexpectedly crawling the directory.
+    @discardableResult
+    func openAdjacentFile(direction: Int) -> Bool {
+        _ = view
+        let rowCount = outlineView.numberOfRows
+        guard rowCount > 0 else { return false }
+        let step = direction < 0 ? -1 : 1
+        var row = outlineView.selectedRow >= 0
+            ? outlineView.selectedRow
+            : (step > 0 ? -1 : rowCount)
+
+        for _ in 0..<rowCount {
+            row = (row + step + rowCount) % rowCount
+            guard let node = outlineView.item(atRow: row) as? FileNode, !node.isDirectory else {
+                continue
+            }
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            outlineView.scrollRowToVisible(row)
+            view.window?.makeFirstResponder(outlineView)
+            return true
+        }
+        return false
+    }
+
     func numberOfChildren(in outlineView: NSOutlineView) -> Int {
         rootNode?.children?.count ?? 0
     }
@@ -144,7 +182,12 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
 
     func outlineViewItemWillExpand(_ notification: Notification) {
         guard let node = notification.userInfo?["NSObject"] as? FileNode else { return }
-        loadChildren(of: node)
+        // The outline view is already in the middle of expanding this item.
+        // Asking it to expand again from the load completion recursively emits
+        // another will-expand notification (and eventually overflows AppKit's
+        // accessibility stack). Only populate the children here.
+        guard node.children == nil else { return }
+        loadChildren(of: node, expandWhenLoaded: false)
     }
 
     func outlineView(

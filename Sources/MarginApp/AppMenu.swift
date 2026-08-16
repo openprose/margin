@@ -64,6 +64,14 @@ enum AppMenu {
                 target: delegate
             )
         )
+        fileMenu.addItem(
+            item(
+                "Quick Open…",
+                action: #selector(AppDelegate.quickOpen(_:)),
+                key: "p",
+                target: delegate
+            )
+        )
         fileMenu.addItem(.separator())
         fileMenu.addItem(
             item("Save", action: #selector(WorkspaceDocumentSaving.saveDocument(_:)), key: "s")
@@ -113,6 +121,62 @@ enum AppMenu {
         editMenu.addItem(findItem)
         mainMenu.addItem(menuItem(title: "Edit", submenu: editMenu))
 
+        let navigateMenu = NSMenu(title: "Navigate")
+        navigateMenu.addItem(
+            item(
+                "Go to Heading…",
+                action: #selector(AppDelegate.navigateToHeading(_:)),
+                key: "o",
+                modifiers: [.command, .shift],
+                target: delegate
+            )
+        )
+        navigateMenu.addItem(.separator())
+        navigateMenu.addItem(
+            item(
+                "Previous File",
+                action: #selector(AppDelegate.previousFile(_:)),
+                key: "\u{F702}",
+                modifiers: [.command, .option],
+                target: delegate
+            )
+        )
+        navigateMenu.addItem(
+            item(
+                "Next File",
+                action: #selector(AppDelegate.nextFile(_:)),
+                key: "\u{F703}",
+                modifiers: [.command, .option],
+                target: delegate
+            )
+        )
+        navigateMenu.addItem(.separator())
+        navigateMenu.addItem(
+            item(
+                "Focus Navigator",
+                action: #selector(AppDelegate.focusNavigator(_:)),
+                key: "1",
+                target: delegate
+            )
+        )
+        navigateMenu.addItem(
+            item(
+                "Focus Editor",
+                action: #selector(AppDelegate.focusEditor(_:)),
+                key: "2",
+                target: delegate
+            )
+        )
+        navigateMenu.addItem(
+            item(
+                "Focus Comments",
+                action: #selector(AppDelegate.focusComments(_:)),
+                key: "3",
+                target: delegate
+            )
+        )
+        mainMenu.addItem(menuItem(title: "Navigate", submenu: navigateMenu))
+
         let viewMenu = NSMenu(title: "View")
         viewMenu.addItem(
             item(
@@ -139,6 +203,15 @@ enum AppMenu {
                 key: "r",
                 modifiers: [.command, .shift],
                 target: delegate
+            )
+        )
+        viewMenu.addItem(.separator())
+        viewMenu.addItem(
+            item(
+                "Enter Full Screen",
+                action: #selector(NSWindow.toggleFullScreen(_:)),
+                key: "f",
+                modifiers: [.command, .control]
             )
         )
         mainMenu.addItem(menuItem(title: "View", submenu: viewMenu))

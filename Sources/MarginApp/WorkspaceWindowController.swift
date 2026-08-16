@@ -50,6 +50,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     private let navigatorItem: NSSplitViewItem
     private let editorItem: NSSplitViewItem
     private let commentsItem: NSSplitViewItem
+    private var navigationPaletteController: NavigationPaletteController?
+    private var fileScanGeneration = UUID()
+    private var indexedFileURLs: [URL] = []
 
     var isEmpty: Bool {
         if case .empty = workspaceKind { return true }
@@ -79,6 +82,22 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
     var canSaveDocument: Bool {
         documentURL != nil && editorViewController is WorkspaceDocumentSaving
+    }
+
+    var canQuickOpen: Bool { quickOpenDirectoryURL != nil }
+
+    var canNavigateFiles: Bool {
+        canShowNavigator && fileTreeViewController.hasVisibleFiles
+    }
+
+    var canNavigateHeadings: Bool { documentURL != nil }
+
+    private var quickOpenDirectoryURL: URL? {
+        switch workspaceKind {
+        case .directory(let url): return url
+        case .file(let url): return url.deletingLastPathComponent()
+        case .empty: return nil
+        }
     }
 
     init(workspaceURL: URL?) {
@@ -152,6 +171,91 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         _ = NSApp.sendAction(NSSelectorFromString("beginComment:"), to: editorViewController, from: sender)
     }
 
+    @objc func quickOpen(_ sender: Any?) {
+        guard let directoryURL = quickOpenDirectoryURL, let window else { return }
+        navigationPaletteController?.close()
+
+        let palette = NavigationPaletteController(
+            title: "Quick Open",
+            placeholder: "Search files by name or path",
+            items: makeFilePaletteItems(indexedFileURLs, beneath: directoryURL),
+            emptyMessage: "No matching files"
+        )
+        navigationPaletteController = palette
+        palette.onClose = { [weak self, weak palette] in
+            guard let self, self.navigationPaletteController === palette else { return }
+            self.navigationPaletteController = nil
+        }
+        palette.setStatus(indexedFileURLs.isEmpty ? "Indexing files…" : "Refreshing file index…")
+        palette.show(relativeTo: window)
+
+        fileScanGeneration = UUID()
+        let generation = fileScanGeneration
+        DispatchQueue.global(qos: .userInitiated).async { [weak self, weak palette] in
+            let urls = WorkspaceFileScanner.files(beneath: directoryURL)
+            DispatchQueue.main.async {
+                guard let self, let palette,
+                      self.fileScanGeneration == generation,
+                      self.navigationPaletteController === palette else { return }
+                self.indexedFileURLs = urls
+                palette.update(items: self.makeFilePaletteItems(urls, beneath: directoryURL))
+            }
+        }
+    }
+
+    @objc func navigateToHeading(_ sender: Any?) {
+        guard let editor = editorViewController as? EditorViewController, let window else { return }
+        navigationPaletteController?.close()
+        let destinations = editor.headingDestinations()
+        let items = destinations.map { destination in
+            NavigationPaletteItem(
+                title: destination.title,
+                subtitle: "H\(destination.level)  ·  Line \(destination.line)",
+                symbolName: "number",
+                searchText: "\(destination.title) \(destination.id)"
+            ) { [weak editor] in
+                editor?.revealHeading(destination)
+            }
+        }
+        let palette = NavigationPaletteController(
+            title: "Go to Heading",
+            placeholder: "Search headings",
+            items: items,
+            emptyMessage: "This document has no headings"
+        )
+        navigationPaletteController = palette
+        palette.onClose = { [weak self, weak palette] in
+            guard let self, self.navigationPaletteController === palette else { return }
+            self.navigationPaletteController = nil
+        }
+        palette.show(relativeTo: window)
+    }
+
+    @objc func previousFile(_ sender: Any?) {
+        _ = fileTreeViewController.openAdjacentFile(direction: -1)
+    }
+
+    @objc func nextFile(_ sender: Any?) {
+        _ = fileTreeViewController.openAdjacentFile(direction: 1)
+    }
+
+    @objc func focusNavigator(_ sender: Any?) {
+        guard canShowNavigator else { return }
+        navigatorItem.isCollapsed = false
+        fileTreeViewController.focusNavigator()
+        window?.toolbar?.validateVisibleItems()
+    }
+
+    @objc func focusEditor(_ sender: Any?) {
+        (editorViewController as? EditorViewController)?.focusEditor()
+    }
+
+    @objc func focusComments(_ sender: Any?) {
+        commentsItem.isCollapsed = false
+        (commentsViewController as? CommentsViewController)?.focusComments()
+        window?.toolbar?.validateVisibleItems()
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard let editor = editorViewController as? EditorViewController else { return true }
         return editor.prepareToClose()
@@ -171,6 +275,8 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         window.toolbarStyle = .unified
         window.isRestorable = false
         window.minSize = NSSize(width: 760, height: 500)
+        window.maxSize = NSSize(width: 100_000, height: 100_000)
+        window.maxFullScreenContentSize = NSSize(width: 100_000, height: 100_000)
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.center()
         window.setFrameAutosaveName("MarginWorkspaceWindow")
@@ -270,6 +376,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         navigatorItem.canCollapse = true
 
         editorItem.minimumThickness = 420
+        editorItem.maximumThickness = 100_000
         editorItem.holdingPriority = .defaultHigh
 
         commentsItem.minimumThickness = 260
@@ -310,6 +417,8 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     private func openDirectory(_ directoryURL: URL) {
         workspaceKind = .directory(directoryURL)
         documentURL = nil
+        indexedFileURLs.removeAll()
+        fileScanGeneration = UUID()
         navigatorItem.isCollapsed = false
         (editorViewController as? WorkspaceDocumentPresenting)?.clearDocument()
         (commentsViewController as? WorkspaceCommentsPresenting)?.presentComments(for: nil)
@@ -320,8 +429,42 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
     private func openFileFromDirectory(_ fileURL: URL) {
         guard case .directory = workspaceKind else { return }
+        if let editor = editorViewController as? EditorViewController,
+           !editor.prepareToClose() {
+            if let documentURL {
+                fileTreeViewController.revealAndSelect(documentURL, openFile: false)
+            }
+            return
+        }
         documentURL = fileURL
         presentDocument(fileURL)
+    }
+
+    private func makeFilePaletteItems(_ urls: [URL], beneath directoryURL: URL) -> [NavigationPaletteItem] {
+        urls.map { url in
+            let relativePath = WorkspaceFileScanner.relativePath(for: url, beneath: directoryURL)
+            let parentPath = (relativePath as NSString).deletingLastPathComponent
+            let subtitle = parentPath.isEmpty ? directoryURL.lastPathComponent : parentPath
+            let symbol = FileNode.markdownExtensions.contains(url.pathExtension.lowercased())
+                ? "doc.richtext"
+                : "doc"
+            return NavigationPaletteItem(
+                title: url.lastPathComponent,
+                subtitle: subtitle,
+                symbolName: symbol,
+                searchText: relativePath
+            ) { [weak self] in
+                guard let self else { return }
+                if case .directory = self.workspaceKind {
+                    self.fileTreeViewController.revealAndSelect(url, openFile: false)
+                    self.openFileFromDirectory(url)
+                } else {
+                    guard let editor = self.editorViewController as? EditorViewController,
+                          editor.prepareToClose() else { return }
+                    self.open(url)
+                }
+            }
+        }
     }
 
     private func presentDocument(_ fileURL: URL) {

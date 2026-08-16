@@ -79,6 +79,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         activeWorkspaceWindow?.toggleReaderMode(sender)
     }
 
+    @objc func quickOpen(_ sender: Any?) {
+        activeWorkspaceWindow?.quickOpen(sender)
+    }
+
+    @objc func navigateToHeading(_ sender: Any?) {
+        activeWorkspaceWindow?.navigateToHeading(sender)
+    }
+
+    @objc func previousFile(_ sender: Any?) {
+        activeWorkspaceWindow?.previousFile(sender)
+    }
+
+    @objc func nextFile(_ sender: Any?) {
+        activeWorkspaceWindow?.nextFile(sender)
+    }
+
+    @objc func focusNavigator(_ sender: Any?) {
+        activeWorkspaceWindow?.focusNavigator(sender)
+    }
+
+    @objc func focusEditor(_ sender: Any?) {
+        activeWorkspaceWindow?.focusEditor(sender)
+    }
+
+    @objc func focusComments(_ sender: Any?) {
+        activeWorkspaceWindow?.focusComments(sender)
+    }
+
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let controller = activeWorkspaceWindow else { return false }
 
@@ -94,6 +122,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return controller.canToggleReaderMode
         case #selector(WorkspaceDocumentSaving.saveDocument(_:)):
             return controller.canSaveDocument
+        case #selector(quickOpen(_:)):
+            return controller.canQuickOpen
+        case #selector(navigateToHeading(_:)):
+            return controller.canNavigateHeadings
+        case #selector(previousFile(_:)), #selector(nextFile(_:)):
+            return controller.canNavigateFiles
+        case #selector(focusNavigator(_:)):
+            return controller.canShowNavigator
+        case #selector(focusEditor(_:)), #selector(focusComments(_:)):
+            return true
         default:
             return true
         }

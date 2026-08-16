@@ -49,7 +49,14 @@ margin ~/code/my-project
 margin architecture.md --wait
 ```
 
-In the app, select a passage and press `⌘⌥M` to open the composer. Comments appear in the right sidebar and the selected passage stays highlighted. `⌘⇧R` toggles reader mode, `⌘0` toggles the directory navigator, and `⌘⌥0` toggles comments.
+In the app, select a passage and press `⌘⌥M` to open the composer. Comments appear in the right sidebar and the selected passage stays highlighted. `⌘⇧R` toggles reader mode, `⌘0` toggles the directory navigator, and `⌘⌥0` toggles comments. The window supports native macOS full screen with `⌃⌘F`.
+
+Navigation stays keyboard-first:
+
+- `⌘P` searches and opens files by fuzzy filename or path. Directory indexing begins only when the palette opens.
+- `⌘⇧O` searches headings in the current document.
+- `⌘⌥←` and `⌘⌥→` open the previous or next visible file in the navigator.
+- `⌘1`, `⌘2`, and `⌘3` focus the navigator, editor, and comments respectively.
 
 Formatting shortcuts write ordinary Markdown characters: `⌘B` for bold, `⌘I` for emphasis, and `⌘K` for a link. Margin never replaces the source with hidden rich-text state.
 
@@ -91,6 +98,12 @@ Every comment mutation prints one JSON object to stdout. Errors print JSON to st
 
 Run `margin help comments` for the full grammar. The embedding contract is documented in [COMMENT_PROTOCOL.md](COMMENT_PROTOCOL.md).
 
+## Where comments live
+
+Comments are persisted in the Markdown file itself—not in a database, sidecar, or hidden application folder. Margin appends one terminal CommonMark HTML comment beginning with `<!-- margin:comments:v1`; inside it is a JSON-LD annotation page containing thread bodies, replies, actors, status, and resilient text anchors. Ordinary Markdown renderers ignore that block, while Margin hides it from both source editing and reader mode.
+
+The bytes before the envelope remain the logical Markdown body. Use `margin read FILE` to print only that body, `margin comments export FILE --format jsonld` to inspect the annotations, and `margin comments validate FILE` to verify the combined document.
+
 ## Architecture
 
 Margin is intentionally small:
@@ -113,7 +126,7 @@ make package           # signed local app/CLI zip plus SHA-256 checksum
 
 The real-agent benchmark lives in `Benchmarks/agent_benchmark`. It gives a fresh agent only the task and `margin --help`, then scores discovery, bounded reading, comment creation, nested replies, ambiguity recovery, resolution, validation, and byte-exact source preservation. See its README for the privacy and cost controls.
 
-Measured launch results, the agent benchmark, and the complete v0.1 verification record are in `Docs/PERFORMANCE.md`, `Docs/AGENT_BENCHMARK.md`, and `Docs/RELEASE_NOTES.md`.
+Measured launch results, the agent benchmark, and the complete v0.1.1 verification record are in `Docs/PERFORMANCE.md`, `Docs/AGENT_BENCHMARK.md`, and `Docs/RELEASE_NOTES.md`.
 
 ## Scope
 

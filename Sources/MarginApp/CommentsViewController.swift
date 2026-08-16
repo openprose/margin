@@ -137,6 +137,15 @@ final class CommentsViewController: NSViewController {
         showComposer(quote: quotedText, parentID: nil)
     }
 
+    func focusComments() {
+        _ = view
+        if let composer = composerHost.arrangedSubviews.first as? CommentComposerView {
+            view.window?.makeFirstResponder(composer.textView)
+        } else {
+            view.window?.makeFirstResponder(filterControl)
+        }
+    }
+
     @objc private func filterChanged(_ sender: NSSegmentedControl) {
         reload()
     }
@@ -217,21 +226,17 @@ final class CommentsViewController: NSViewController {
         container.translatesAutoresizingMaskIntoConstraints = false
         container.orientation = .vertical
         container.alignment = .leading
-        container.spacing = 9
-        container.edgeInsets = NSEdgeInsets(top: 14, left: 0, bottom: 14, right: 0)
+        container.spacing = 7
+        container.edgeInsets = NSEdgeInsets(top: 15, left: 0, bottom: 16, right: 0)
         container.setAccessibilityElement(true)
         container.setAccessibilityRole(.group)
         container.setAccessibilityLabel("Comment by \(root.creator.name)")
         container.setAccessibilityValue(root.body.value)
 
         if let quote = rootQuote(root) {
-            let quoteLabel = NSTextField(wrappingLabelWithString: "“\(quote)”")
-            quoteLabel.font = .systemFont(ofSize: 11.5, weight: .medium)
-            quoteLabel.textColor = .secondaryLabelColor
-            quoteLabel.maximumNumberOfLines = 3
-            quoteLabel.lineBreakMode = .byTruncatingTail
-            container.addArrangedSubview(quoteLabel)
-            quoteLabel.widthAnchor.constraint(equalTo: container.widthAnchor).isActive = true
+            let quoteView = commentQuote(quote)
+            container.addArrangedSubview(quoteView)
+            quoteView.widthAnchor.constraint(equalTo: container.widthAnchor).isActive = true
         }
 
         if let resolution = resolutions[root.id], resolution.state == .ambiguous || resolution.state == .orphaned {
@@ -243,9 +248,6 @@ final class CommentsViewController: NSViewController {
         let body = commentBody(root)
         container.addArrangedSubview(body)
         body.widthAnchor.constraint(equalTo: container.widthAnchor).isActive = true
-
-        var visited = Set<String>([root.id])
-        appendReplies(parentID: root.id, depth: 1, replies: replies, to: container, visited: &visited)
 
         let actions = NSStackView()
         actions.orientation = .horizontal
@@ -270,6 +272,9 @@ final class CommentsViewController: NSViewController {
         stateButton.setAccessibilityLabel("\(root.status == .resolved ? "Reopen" : "Resolve") comment by \(root.creator.name)")
         actions.addArrangedSubview(stateButton)
         container.addArrangedSubview(actions)
+
+        var visited = Set<String>([root.id])
+        appendReplies(parentID: root.id, depth: 1, replies: replies, to: container, visited: &visited)
 
         let click = NSClickGestureRecognizer(target: self, action: #selector(threadClicked(_:)))
         click.buttonMask = 0x1
@@ -299,28 +304,33 @@ final class CommentsViewController: NSViewController {
     ) {
         for reply in (replies[parentID] ?? []).sorted(by: { $0.created < $1.created }) {
             guard visited.insert(reply.id).inserted else { continue }
-            let replyView = NSStackView()
-            replyView.orientation = .vertical
-            replyView.alignment = .leading
-            replyView.spacing = 5
-            replyView.edgeInsets = NSEdgeInsets(top: 5, left: CGFloat(min(depth, 2) * 12), bottom: 5, right: 0)
+            let replyContent = NSStackView()
+            replyContent.orientation = .vertical
+            replyContent.alignment = .leading
+            replyContent.spacing = 5
             if depth > 2, let parent = comments.first(where: { $0.id == parentID }) {
                 let lineage = NSTextField(labelWithString: "Replying to \(parent.creator.name)")
                 lineage.font = .systemFont(ofSize: 10.5)
                 lineage.textColor = .tertiaryLabelColor
-                replyView.addArrangedSubview(lineage)
+                replyContent.addArrangedSubview(lineage)
             }
-            replyView.addArrangedSubview(commentHeader(reply))
+            replyContent.addArrangedSubview(commentHeader(reply))
             let body = commentBody(reply)
-            replyView.addArrangedSubview(body)
-            body.widthAnchor.constraint(equalTo: replyView.widthAnchor, constant: -CGFloat(min(depth, 2) * 12)).isActive = true
+            replyContent.addArrangedSubview(body)
+            body.widthAnchor.constraint(equalTo: replyContent.widthAnchor).isActive = true
             let replyAction = ClosureButton(title: "Reply") { [weak self] in
                 self?.showComposer(quote: nil, parentID: reply.id)
             }
             replyAction.controlSize = .mini
             replyAction.bezelStyle = .inline
             replyAction.setAccessibilityLabel("Reply to comment by \(reply.creator.name)")
-            replyView.addArrangedSubview(replyAction)
+            replyContent.addArrangedSubview(replyAction)
+
+            let replyView = ThreadReplyView(depth: depth, contentView: replyContent)
+            replyView.setAccessibilityElement(true)
+            replyView.setAccessibilityRole(.group)
+            replyView.setAccessibilityLabel("Reply by \(reply.creator.name), level \(depth)")
+            replyView.setAccessibilityValue(reply.body.value)
             stack.addArrangedSubview(replyView)
             replyView.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
             appendReplies(parentID: reply.id, depth: depth + 1, replies: replies, to: stack, visited: &visited)
@@ -332,13 +342,30 @@ final class CommentsViewController: NSViewController {
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 6
+        let symbol = NSImageView()
+        let symbolName: String
+        switch comment.creator.type {
+        case .person: symbolName = "person.crop.circle"
+        case .software: symbolName = "cpu"
+        case .organization: symbolName = "building.2"
+        }
+        symbol.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+        symbol.contentTintColor = .tertiaryLabelColor
+        symbol.imageScaling = .scaleProportionallyDown
+        symbol.translatesAutoresizingMaskIntoConstraints = false
+        symbol.setAccessibilityElement(false)
         let author = NSTextField(labelWithString: comment.creator.name)
         author.font = .systemFont(ofSize: 11.5, weight: .semibold)
         let date = NSTextField(labelWithString: relativeDate(comment.created))
         date.font = .systemFont(ofSize: 10.5)
         date.textColor = .secondaryLabelColor
+        row.addArrangedSubview(symbol)
         row.addArrangedSubview(author)
         row.addArrangedSubview(date)
+        NSLayoutConstraint.activate([
+            symbol.widthAnchor.constraint(equalToConstant: 14),
+            symbol.heightAnchor.constraint(equalToConstant: 14),
+        ])
         return row
     }
 
@@ -349,6 +376,35 @@ final class CommentsViewController: NSViewController {
         label.isSelectable = true
         label.maximumNumberOfLines = 0
         return label
+    }
+
+    private func commentQuote(_ quote: String) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .top
+        row.spacing = 6
+
+        let symbol = NSImageView()
+        symbol.image = NSImage(systemSymbolName: "quote.opening", accessibilityDescription: nil)
+        symbol.contentTintColor = .tertiaryLabelColor
+        symbol.imageScaling = .scaleProportionallyDown
+        symbol.translatesAutoresizingMaskIntoConstraints = false
+        symbol.setAccessibilityElement(false)
+
+        let label = NSTextField(wrappingLabelWithString: quote)
+        label.font = .systemFont(ofSize: 11.5, weight: .medium)
+        label.textColor = .secondaryLabelColor
+        label.maximumNumberOfLines = 3
+        label.lineBreakMode = .byTruncatingTail
+
+        row.addArrangedSubview(symbol)
+        row.addArrangedSubview(label)
+        label.widthAnchor.constraint(equalTo: row.widthAnchor, constant: -20).isActive = true
+        NSLayoutConstraint.activate([
+            symbol.widthAnchor.constraint(equalToConstant: 13),
+            symbol.heightAnchor.constraint(equalToConstant: 13),
+        ])
+        return row
     }
 
     private func rootQuote(_ comment: MarginComment) -> String? {
@@ -427,6 +483,52 @@ extension CommentsViewController: WorkspaceCommentsPresenting {
         if documentURL == nil {
             display(comments: [], source: "")
         }
+    }
+}
+
+/// Draws a restrained tree gutter without turning each reply into a card.
+/// Visual indentation is capped at three levels; deeper ancestry is named in
+/// text so narrow inspectors remain readable and VoiceOver retains the depth.
+private final class ThreadReplyView: NSView {
+    private let visualDepth: Int
+
+    override var isFlipped: Bool { true }
+
+    init(depth: Int, contentView: NSView) {
+        visualDepth = min(max(depth, 1), 3)
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(contentView)
+
+        let leadingInset = CGFloat(visualDepth * 12 + 10)
+        NSLayoutConstraint.activate([
+            contentView.topAnchor.constraint(equalTo: topAnchor, constant: 7),
+            contentView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: leadingInset),
+            contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -7),
+        ])
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        let lineWidth = 1 / scale
+        NSColor.controlAccentColor.withAlphaComponent(0.34).setStroke()
+
+        let path = NSBezierPath()
+        path.lineWidth = lineWidth
+        for level in 0..<visualDepth {
+            let x = CGFloat(level * 12 + 5) + lineWidth / 2
+            path.move(to: NSPoint(x: x, y: 0))
+            path.line(to: NSPoint(x: x, y: bounds.height))
+        }
+        let branchX = CGFloat((visualDepth - 1) * 12 + 5) + lineWidth / 2
+        path.move(to: NSPoint(x: branchX, y: 14))
+        path.line(to: NSPoint(x: CGFloat(visualDepth * 12 + 5), y: 14))
+        path.stroke()
     }
 }
 

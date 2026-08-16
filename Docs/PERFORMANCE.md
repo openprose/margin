@@ -46,3 +46,11 @@ File and empty launches have effectively the same latency distribution, which co
 ## Final v0.1 release gate
 
 After the last UI validation fixes, the exact release candidate was measured again with the same three-warm-up/fifteen-run small-file probe. It reached the first visible window in **339.729 ms median** and **347.985 ms p95**; median RSS 250 ms later was **111.188 MiB** (111.719 MiB p95). The app bundle was 1,951,613 logical bytes and its main executable was 987,216 bytes. These are the authoritative shipped-v0.1 figures; the comparison table above records the immediately preceding controlled baseline experiment.
+
+## Final v0.1.1 release gate
+
+The exact signed v0.1.1 build was measured with the same machine, document, three warm-ups, fifteen runs, and 250 ms RSS settle interval. It reached the first visible window in **232.583 ms median** and **248.301 ms p95**; median RSS was **80.391 MiB** (80.531 MiB p95). Relative to the shipped v0.1.0 measurement, that is a **31.5% lower median launch time**, **28.6% lower p95**, and **27.7% lower median RSS**.
+
+The main reduction comes from constructing the reader subsystem only when reader mode is first requested. Quick Open's recursive filename index is also strictly on demand after `⌘P`; it adds no startup traversal. The source editor remains real and interactive in the initial window—no placeholder pane is used. A separate five-run probe sampling RSS one second after the window appeared measured 80.484 MiB median, confirming that the memory change was not a 250 ms sampling artifact.
+
+The navigation and thread-layout additions increased the app bundle to 2,019,197 logical bytes and the main executable to 1,054,800 bytes. The result remains an external warm-launch proxy, not a claim about cold launch after reboot or the final compositor frame.
