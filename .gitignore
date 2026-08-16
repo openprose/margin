@@ -1,0 +1,8 @@
+.build/
+.build-xcode/
+.scratch/
+build/
+.swiftpm/
+*.xcuserstate
+.DS_Store
+Fixtures/*.margin-lock

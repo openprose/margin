@@ -1,0 +1,43 @@
+{
+  "artifact": "atlas-launch-review.md",
+  "comments": {
+    "ambiguous_second": {
+      "anchorExact": "shared signal",
+      "body": "Benchmark: this refers to the second shared signal.",
+      "occurrence": 2,
+      "status": "open"
+    },
+    "document": {
+      "body": "Benchmark: add a compatibility note for macOS 13.",
+      "status": "open"
+    },
+    "quote": {
+      "anchorExact": "launch budget",
+      "body": "Benchmark: define a measurable startup target.",
+      "status": "resolved"
+    },
+    "range": {
+      "anchorExact": "Cold start must stay below 45 milliseconds on the baseline Mac.",
+      "body": "Benchmark: verify this range against the implementation.",
+      "status": "open"
+    },
+    "reply": {
+      "body": "Benchmark reply: capture both warm and cold measurements."
+    },
+    "nestedReply": {
+      "body": "Benchmark nested reply: include sample size and variance."
+    }
+  },
+  "requiredCommands": [
+    "--help",
+    "inspect",
+    "outline",
+    "slice",
+    "comments add",
+    "comments reply",
+    "comments resolve",
+    "comments list",
+    "comments validate"
+  ],
+  "schema": "urn:margin:agent-benchmark:v1"
+}

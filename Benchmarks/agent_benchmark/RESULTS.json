@@ -1,0 +1,82 @@
+{
+  "runs": [
+    {
+      "budget": {
+        "maxTokens": 16000,
+        "maxTurns": 6,
+        "timeoutSeconds": 300
+      },
+      "cost": 0.00680276,
+      "durationSeconds": 31.53,
+      "inputTokens": 14783,
+      "model": "openai/gpt-5.6-luna",
+      "outputTokens": 2030,
+      "primeAgentExitCode": 0,
+      "run": "20260816T041546Z-openai-gpt-5-6-luna",
+      "score": 100,
+      "sourcePreserved": true,
+      "timedOut": false
+    },
+    {
+      "budget": {
+        "maxTokens": 16000,
+        "maxTurns": 6,
+        "timeoutSeconds": 300
+      },
+      "cost": 0.0584296,
+      "durationSeconds": 27.5,
+      "inputTokens": 12575,
+      "model": "openai/gpt-5.6-terra",
+      "outputTokens": 1207,
+      "primeAgentExitCode": 0,
+      "run": "20260816T041628Z-openai-gpt-5-6-terra",
+      "score": 100,
+      "sourcePreserved": true,
+      "timedOut": false
+    },
+    {
+      "budget": {
+        "maxTokens": 16000,
+        "maxTurns": 6,
+        "timeoutSeconds": 300
+      },
+      "cost": 0.14319300000000001,
+      "durationSeconds": 32.643,
+      "inputTokens": 14528,
+      "model": "openai/gpt-5.6-sol",
+      "outputTokens": 1430,
+      "primeAgentExitCode": 0,
+      "run": "20260816T041656Z-openai-gpt-5-6-sol",
+      "score": 100,
+      "sourcePreserved": true,
+      "timedOut": false
+    },
+    {
+      "budget": {
+        "maxTokens": 16000,
+        "maxTurns": 6,
+        "timeoutSeconds": 300
+      },
+      "cost": 0.008326667999999999,
+      "durationSeconds": 68.9,
+      "inputTokens": 17787,
+      "model": "openrouter/deepseek/deepseek-v4-flash",
+      "outputTokens": 4307,
+      "primeAgentExitCode": 0,
+      "run": "20260816T041728Z-openrouter-deepseek-deepseek-v4-flash",
+      "score": 100,
+      "sourcePreserved": true,
+      "timedOut": false
+    }
+  ],
+  "schema": "urn:margin:agent-benchmark-report:v1",
+  "summary": {
+    "allSourcePreserved": true,
+    "fastestModel": "openai/gpt-5.6-terra",
+    "leastExpensiveModel": "openai/gpt-5.6-luna",
+    "perfectRuns": 4,
+    "runCount": 4,
+    "timedOutRuns": 0,
+    "totalMeasuredCost": 0.216752028
+  }
+}
