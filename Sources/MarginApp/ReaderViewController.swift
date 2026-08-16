@@ -5,7 +5,7 @@ import AppKit
 /// this controller translates them through `MarkdownReaderRenderer.Result`.
 final class ReaderViewController: NSViewController {
     struct CommentHighlight {
-        enum State {
+        enum State: Equatable {
             case normal
             case active
             case resolved
@@ -14,11 +14,18 @@ final class ReaderViewController: NSViewController {
         var id: String
         var sourceRange: NSRange
         var state: State
+        var summary: String
 
-        init(id: String, sourceRange: NSRange, state: State = .normal) {
+        init(
+            id: String,
+            sourceRange: NSRange,
+            state: State = .normal,
+            summary: String = "Comment thread"
+        ) {
             self.id = id
             self.sourceRange = sourceRange
             self.state = state
+            self.summary = summary
         }
     }
 
@@ -29,7 +36,7 @@ final class ReaderViewController: NSViewController {
         var scrollFraction: CGFloat
     }
 
-    private final class CenteredReaderTextView: NSTextView {
+    private final class CenteredReaderTextView: CommentInteractionTextView {
         var maximumTextWidth: CGFloat = 690 {
             didSet { updateCenteredInset() }
         }
@@ -66,6 +73,12 @@ final class ReaderViewController: NSViewController {
     private var commentHighlights: [CommentHighlight] = []
     private var renderedHighlightRanges: [NSRange] = []
     private var renderGeneration = UUID()
+    private var gutterView: ReaderCommentGutterView?
+    private var isApplyingSelection = false
+
+    var onSelectionChanged: ((NSTextView) -> Void)?
+    var onCommentOnSelection: (() -> Void)?
+    var onSelectComment: ((String) -> Void)?
 
     var textView: NSTextView { readerTextView }
 
@@ -79,6 +92,13 @@ final class ReaderViewController: NSViewController {
 
     var selectedSourceRange: NSRange? {
         sourceRange(forReaderRange: readerTextView.selectedRange())
+    }
+
+    var scrollFraction: Double {
+        let visible = readerTextView.visibleRect
+        let maximum = max(readerTextView.bounds.height - visible.height, 0)
+        guard maximum > 0 else { return 0 }
+        return Double(min(max(visible.minY / maximum, 0), 1))
     }
 
     init(theme: MarkdownReaderRenderer.Theme = .system()) {
@@ -137,12 +157,20 @@ final class ReaderViewController: NSViewController {
             in: readerScrollView,
             theme: theme
         )
+        readerTextView.delegate = self
+        readerTextView.onCommentOnSelection = { [weak self] _ in
+            self?.onCommentOnSelection?()
+        }
+        readerTextView.onCommentHighlightClick = { [weak self] location in
+            self?.activateCommentHighlight(atReaderLocation: location) ?? false
+        }
         view = readerScrollView
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
         sizeDocumentViewToContent()
+        updateCommentGutter()
     }
 
     /// Re-renders Markdown while preserving the current reader selection and
@@ -234,23 +262,44 @@ final class ReaderViewController: NSViewController {
     ) {
         guard let readerRange = readerRange(forSourceRange: sourceRange) else { return }
         let safeRange = clamped(readerRange, to: readerTextView.string.utf16.count)
-        readerTextView.setSelectedRange(safeRange)
+        applyingSelection {
+            readerTextView.setSelectedRange(safeRange)
+        }
         if scrollToVisible {
             readerTextView.scrollRangeToVisible(safeRange)
         }
+    }
+
+    func restoreScrollFraction(_ fraction: Double) {
+        sizeDocumentViewToContent()
+        let visibleHeight = readerTextView.visibleRect.height
+        let maximum = max(readerTextView.bounds.height - visibleHeight, 0)
+        readerTextView.scroll(
+            NSPoint(x: 0, y: maximum * CGFloat(min(max(fraction, 0), 1)))
+        )
     }
 
     /// Replaces all comment annotations. Each source range is projected into
     /// one or more visible reader spans, so hidden Markdown punctuation and
     /// generated list markers are not painted as part of a comment selection.
     func setCommentHighlights(_ highlights: [CommentHighlight]) {
-        commentHighlights = highlights
+        commentHighlights = highlights.sorted {
+            if $0.sourceRange.location != $1.sourceRange.location {
+                return $0.sourceRange.location < $1.sourceRange.location
+            }
+            if $0.sourceRange.length != $1.sourceRange.length {
+                return $0.sourceRange.length < $1.sourceRange.length
+            }
+            return $0.id < $1.id
+        }
         applyCommentHighlights()
     }
 
     func clearCommentHighlights() {
         commentHighlights.removeAll()
         clearRenderedHighlights()
+        gutterView?.removeFromSuperview()
+        gutterView = nil
     }
 
     private func apply(
@@ -285,6 +334,14 @@ final class ReaderViewController: NSViewController {
                 ? highlight.id
                 : nil
         }
+    }
+
+    @discardableResult
+    func activateCommentHighlight(atReaderLocation location: Int) -> Bool {
+        let ids = commentHighlightIDs(atReaderLocation: location)
+        guard let id = preferredCommentID(from: ids) else { return false }
+        onSelectComment?(id)
+        return true
     }
 
     private static func configure(
@@ -375,16 +432,20 @@ final class ReaderViewController: NSViewController {
 
     private func restore(_ state: PreservedState?) {
         guard let state, let result = renderResult else {
-            readerTextView.setSelectedRange(NSRange(location: 0, length: 0))
+            applyingSelection {
+                readerTextView.setSelectedRange(NSRange(location: 0, length: 0))
+            }
             readerTextView.scroll(.zero)
             return
         }
 
         if let sourceSelection = state.selectionInSource,
            let readerSelection = result.renderedRange(for: sourceSelection) {
-            readerTextView.setSelectedRange(
-                clamped(readerSelection, to: readerTextView.string.utf16.count)
-            )
+            applyingSelection {
+                readerTextView.setSelectedRange(
+                    clamped(readerSelection, to: readerTextView.string.utf16.count)
+                )
+            }
         }
 
         if let sourceAnchor = state.scrollAnchorInSource,
@@ -476,6 +537,7 @@ final class ReaderViewController: NSViewController {
             }
         }
         readerTextView.needsDisplay = true
+        updateCommentGutter()
     }
 
     private func clearRenderedHighlights() {
@@ -547,6 +609,81 @@ final class ReaderViewController: NSViewController {
         return 0
     }
 
+    private func updateCommentGutter() {
+        guard !commentHighlights.isEmpty,
+              let result = renderResult,
+              let layoutManager = readerTextView.layoutManager,
+              let textContainer = readerTextView.textContainer else {
+            gutterView?.removeFromSuperview()
+            gutterView = nil
+            return
+        }
+
+        layoutManager.ensureLayout(for: textContainer)
+        let candidates = commentHighlights.compactMap { highlight -> ReaderCommentMarkerCandidate? in
+            let ranges = merged(
+                result.renderedRanges(intersecting: highlight.sourceRange)
+                    .filter { $0.length > 0 }
+            )
+            let rects = ranges.compactMap { range -> NSRect? in
+                let glyphs = layoutManager.glyphRange(
+                    forCharacterRange: range,
+                    actualCharacterRange: nil
+                )
+                guard glyphs.length > 0 else { return nil }
+                return layoutManager.boundingRect(
+                    forGlyphRange: glyphs,
+                    in: textContainer
+                ).offsetBy(
+                    dx: readerTextView.textContainerOrigin.x,
+                    dy: readerTextView.textContainerOrigin.y
+                )
+            }
+            guard let minimumY = rects.map(\.minY).min(),
+                  let maximumY = rects.map(\.maxY).max() else { return nil }
+            return ReaderCommentMarkerCandidate(
+                id: highlight.id,
+                summary: highlight.summary,
+                minY: minimumY,
+                maxY: maximumY,
+                isActive: highlight.state == .active,
+                isResolved: highlight.state == .resolved
+            )
+        }
+
+        let gutter = ensureCommentGutter()
+        gutter.frame = readerTextView.bounds
+        let measureTrailing = readerTextView.bounds.maxX - readerTextView.textContainerInset.width
+        let x = min(readerTextView.bounds.maxX - 30, measureTrailing + 8)
+        gutter.update(groups: ReaderCommentMarkerLayout.groups(from: candidates, x: x))
+    }
+
+    private func ensureCommentGutter() -> ReaderCommentGutterView {
+        if let gutterView { return gutterView }
+        let gutter = ReaderCommentGutterView(frame: readerTextView.bounds)
+        gutter.autoresizingMask = [.width, .height]
+        gutter.onSelectComment = { [weak self] id in self?.onSelectComment?(id) }
+        readerTextView.addSubview(gutter)
+        gutterView = gutter
+        return gutter
+    }
+
+    private func preferredCommentID(from ids: [String]) -> String? {
+        guard !ids.isEmpty else { return nil }
+        if let activeIndex = ids.firstIndex(where: { id in
+            commentHighlights.first(where: { $0.id == id })?.state == .active
+        }), ids.count > 1 {
+            return ids[(activeIndex + 1) % ids.count]
+        }
+        return ids[0]
+    }
+
+    private func applyingSelection(_ changes: () -> Void) {
+        isApplyingSelection = true
+        changes()
+        isApplyingSelection = false
+    }
+
     private func clamped(_ range: NSRange, to length: Int) -> NSRange {
         guard range.location != NSNotFound else {
             return NSRange(location: 0, length: 0)
@@ -556,5 +693,12 @@ final class ReaderViewController: NSViewController {
             location: location,
             length: min(max(range.length, 0), length - location)
         )
+    }
+}
+
+extension ReaderViewController: NSTextViewDelegate {
+    func textViewDidChangeSelection(_ notification: Notification) {
+        guard !isApplyingSelection else { return }
+        onSelectionChanged?(readerTextView)
     }
 }

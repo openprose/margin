@@ -25,6 +25,82 @@ public struct CommentMutationReceipt: Codable, Sendable {
     }
 }
 
+public struct CommentEditUndo: Codable, Sendable {
+    public var id: String
+    public var message: String
+    public var ifRevision: Int
+
+    public init(id: String, message: String, ifRevision: Int) {
+        self.id = id
+        self.message = message
+        self.ifRevision = ifRevision
+    }
+}
+
+public struct CommentEditReceipt: Codable, Sendable {
+    public var changed: Bool
+    public var documentID: String
+    public var revision: Int
+    public var contentSha256: String
+    public var rootID: String
+    public var editor: MarginActor
+    public var annotation: MarginComment
+    public var previousAnnotation: MarginComment?
+    public var undo: CommentEditUndo
+}
+
+public struct DeletedCommentRecord: Codable, Sendable {
+    public var index: Int
+    public var annotation: MarginComment
+
+    public init(index: Int, annotation: MarginComment) {
+        self.index = index
+        self.annotation = annotation
+    }
+}
+
+public struct CommentDeleteUndo: Codable, Sendable {
+    public var ifRevision: Int
+    public var expectedDocumentSha256: String
+    public var records: [DeletedCommentRecord]
+    public var envelopeTemplate: EmbeddedCommentEnvelope?
+
+    public init(
+        ifRevision: Int,
+        records: [DeletedCommentRecord],
+        expectedDocumentSha256: String = "",
+        envelopeTemplate: EmbeddedCommentEnvelope? = nil
+    ) {
+        self.ifRevision = ifRevision
+        self.expectedDocumentSha256 = expectedDocumentSha256
+        self.records = records
+        self.envelopeTemplate = envelopeTemplate
+    }
+}
+
+public struct CommentDeleteReceipt: Codable, Sendable {
+    public var changed: Bool
+    public var documentID: String
+    public var revision: Int
+    public var contentSha256: String
+    public var rootID: String
+    public var deletedID: String
+    public var subtree: Bool
+    public var deletedCount: Int
+    public var deletedIDs: [String]
+    public var undo: CommentDeleteUndo
+}
+
+public struct CommentRestoreReceipt: Codable, Sendable {
+    public var changed: Bool
+    public var documentID: String
+    public var revision: Int
+    public var contentSha256: String
+    public var restoredCount: Int
+    public var restoredIDs: [String]
+    public var annotations: [MarginComment]
+}
+
 public struct ListedComment: Codable, Sendable {
     public var annotation: MarginComment
     public var parentID: String?
@@ -113,7 +189,12 @@ public struct CommentService: Sendable {
     }
 
     public func list(at url: URL) throws -> CommentDocumentSnapshot {
-        let decoded = try codec.decode(store.read(at: url))
+        try snapshot(from: codec.decode(store.read(at: url)))
+    }
+
+    /// Builds a comment snapshot from an already-decoded document so callers can
+    /// derive several consistent views from one physical file read.
+    public func snapshot(from decoded: EmbeddedCommentDocument) throws -> CommentDocumentSnapshot {
         let contentHash = EmbeddedCommentCodec.contentHash(decoded.bodyData)
         guard let envelope = decoded.envelope else {
             return CommentDocumentSnapshot(
@@ -323,6 +404,232 @@ public struct CommentService: Sendable {
         }
     }
 
+    public func edit(
+        at url: URL,
+        id: String,
+        message: String,
+        editor: MarginActor,
+        preconditions: CommentMutationPreconditions = CommentMutationPreconditions()
+    ) throws -> CommentEditReceipt {
+        try validateMessage(message)
+        try validateActor(editor)
+        let id = MarginID.annotation(id)
+        let timestamp = Self.timestamp()
+        return try store.transaction(at: url) { data in
+            let decoded = try codec.decode(data)
+            guard var envelope = decoded.envelope else { throw CommentProtocolError.commentNotFound(id) }
+            try requireV1(envelope)
+            try check(preconditions, envelope: envelope, bodyData: decoded.bodyData)
+            let index = Dictionary(uniqueKeysWithValues: envelope.items.map { ($0.id, $0) })
+            guard let original = index[id],
+                  let annotationIndex = envelope.items.firstIndex(where: { $0.id == id }) else {
+                throw CommentProtocolError.commentNotFound(id)
+            }
+            let rootID = try rootID(for: id, in: index)
+            if original.body.value == message {
+                return AtomicDocumentMutation(
+                    data: data,
+                    result: CommentEditReceipt(
+                        changed: false,
+                        documentID: envelope.document.id,
+                        revision: envelope.revision,
+                        contentSha256: EmbeddedCommentCodec.contentHash(decoded.bodyData),
+                        rootID: rootID,
+                        editor: editor,
+                        annotation: original,
+                        previousAnnotation: nil,
+                        undo: CommentEditUndo(id: id, message: original.body.value, ifRevision: envelope.revision)
+                    )
+                )
+            }
+            envelope.items[annotationIndex].body.value = message
+            envelope.items[annotationIndex].modified = timestamp
+            envelope.items[annotationIndex].extensions["margin:lastModifiedBy"] = .object([
+                "id": .string(editor.id),
+                "type": .string(editor.type.rawValue),
+                "name": .string(editor.name),
+            ])
+            advance(&envelope, timestamp: timestamp)
+            let updated = envelope.items[annotationIndex]
+            let output = try codec.encode(bodyData: decoded.bodyData, envelope: envelope)
+            return AtomicDocumentMutation(
+                data: output,
+                result: CommentEditReceipt(
+                    changed: true,
+                    documentID: envelope.document.id,
+                    revision: envelope.revision,
+                    contentSha256: EmbeddedCommentCodec.contentHash(decoded.bodyData),
+                    rootID: rootID,
+                    editor: editor,
+                    annotation: updated,
+                    previousAnnotation: original,
+                    undo: CommentEditUndo(id: id, message: original.body.value, ifRevision: envelope.revision)
+                )
+            )
+        }
+    }
+
+    /// Deletes one leaf annotation, or the target and every descendant when
+    /// `subtree` is explicitly true. Removing a non-leaf without `subtree`
+    /// fails closed so replies can never be orphaned.
+    public func delete(
+        at url: URL,
+        id: String,
+        subtree: Bool = false,
+        preconditions: CommentMutationPreconditions = CommentMutationPreconditions()
+    ) throws -> CommentDeleteReceipt {
+        let id = MarginID.annotation(id)
+        let timestamp = Self.timestamp()
+        return try store.transaction(at: url) { data in
+            let decoded = try codec.decode(data)
+            guard var envelope = decoded.envelope else { throw CommentProtocolError.commentNotFound(id) }
+            try requireV1(envelope)
+            try check(preconditions, envelope: envelope, bodyData: decoded.bodyData)
+            let index = Dictionary(uniqueKeysWithValues: envelope.items.map { ($0.id, $0) })
+            guard index[id] != nil else { throw CommentProtocolError.commentNotFound(id) }
+            let rootID = try rootID(for: id, in: index)
+            let descendants = descendantIDs(of: id, in: envelope.items)
+            if !subtree, !descendants.isEmpty {
+                throw CommentProtocolError.commentHasReplies(id: id, count: descendants.count)
+            }
+            let deletedIDs = Set([id] + (subtree ? Array(descendants) : []))
+            let records = envelope.items.enumerated().compactMap { offset, annotation in
+                deletedIDs.contains(annotation.id)
+                    ? DeletedCommentRecord(index: offset, annotation: annotation)
+                    : nil
+            }
+            envelope.items.removeAll { deletedIDs.contains($0.id) }
+            advance(&envelope, timestamp: timestamp)
+            let output = try codec.encode(bodyData: decoded.bodyData, envelope: envelope)
+            var envelopeTemplate: EmbeddedCommentEnvelope?
+            if envelope.items.isEmpty {
+                envelope.contentByteLength = decoded.bodyData.count
+                envelope.contentSha256 = EmbeddedCommentCodec.contentHash(decoded.bodyData)
+                envelopeTemplate = envelope
+            }
+            return AtomicDocumentMutation(
+                data: output,
+                result: CommentDeleteReceipt(
+                    changed: true,
+                    documentID: envelope.document.id,
+                    revision: envelope.revision,
+                    contentSha256: EmbeddedCommentCodec.contentHash(decoded.bodyData),
+                    rootID: rootID,
+                    deletedID: id,
+                    subtree: subtree,
+                    deletedCount: records.count,
+                    deletedIDs: records.map { $0.annotation.id },
+                    undo: CommentDeleteUndo(
+                        ifRevision: envelope.revision,
+                        records: records,
+                        expectedDocumentSha256: Self.documentHash(output),
+                        envelopeTemplate: envelopeTemplate
+                    )
+                )
+            )
+        }
+    }
+
+    /// Restores an exact deletion receipt only while the document is still in
+    /// the state produced by that delete. The full-file digest closes the gap
+    /// left when deleting the final thread removes the envelope (and therefore
+    /// its persisted revision) entirely.
+    public func restoreDeletion(
+        at url: URL,
+        undo: CommentDeleteUndo
+    ) throws -> CommentRestoreReceipt {
+        guard !undo.records.isEmpty else {
+            throw CommentProtocolError.invalidEnvelope("A deletion undo token has no annotations.")
+        }
+        guard !undo.expectedDocumentSha256.isEmpty else {
+            throw CommentProtocolError.invalidEnvelope("A deletion undo token has no document-state digest.")
+        }
+        let timestamp = Self.timestamp()
+        return try store.transaction(at: url) { data in
+            let actualDocumentHash = Self.documentHash(data)
+            guard normalizedHash(undo.expectedDocumentSha256) == normalizedHash(actualDocumentHash) else {
+                throw CommentProtocolError.undoConflict(
+                    expected: undo.expectedDocumentSha256,
+                    actual: actualDocumentHash
+                )
+            }
+            let decoded = try codec.decode(data)
+            var envelope: EmbeddedCommentEnvelope
+            if let existing = decoded.envelope {
+                try requireV1(existing)
+                guard existing.revision == undo.ifRevision else {
+                    throw CommentProtocolError.revisionConflict(
+                        expected: undo.ifRevision,
+                        actual: existing.revision
+                    )
+                }
+                envelope = existing
+            } else {
+                guard var template = undo.envelopeTemplate else {
+                    throw CommentProtocolError.invalidEnvelope(
+                        "Restoring a removed comment envelope requires its undo template."
+                    )
+                }
+                try requireV1(template)
+                guard template.revision == undo.ifRevision else {
+                    throw CommentProtocolError.revisionConflict(
+                        expected: undo.ifRevision,
+                        actual: template.revision
+                    )
+                }
+                guard template.items.isEmpty else {
+                    throw CommentProtocolError.invalidEnvelope("A deletion undo template must not contain annotations.")
+                }
+                guard normalizedHash(template.contentSha256) ==
+                        normalizedHash(EmbeddedCommentCodec.contentHash(decoded.bodyData)) else {
+                    throw CommentProtocolError.contentConflict(
+                        expected: template.contentSha256,
+                        actual: EmbeddedCommentCodec.contentHash(decoded.bodyData)
+                    )
+                }
+                template.contentByteLength = decoded.bodyData.count
+                envelope = template
+            }
+
+            let sortedRecords = undo.records.sorted { lhs, rhs in
+                if lhs.index != rhs.index { return lhs.index < rhs.index }
+                return lhs.annotation.id < rhs.annotation.id
+            }
+            guard Set(sortedRecords.map(\.index)).count == sortedRecords.count,
+                  Set(sortedRecords.map { $0.annotation.id }).count == sortedRecords.count else {
+                throw CommentProtocolError.invalidEnvelope("A deletion undo token has duplicate indexes or ids.")
+            }
+            let existingIDs = Set(envelope.items.map(\.id))
+            if let conflict = sortedRecords.first(where: { existingIDs.contains($0.annotation.id) }) {
+                throw CommentProtocolError.idConflict(conflict.annotation.id)
+            }
+            for record in sortedRecords {
+                guard record.index >= 0, record.index <= envelope.items.count else {
+                    throw CommentProtocolError.invalidEnvelope(
+                        "Undo index \(record.index) is outside 0...\(envelope.items.count)."
+                    )
+                }
+                envelope.items.insert(record.annotation, at: record.index)
+            }
+            envelope.partOf.total = envelope.items.count
+            try codec.validate(envelope)
+            advance(&envelope, timestamp: timestamp)
+            let output = try codec.encode(bodyData: decoded.bodyData, envelope: envelope)
+            return AtomicDocumentMutation(
+                data: output,
+                result: CommentRestoreReceipt(
+                    changed: true,
+                    documentID: envelope.document.id,
+                    revision: envelope.revision,
+                    contentSha256: EmbeddedCommentCodec.contentHash(decoded.bodyData),
+                    restoredCount: sortedRecords.count,
+                    restoredIDs: sortedRecords.map { $0.annotation.id },
+                    annotations: sortedRecords.map(\.annotation)
+                )
+            )
+        }
+    }
+
     public func resolve(
         at url: URL,
         id: String,
@@ -490,6 +797,23 @@ public struct CommentService: Sendable {
         return root
     }
 
+    private func descendantIDs(of id: String, in annotations: [MarginComment]) -> Set<String> {
+        var children: [String: [String]] = [:]
+        for annotation in annotations where annotation.motivation == "replying" {
+            if case .resource(let parentID) = annotation.target {
+                children[parentID, default: []].append(annotation.id)
+            }
+        }
+        var result: Set<String> = []
+        var pending = children[id] ?? []
+        while let current = pending.popLast() {
+            if result.insert(current).inserted {
+                pending.append(contentsOf: children[current] ?? [])
+            }
+        }
+        return result
+    }
+
     /// Returns self, parent, ... root.
     private func lineage(for id: String, in index: [String: MarginComment]) throws -> [String] {
         guard var current = index[id] else { throw CommentProtocolError.commentNotFound(id) }
@@ -569,5 +893,9 @@ public struct CommentService: Sendable {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.string(from: Date())
+    }
+
+    private static func documentHash(_ data: Data) -> String {
+        "sha256:\(DocumentRevision(data: data).sha256)"
     }
 }

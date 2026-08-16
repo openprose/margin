@@ -3,12 +3,14 @@ import Foundation
 import MarginCore
 
 enum MarginCommand {
-    static let version = "0.1.3"
+    static let version = "0.2.0"
     static let service = CommentService()
+    static let reviewService = ReviewService()
     static let codec = EmbeddedCommentCodec()
 
     static func run(arguments: [String]) -> Int32 {
-        let wantsJSON = arguments.contains("--json") || arguments.first == "comments" || arguments.first == "comment"
+        let wantsJSON = arguments.contains("--json") || arguments.contains("--jsonl") ||
+            arguments.first == "comments" || arguments.first == "comment"
         do {
             try dispatch(arguments)
             return CLIExit.success.rawValue
@@ -52,6 +54,8 @@ enum MarginCommand {
             try runRead(&cursor)
         case "slice":
             try runSlice(&cursor)
+        case "review":
+            try runReview(&cursor)
         case "comments", "comment":
             try runComments(&cursor)
         case "--wait":
@@ -211,6 +215,24 @@ enum MarginCommand {
         }
     }
 
+    private static func runReview(_ cursor: inout ArgumentCursor) throws {
+        let pretty = cursor.takeFlag("--pretty")
+        guard cursor.takeFlag("--json") else {
+            throw CLIError.usage("review requires --json so its bounded result is unambiguous for agents.")
+        }
+        let sinceRevision = try cursor.takeInt("--since-revision")
+        if let sinceRevision, sinceRevision < 0 {
+            throw CLIError.usage("--since-revision must be nonnegative.")
+        }
+        let file = try PathResolver.existingFile(cursor.require("Markdown file"))
+        try cursor.rejectRemaining()
+        let review = try reviewService.review(at: file, sinceRevision: sinceRevision)
+        try CLIOutput.json(
+            CommandEnvelope(command: "review", file: file.path, result: review),
+            pretty: pretty
+        )
+    }
+
     private static func runComments(_ cursor: inout ArgumentCursor) throws {
         let subcommand = try cursor.require("comments subcommand")
         switch subcommand {
@@ -218,11 +240,14 @@ enum MarginCommand {
         case "list": try commentsList(&cursor)
         case "get": try commentsGet(&cursor)
         case "reply": try commentsReply(&cursor)
+        case "edit": try commentsEdit(&cursor)
+        case "delete": try commentsDelete(&cursor)
         case "resolve": try commentsSetStatus(&cursor, resolved: true)
         case "reopen": try commentsSetStatus(&cursor, resolved: false)
         case "reanchor": try commentsReanchor(&cursor)
         case "validate": try commentsValidate(&cursor)
         case "export": try commentsExport(&cursor)
+        case "watch": try commentsWatch(&cursor)
         case "help", "--help", "-h":
             try cursor.rejectRemaining()
             try CLIOutput.text(help(topic: "comments"))
@@ -335,6 +360,58 @@ enum MarginCommand {
         try writeCommentSuccess(command: "comments.reply", file: file, receipt: receipt, pretty: pretty)
     }
 
+    private static func commentsEdit(_ cursor: inout ArgumentCursor) throws {
+        let pretty = cursor.takeFlag("--pretty")
+        _ = cursor.takeFlag("--json")
+        let file = try PathResolver.existingFile(cursor.require("Markdown file"))
+        let id = try cursor.require("comment id")
+        let message = try takeMessage(cursor: &cursor)
+        let editor = try takeActor(cursor: &cursor)
+        let preconditions = try takePreconditions(cursor: &cursor)
+        try cursor.rejectRemaining()
+        let receipt = try service.edit(
+            at: file,
+            id: id,
+            message: message,
+            editor: editor,
+            preconditions: preconditions
+        )
+        try writeCommentSuccess(
+            command: "comments.edit",
+            file: file,
+            documentID: receipt.documentID,
+            revision: receipt.revision,
+            contentSha256: receipt.contentSha256,
+            result: receipt,
+            pretty: pretty
+        )
+    }
+
+    private static func commentsDelete(_ cursor: inout ArgumentCursor) throws {
+        let pretty = cursor.takeFlag("--pretty")
+        _ = cursor.takeFlag("--json")
+        let subtree = cursor.takeFlag("--subtree")
+        let file = try PathResolver.existingFile(cursor.require("Markdown file"))
+        let id = try cursor.require("comment id")
+        let preconditions = try takePreconditions(cursor: &cursor)
+        try cursor.rejectRemaining()
+        let receipt = try service.delete(
+            at: file,
+            id: id,
+            subtree: subtree,
+            preconditions: preconditions
+        )
+        try writeCommentSuccess(
+            command: "comments.delete",
+            file: file,
+            documentID: receipt.documentID,
+            revision: receipt.revision,
+            contentSha256: receipt.contentSha256,
+            result: receipt,
+            pretty: pretty
+        )
+    }
+
     private static func commentsSetStatus(_ cursor: inout ArgumentCursor, resolved: Bool) throws {
         let pretty = cursor.takeFlag("--pretty")
         _ = cursor.takeFlag("--json")
@@ -401,6 +478,24 @@ enum MarginCommand {
         }
     }
 
+    private static func commentsWatch(_ cursor: inout ArgumentCursor) throws {
+        guard cursor.takeFlag("--jsonl") else {
+            throw CLIError.usage("comments watch requires --jsonl.")
+        }
+        let sinceRevision = try cursor.takeInt("--since-revision")
+        if let sinceRevision, sinceRevision < 0 {
+            throw CLIError.usage("--since-revision must be nonnegative.")
+        }
+        let file = try PathResolver.existingFile(cursor.require("Markdown file"))
+        try cursor.rejectRemaining()
+        let session = CommentWatchSession(file: file)
+        try session.run(sinceRevision: sinceRevision) { event in
+            // Each write is one complete, sorted-key JSON object followed by LF.
+            // Filesystem and protocol failures are represented by watch events.
+            try? CLIOutput.json(event)
+        }
+    }
+
     private static func writeCommentSuccess(
         command: String,
         file: URL,
@@ -415,6 +510,28 @@ enum MarginCommand {
                 revision: receipt.revision,
                 contentSha256: receipt.contentSha256,
                 result: receipt
+            ),
+            pretty: pretty
+        )
+    }
+
+    private static func writeCommentSuccess<Result: Encodable>(
+        command: String,
+        file: URL,
+        documentID: String?,
+        revision: Int,
+        contentSha256: String,
+        result: Result,
+        pretty: Bool
+    ) throws {
+        try CLIOutput.json(
+            CommentCommandEnvelope(
+                command: command,
+                file: file.path,
+                documentID: documentID,
+                revision: revision,
+                contentSha256: contentSha256,
+                result: result
             ),
             pretty: pretty
         )
@@ -625,10 +742,11 @@ private extension MarginCommand {
     USAGE
       margin [FILE|DIRECTORY ...] [--wait]
       margin open [FILE|DIRECTORY ...] [--wait]
-      margin inspect FILE [--json]
-      margin outline FILE [--json]
-      margin read FILE [--json] [--with-comments]
-      margin slice FILE (--lines RANGE | --heading NAME | --comment ID) [--context N] [--json]
+      margin inspect FILE [--json] [--pretty]
+      margin outline FILE [--json] [--pretty]
+      margin read FILE [--json] [--with-comments] [--pretty]
+      margin slice FILE (--lines RANGE | --heading NAME | --comment ID) [--context N] [--json] [--pretty]
+      margin review FILE --json [--since-revision N] [--pretty]
       margin comments COMMAND ...
 
     AGENT READING
@@ -636,6 +754,7 @@ private extension MarginCommand {
       outline   Stable heading ids and section line ranges.
       read      Literal Markdown body with Margin metadata removed.
       slice     A bounded passage by 1-based line/column range, heading, or comment.
+      review    Bounded outline, thread groups, excerpts, anchor health, and revision.
 
     EXAMPLES
       margin architecture.md
@@ -643,6 +762,7 @@ private extension MarginCommand {
       margin new-draft.md        # creates an empty file when its parent exists
       margin .
       margin inspect architecture.md --json --pretty
+      margin review architecture.md --json --since-revision 12
       margin slice architecture.md --heading "Failure modes" --context 2
       margin slice architecture.md --lines 20:1-45:1 --json
       margin help comments
@@ -664,14 +784,17 @@ private extension MarginCommand {
       margin comments list FILE [--status open|resolved|all] [--thread ID]
       margin comments get FILE ID
       margin comments reply FILE PARENT (-m TEXT | --message-file PATH | --stdin) [--reopen]
+      margin comments edit FILE ID (-m TEXT | --message-file PATH | --stdin)
+      margin comments delete FILE ID [--subtree]
       margin comments resolve FILE ID
       margin comments reopen FILE ID
       margin comments reanchor FILE ID (--quote ... | --range ... | --from ... --to ...)
       margin comments validate FILE
       margin comments export FILE --format jsonld
+      margin comments watch FILE --jsonl [--since-revision N]
 
     MUTATION OPTIONS
-      --id UUID                 Idempotency key for safe retries.
+      --id UUID                 Idempotency key; becomes urn:uuid:UUID.
       --if-revision N          Compare-and-swap comment revision.
       --if-content-sha SHA     Refuse if Markdown content changed.
       --actor-id IRI           Stable human, agent, or organization identity.
@@ -679,10 +802,28 @@ private extension MarginCommand {
       --actor-type TYPE        person, software, or organization.
       --pretty                 Pretty-print JSON.
 
+    EDIT AND DELETE
+      edit preserves the comment id, creator, creation time, anchor, and tree
+      position. Its receipt includes the previous annotation and an undo edit.
+      delete removes a leaf by default. A comment with replies is rejected with
+      COMMENT_HAS_REPLIES unless --subtree explicitly removes all descendants.
+      Its receipt contains exact deleted annotations and their original indexes.
+
+    WATCH
+      watch emits one compact JSON object per line for snapshot/ready, change,
+      recoverable error, reconnect, and stopped events. It observes atomic file
+      replacement without polling and exits cleanly on SIGINT or SIGTERM.
+
     RANGES
       --range uses half-open Unicode code-point offsets in newline-normalized
       literal Markdown. --from/--to use 1-based grapheme line/column positions.
       --quote is safest across edits. Duplicate quotes require context or occurrence.
+
+    IDS AND DIGESTS
+      Mutation receipts return result.rootID and result.annotation.id as urn:uuid
+      values. Later commands accept either the full urn:uuid value or its UUID.
+      contentSha256 uses the sha256: prefix for compare-and-swap. Read/slice
+      revision.sha256 is the same logical-Markdown digest without that prefix.
 
     Every comment command emits JSON. A thread is a W3C Annotation root; replies
     may target any annotation, so trees can be arbitrarily deep.
@@ -691,16 +832,18 @@ private extension MarginCommand {
     static let agentHelp = """
     AGENT QUICKSTART
 
-      1. margin inspect FILE --json --pretty
-      2. margin outline FILE --json
-      3. margin slice FILE --heading HEADING --context 2
+      1. margin review FILE --json
+      2. margin slice FILE --heading HEADING --context 2
+      3. margin comments watch FILE --jsonl --since-revision REVISION
       4. margin comments add FILE --quote "exact passage" -m "Finding" \\
            --actor-type software --actor-name "reviewer" --id UUID
       5. margin comments list FILE --status all --pretty
 
-    Prefer --quote for resilient anchors, --id for retries, and compare-and-swap
-    flags when several agents may write concurrently. Use document-level comments
-    for synthesis that is not tied to one passage. The Markdown file is the only
+    Copy result.rootID from add into reply/resolve, and result.annotation.id into
+    edit/delete. Both full urn:uuid values and bare UUIDs are accepted. Prefer
+    --quote for resilient anchors, --id for retries, and compare-and-swap flags
+    when several agents may write concurrently. Use document-level comments for
+    synthesis that is not tied to one passage. The Markdown file is the only
     authority; no service or sidecar database is required.
     """
 }

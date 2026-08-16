@@ -43,6 +43,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     }
 
     var onClose: (() -> Void)?
+    var onSessionStateChange: (() -> Void)?
 
     private(set) var workspaceURL: URL?
     private(set) var workspaceKind: WorkspaceKind = .empty
@@ -61,6 +62,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     private var commentsVisibilityChoice: CommentsVisibilityChoice = .automatic
     private var pendingInitialWindowFrame: NSRect?
     private var isExplicitlyTabbed = false
+    private var unreadCommentCount = 0
+    private var tabUnreadBadge: UnreadCommentBadgeView?
+    private var unreadCommentRootIDs = Set<String>()
 
     var isEmpty: Bool {
         if case .empty = workspaceKind { return true }
@@ -102,6 +106,32 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
     var canNavigateHeadings: Bool { documentURL != nil }
 
+    var canNavigateComments: Bool {
+        (editorViewController as? EditorViewController)?.canNavigateComments ?? false
+    }
+
+    var canNavigateAnyComments: Bool {
+        guard documentURL != nil else { return false }
+        return !((editorViewController as? EditorViewController)?
+            .rootCommentIDsInSourceOrder.isEmpty ?? true)
+    }
+
+    var hasUnreadComments: Bool { unreadCommentCount > 0 }
+
+    var sessionState: WorkspaceTabSession? {
+        guard let workspaceURL else { return nil }
+        let editorState = (editorViewController as? WorkspaceContinuityProviding)?
+            .captureContinuityState() ?? .beginning
+        return WorkspaceTabSession(
+            workspacePath: workspaceURL.path,
+            documentPath: documentURL?.path,
+            readerMode: isReaderModeActive,
+            navigatorVisible: isNavigatorVisible,
+            commentsVisible: isCommentsVisible,
+            editor: editorState
+        )
+    }
+
     private var quickOpenDirectoryURL: URL? {
         switch workspaceKind {
         case .directory(let url): return url
@@ -110,7 +140,10 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         }
     }
 
-    init(workspaceURL: URL?) {
+    init(
+        workspaceURL: URL?,
+        restorationState: WorkspaceTabSession? = nil
+    ) {
         editorViewController = WorkspacePaneFactory.makeEditor()
         commentsViewController = WorkspacePaneFactory.makeComments()
 
@@ -134,7 +167,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         configureInitialWindowFrame(window)
         configureCallbacks()
 
-        if let workspaceURL {
+        if let restorationState {
+            restore(restorationState)
+        } else if let workspaceURL {
             open(workspaceURL)
         } else {
             showEmptyState()
@@ -184,12 +219,14 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         } else {
             openStandaloneFile(standardizedURL)
         }
+        RecentWorkspaceStore.recordAfterLaunch(standardizedURL)
     }
 
     @objc func toggleNavigator(_ sender: Any?) {
         guard canShowNavigator else { return }
         navigatorItem.animator().isCollapsed.toggle()
         window?.toolbar?.validateVisibleItems()
+        onSessionStateChange?()
     }
 
     @objc func toggleComments(_ sender: Any?) {
@@ -200,6 +237,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     @objc func toggleReaderMode(_ sender: Any?) {
         (editorViewController as? WorkspaceReaderModeToggling)?.toggleReaderMode()
         window?.toolbar?.validateVisibleItems()
+        onSessionStateChange?()
     }
 
     @objc func addComment(_ sender: Any?) {
@@ -240,6 +278,159 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         }
     }
 
+    @objc func showCommandPalette(_ sender: Any?) {
+        guard let window else { return }
+        navigationPaletteController?.close()
+
+        var items: [NavigationPaletteItem] = []
+        if canQuickOpen {
+            items.append(
+                NavigationPaletteItem(
+                    title: "Quick Open",
+                    subtitle: "⌘P",
+                    symbolName: "doc.text.magnifyingglass",
+                    searchText: "open file filename path"
+                ) { [weak self] in self?.quickOpen(nil) }
+            )
+        }
+        if canNavigateHeadings {
+            items.append(
+                NavigationPaletteItem(
+                    title: "Go to Heading",
+                    subtitle: "⌘⇧O",
+                    symbolName: "number",
+                    searchText: "heading outline section navigate"
+                ) { [weak self] in self?.navigateToHeading(nil) }
+            )
+        }
+        if canToggleReaderMode {
+            items.append(
+                NavigationPaletteItem(
+                    title: isReaderModeActive ? "Return to Markdown Source" : "Enter Reader Mode",
+                    subtitle: "⌘⇧R",
+                    symbolName: isReaderModeActive ? "text.cursor" : "text.book.closed",
+                    searchText: "reader source render preview"
+                ) { [weak self] in self?.toggleReaderMode(nil) }
+            )
+        }
+        if canShowComments {
+            var commentItems = [
+                NavigationPaletteItem(
+                    title: "Add Comment",
+                    subtitle: "⌘⌥M",
+                    symbolName: "text.bubble",
+                    searchText: "comment annotate review selection"
+                ) { [weak self] in self?.addComment(nil) },
+                NavigationPaletteItem(
+                    title: isCommentsVisible ? "Hide Comments" : "Show Comments",
+                    subtitle: "⌘⌥0",
+                    symbolName: "sidebar.trailing",
+                    searchText: "comments inspector sidebar"
+                ) { [weak self] in self?.toggleComments(nil) },
+            ]
+            if canNavigateAnyComments {
+                commentItems.append(
+                    NavigationPaletteItem(
+                        title: "Go to Comment",
+                        symbolName: "text.bubble",
+                        searchText: "go navigate comment thread review"
+                    ) { [weak self] in self?.navigateToComment(nil) }
+                )
+            }
+            if canNavigateComments {
+                commentItems.append(contentsOf: [
+                    NavigationPaletteItem(
+                        title: "Next Open Comment",
+                        subtitle: "⌘⌥]",
+                        symbolName: "chevron.down",
+                        searchText: "next open unresolved comment review"
+                    ) { [weak self] in self?.nextOpenComment(nil) },
+                    NavigationPaletteItem(
+                        title: "Previous Open Comment",
+                        subtitle: "⌘⌥[",
+                        symbolName: "chevron.up",
+                        searchText: "previous open unresolved comment review"
+                    ) { [weak self] in self?.previousOpenComment(nil) },
+                    NavigationPaletteItem(
+                        title: "Resolve Current Comment",
+                        symbolName: "checkmark.circle",
+                        searchText: "resolve current selected thread comment"
+                    ) { [weak self] in self?.resolveCurrentComment(nil) },
+                ])
+            }
+            items.append(contentsOf: commentItems)
+        }
+        if canShowNavigator {
+            items.append(
+                NavigationPaletteItem(
+                    title: isNavigatorVisible ? "Hide Navigator" : "Show Navigator",
+                    subtitle: "⌘0",
+                    symbolName: "sidebar.leading",
+                    searchText: "navigator directory tree sidebar"
+                ) { [weak self] in self?.toggleNavigator(nil) }
+            )
+        }
+        items.append(
+            NavigationPaletteItem(
+                title: "Focus Editor",
+                subtitle: "⌃2",
+                symbolName: "pencil.line",
+                searchText: "focus editor document source"
+            ) { [weak self] in self?.focusEditor(nil) }
+        )
+        items.append(contentsOf: [
+            NavigationPaletteItem(
+                title: "New Tab",
+                subtitle: "⌘T",
+                symbolName: "plus.rectangle.on.rectangle",
+                searchText: "new tab document"
+            ) {
+                (NSApp.delegate as? AppDelegate)?.newWindowForTab(nil)
+            },
+            NavigationPaletteItem(
+                title: "New Window",
+                subtitle: "⌘N",
+                symbolName: "macwindow.badge.plus",
+                searchText: "new separate window"
+            ) {
+                (NSApp.delegate as? AppDelegate)?.newWindow(nil)
+            },
+        ])
+
+        let currentPath = workspaceURL?.standardizedFileURL.path
+        let recentURLs = RecentWorkspaceStore().urls(limit: 8).filter {
+            $0.path != currentPath && FileManager.default.fileExists(atPath: $0.path)
+        }
+        items.append(contentsOf: recentURLs.map { url in
+            let parent = url.deletingLastPathComponent().path
+            return NavigationPaletteItem(
+                title: "Open Recent: \(url.lastPathComponent)",
+                subtitle: parent,
+                symbolName: "clock.arrow.circlepath",
+                searchText: "recent reopen \(url.path)"
+            ) { [weak self] in self?.openRecent(url) }
+        })
+
+        let palette = NavigationPaletteController(
+            title: "Command Palette",
+            placeholder: "Search commands",
+            items: items,
+            emptyMessage: "No matching commands"
+        )
+        navigationPaletteController = palette
+        palette.onClose = { [weak self, weak palette] in
+            guard let self, self.navigationPaletteController === palette else { return }
+            self.navigationPaletteController = nil
+        }
+        palette.show(relativeTo: window)
+    }
+
+    private func openRecent(_ url: URL) {
+        if let editor = editorViewController as? EditorViewController,
+           !editor.prepareToClose() { return }
+        open(url)
+    }
+
     @objc func navigateToHeading(_ sender: Any?) {
         guard let editor = editorViewController as? EditorViewController, let window else { return }
         navigationPaletteController?.close()
@@ -259,6 +450,47 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
             placeholder: "Search headings",
             items: items,
             emptyMessage: "This document has no headings"
+        )
+        navigationPaletteController = palette
+        palette.onClose = { [weak self, weak palette] in
+            guard let self, self.navigationPaletteController === palette else { return }
+            self.navigationPaletteController = nil
+        }
+        palette.show(relativeTo: window)
+    }
+
+    @objc func navigateToComment(_ sender: Any?) {
+        guard canNavigateAnyComments,
+              let editor = editorViewController as? EditorViewController,
+              let window else { return }
+        navigationPaletteController?.close()
+        let destinations = editor.commentDestinations()
+        let items = destinations.map { destination in
+            let state: String
+            if destination.needsAttention {
+                state = "Needs attention"
+            } else if destination.isResolved {
+                state = "Resolved"
+            } else {
+                state = "Open"
+            }
+            let location = destination.sourceLine.map { "Line \($0)" } ?? "Document"
+            return NavigationPaletteItem(
+                title: destination.title,
+                subtitle: "\(destination.author)  ·  \(state)  ·  \(location)",
+                symbolName: destination.needsAttention
+                    ? "exclamationmark.bubble"
+                    : (destination.isResolved ? "checkmark.bubble" : "text.bubble"),
+                searchText: "\(destination.title) \(destination.author) \(state) \(location)"
+            ) { [weak editor] in
+                editor?.revealComment(id: destination.id)
+            }
+        }
+        let palette = NavigationPaletteController(
+            title: "Go to Comment",
+            placeholder: "Search comments, passages, or authors",
+            items: items,
+            emptyMessage: "This document has no comments"
         )
         navigationPaletteController = palette
         palette.onClose = { [weak self, weak palette] in
@@ -293,6 +525,40 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         (commentsViewController as? CommentsViewController)?.focusComments()
     }
 
+    @objc func previousOpenComment(_ sender: Any?) {
+        guard canNavigateComments else { return }
+        setCommentsVisible(true, explicit: true, animated: false)
+        _ = NSApp.sendAction(
+            NSSelectorFromString("selectPreviousOpenComment:"),
+            to: editorViewController,
+            from: sender
+        )
+    }
+
+    @objc func nextOpenComment(_ sender: Any?) {
+        guard canNavigateComments else { return }
+        setCommentsVisible(true, explicit: true, animated: false)
+        _ = NSApp.sendAction(
+            NSSelectorFromString("selectNextOpenComment:"),
+            to: editorViewController,
+            from: sender
+        )
+    }
+
+    @objc func resolveCurrentComment(_ sender: Any?) {
+        guard canNavigateComments else { return }
+        _ = NSApp.sendAction(
+            NSSelectorFromString("resolveSelectedComment:"),
+            to: editorViewController,
+            from: sender
+        )
+    }
+
+    func updateUnreadComments(_ count: Int) {
+        unreadCommentCount = max(0, count)
+        updateUnreadPresentation()
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard let editor = editorViewController as? EditorViewController else { return true }
         return editor.prepareToClose()
@@ -300,6 +566,10 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
     func windowWillClose(_ notification: Notification) {
         onClose?()
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        onSessionStateChange?()
     }
 
     func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame newFrame: NSRect) -> NSRect {
@@ -398,10 +668,16 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
             item.target = self
             item.action = #selector(addComment(_:))
         case .marginComments:
-            item.label = "Comments"
+            let unread = unreadCommentCount
+            item.label = unread > 0 ? "Comments, \(unread) New" : "Comments"
             item.paletteLabel = "Toggle Comments"
-            item.toolTip = "Show or hide document comments"
-            item.image = NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: "Comments")
+            item.toolTip = unread > 0
+                ? "Show document comments (\(unread) new)"
+                : "Show or hide document comments"
+            item.image = NSImage(
+                systemSymbolName: unread > 0 ? "sidebar.trailing.badge.plus" : "sidebar.trailing",
+                accessibilityDescription: unread > 0 ? "Comments with new activity" : "Comments"
+            ) ?? NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: "Comments")
             item.target = self
             item.action = #selector(toggleComments(_:))
         default:
@@ -429,6 +705,15 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         case .marginAddComment:
             return documentURL != nil
         case .marginComments:
+            let unread = unreadCommentCount
+            item.label = unread > 0 ? "Comments, \(unread) New" : "Comments"
+            item.toolTip = unread > 0
+                ? "Show document comments (\(unread) new)"
+                : "Show or hide document comments"
+            item.image = NSImage(
+                systemSymbolName: unread > 0 ? "sidebar.trailing.badge.plus" : "sidebar.trailing",
+                accessibilityDescription: unread > 0 ? "Comments with new activity" : "Comments"
+            ) ?? NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: "Comments")
             return canShowComments
         default:
             return true
@@ -474,11 +759,91 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
             self?.openFileFromDirectory(url)
         }
         if let editor = editorViewController as? EditorViewController {
-            editor.onCommentAvailabilityChanged = { [weak self] hasComments in
-                guard let self, self.commentsVisibilityChoice == .automatic else { return }
-                self.setCommentsVisible(hasComments, explicit: false, animated: self.window?.isVisible == true)
+            editor.onCommentsChanged = { [weak self] change in
+                self?.handleCommentsChange(change)
             }
         }
+        if let comments = commentsViewController as? CommentsViewController {
+            comments.onMarkCommentsRead = { [weak self] ids in
+                self?.markCommentRootsRead(ids)
+            }
+        }
+    }
+
+    private func handleCommentsChange(_ change: EditorViewController.CommentsChange) {
+        let extantRoots = Set(change.rootCommentIDs)
+        unreadCommentRootIDs.formIntersection(extantRoots)
+
+        switch change.origin {
+        case .initialLoad:
+            unreadCommentRootIDs.removeAll()
+            if commentsVisibilityChoice == .automatic {
+                setCommentsVisible(
+                    !change.rootCommentIDs.isEmpty,
+                    explicit: false,
+                    animated: window?.isVisible == true
+                )
+            }
+        case .localMutation:
+            break
+        case .externalRefresh:
+            unreadCommentRootIDs.formUnion(change.externallyChangedRootIDs)
+        }
+        synchronizeUnreadComments()
+    }
+
+    private func markCommentRootsRead(_ ids: Set<String>) {
+        unreadCommentRootIDs.subtract(ids)
+        synchronizeUnreadComments()
+    }
+
+    private func synchronizeUnreadComments() {
+        (commentsViewController as? CommentsViewController)?
+            .setUnreadCommentIDs(unreadCommentRootIDs)
+        unreadCommentCount = unreadCommentRootIDs.count
+        updateUnreadPresentation()
+    }
+
+    private func resetUnreadComments() {
+        unreadCommentRootIDs.removeAll()
+        synchronizeUnreadComments()
+    }
+
+    private func restore(_ state: WorkspaceTabSession) {
+        let rootURL = URL(fileURLWithPath: state.workspacePath).standardizedFileURL
+        var isDirectory = ObjCBool(false)
+        let exists = FileManager.default.fileExists(atPath: rootURL.path, isDirectory: &isDirectory)
+        guard exists else {
+            showEmptyState()
+            return
+        }
+
+        workspaceURL = rootURL
+        if isDirectory.boolValue {
+            openDirectory(
+                rootURL,
+                preferredDocumentURL: state.documentPath.map {
+                    URL(fileURLWithPath: $0).standardizedFileURL
+                }
+            )
+        } else {
+            openStandaloneFile(rootURL)
+        }
+
+        if canShowNavigator {
+            navigatorItem.isCollapsed = !state.navigatorVisible
+        }
+        if canShowComments {
+            commentsVisibilityChoice = .explicit
+            commentsItem.isCollapsed = !state.commentsVisible
+        }
+        if state.readerMode, canToggleReaderMode, !isReaderModeActive {
+            (editorViewController as? WorkspaceReaderModeToggling)?.toggleReaderMode()
+        }
+        if let continuity = editorViewController as? WorkspaceContinuityProviding {
+            continuity.restoreContinuityState(state.editor)
+        }
+        window?.toolbar?.validateVisibleItems()
     }
 
     private func showEmptyState() {
@@ -486,6 +851,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         workspaceURL = nil
         documentURL = nil
         commentsVisibilityChoice = .automatic
+        resetUnreadComments()
         navigatorItem.isCollapsed = true
         commentsItem.isCollapsed = true
         (editorViewController as? WorkspaceDocumentPresenting)?.clearDocument()
@@ -497,14 +863,19 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     private func openStandaloneFile(_ fileURL: URL) {
         workspaceKind = .file(fileURL)
         documentURL = fileURL
+        resetUnreadComments()
         navigatorItem.isCollapsed = true
         presentDocument(fileURL)
     }
 
-    private func openDirectory(_ directoryURL: URL) {
+    private func openDirectory(
+        _ directoryURL: URL,
+        preferredDocumentURL: URL? = nil
+    ) {
         workspaceKind = .directory(directoryURL)
         documentURL = nil
         commentsVisibilityChoice = .automatic
+        resetUnreadComments()
         indexedFileURLs.removeAll()
         fileScanGeneration = UUID()
         navigatorItem.isCollapsed = false
@@ -513,7 +884,16 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         (commentsViewController as? WorkspaceCommentsPresenting)?.presentComments(for: nil)
         updateWindowTitle(documentURL: nil, workspaceURL: directoryURL)
         window?.toolbar?.validateVisibleItems()
-        fileTreeViewController.openDirectory(directoryURL, selectInitialMarkdown: true)
+        fileTreeViewController.openDirectory(
+            directoryURL,
+            selectInitialMarkdown: preferredDocumentURL == nil
+        )
+        if let preferredDocumentURL,
+           FileManager.default.fileExists(atPath: preferredDocumentURL.path) {
+            documentURL = preferredDocumentURL
+            presentDocument(preferredDocumentURL)
+            fileTreeViewController.revealAndSelect(preferredDocumentURL, openFile: false)
+        }
     }
 
     private func openFileFromDirectory(_ fileURL: URL) {
@@ -558,6 +938,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
     private func presentDocument(_ fileURL: URL) {
         commentsVisibilityChoice = .automatic
+        resetUnreadComments()
         commentsItem.isCollapsed = true
         (editorViewController as? WorkspaceDocumentPresenting)?.presentDocument(at: fileURL)
         (commentsViewController as? WorkspaceCommentsPresenting)?.presentComments(for: fileURL)
@@ -575,6 +956,21 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
             commentsItem.animator().isCollapsed = !visible
         } else {
             commentsItem.isCollapsed = !visible
+        }
+        window?.toolbar?.validateVisibleItems()
+        onSessionStateChange?()
+    }
+
+    private func updateUnreadPresentation() {
+        if unreadCommentCount > 0 {
+            let badge = tabUnreadBadge ?? UnreadCommentBadgeView(frame: .zero)
+            badge.count = unreadCommentCount
+            tabUnreadBadge = badge
+            window?.tab.accessoryView = badge
+        } else if let badge = tabUnreadBadge {
+            badge.count = 0
+            window?.tab.accessoryView = nil
+            tabUnreadBadge = nil
         }
         window?.toolbar?.validateVisibleItems()
     }

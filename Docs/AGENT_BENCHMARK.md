@@ -45,3 +45,18 @@ The scorer independently queried the resulting file with the built Margin CLI. I
 The runner used the user's existing Prime Agent authentication without reading, copying, or passing credentials. It discarded model stdout and stderr after extracting aggregate usage. It retained only redacted Margin command shapes, exit statuses, timing, hashes, scores, and aggregate usage/cost metrics. No raw model transcript, session, environment dump, API key, or command output was stored.
 
 The tracked machine-readable counterpart is `Benchmarks/agent_benchmark/RESULTS.json`.
+
+## 0.2 blind workflow extension
+
+A separate fresh agent tested the final 0.2 CLI without source access or a supplied grammar. It received only `margin --help` and an isolated Markdown copy, then successfully:
+
+1. obtained a bounded review snapshot;
+2. added a quote-anchored passage comment and reply;
+3. edited the reply;
+4. started `comments watch`, observed a resolve mutation, and stopped cleanly;
+5. validated the final document; and
+6. compared the original logical SHA-256 with `margin read` output.
+
+Review, slicing, and mutations each completed in 0.00–0.01 seconds in that run. The watch change timestamp followed the resolve by roughly 71 ms, reported `commentsChanged: true` / `contentChanged: false`, and exited 0 on interruption. The logical source digest remained exactly `ed94b8a3f06a450ed5318307e266212495ee83c8f103ceef55b1bb3f42b112bc`.
+
+The blind run identified unclear ID/digest/pretty-print help text. The final CLI now explains that `--id UUID` becomes `urn:uuid:UUID`, later commands accept either form, returned root/annotation IDs serve different follow-up operations, `contentSha256` is the CAS form, and all JSON read commands accept `--pretty`. No external model API or paid run was used for this extension, and its temporary fixture was removed.

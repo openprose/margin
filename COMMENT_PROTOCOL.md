@@ -108,6 +108,16 @@ The app and CLI share one mutation implementation. A writer:
 
 Explicit stale preconditions return a conflict. An idempotency ID replay with the same semantic payload returns the existing annotation; reuse with a different payload fails with `ID_CONFLICT`.
 
+## Review, edit, delete, and watch
+
+`margin review FILE --json` is the bounded machine-facing projection of a document. It groups open, resolved, and attention-needed threads with a capped outline, excerpts, comment bodies, anchor health, totals, and omission counts. `--since-revision` distinguishes an unchanged snapshot, an advance, and a reset without requiring an agent to parse the embedded envelope.
+
+Editing changes only a comment body's Markdown plus its modification metadata. It preserves the annotation id, original creator and creation time, anchor, parent relationship, and tree position. Deleting removes a leaf by default; any annotation with descendants requires the explicit `--subtree` option so a mutation can never silently orphan replies.
+
+The app's one-step delete Undo carries the exact removed annotations and original indexes plus a digest of the post-delete file. Restoration succeeds only if that exact state is still current, then revalidates ids, parents, cycles, source identity, and the complete envelope before writing. An intervening edit fails with `UNDO_CONFLICT` rather than overwriting newer work.
+
+`margin comments watch FILE --jsonl` registers for parent-directory changes before taking its initial snapshot, then emits bounded `snapshot`, `ready`, `change`, recoverable `error`, `reconnected`, and `stopped` events. It observes atomic file replacement without polling. File deletion/recreation is recoverable while the containing directory remains present.
+
 ## Interchange
 
 `margin comments export FILE --format jsonld` emits the `AnnotationPage` as JSON-LD. The Margin-specific properties may be retained by another implementation or removed when translating to a generic W3C Web Annotation collection. The W3C bodies, targets, selectors, creators, motivations, timestamps, and reply relationships remain directly reusable.

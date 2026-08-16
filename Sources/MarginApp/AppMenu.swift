@@ -141,6 +141,16 @@ enum AppMenu {
         let navigateMenu = NSMenu(title: "Navigate")
         navigateMenu.addItem(
             item(
+                "Command Palette…",
+                action: #selector(AppDelegate.showCommandPalette(_:)),
+                key: "p",
+                modifiers: [.command, .shift],
+                target: delegate
+            )
+        )
+        navigateMenu.addItem(.separator())
+        navigateMenu.addItem(
+            item(
                 "Go to Heading…",
                 action: #selector(AppDelegate.navigateToHeading(_:)),
                 key: "o",
@@ -251,6 +261,39 @@ enum AppMenu {
                 action: #selector(AppDelegate.toggleComments(_:)),
                 key: "c",
                 modifiers: [.command, .control],
+                target: delegate
+            )
+        )
+        reviewMenu.addItem(
+            item(
+                "Go to Comment…",
+                action: #selector(AppDelegate.navigateToComment(_:)),
+                target: delegate
+            )
+        )
+        reviewMenu.addItem(.separator())
+        reviewMenu.addItem(
+            item(
+                "Previous Open Comment",
+                action: #selector(AppDelegate.previousOpenComment(_:)),
+                key: "[",
+                modifiers: [.command, .option],
+                target: delegate
+            )
+        )
+        reviewMenu.addItem(
+            item(
+                "Next Open Comment",
+                action: #selector(AppDelegate.nextOpenComment(_:)),
+                key: "]",
+                modifiers: [.command, .option],
+                target: delegate
+            )
+        )
+        reviewMenu.addItem(
+            item(
+                "Resolve Current Comment",
+                action: #selector(AppDelegate.resolveCurrentComment(_:)),
                 target: delegate
             )
         )

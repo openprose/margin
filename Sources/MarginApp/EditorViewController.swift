@@ -5,6 +5,7 @@ final class EditorViewController: NSViewController,
     WorkspaceDocumentPresenting,
     WorkspaceReaderModeToggling,
     WorkspaceDocumentSaving,
+    WorkspaceContinuityProviding,
     NSMenuItemValidation,
     NSTextViewDelegate
 {
@@ -14,6 +15,38 @@ final class EditorViewController: NSViewController,
         let level: Int
         let line: Int
         let range: NSRange
+    }
+
+    struct CommentDestination {
+        let id: String
+        let title: String
+        let author: String
+        let status: MarginCommentStatus
+        let line: Int?
+        let needsAttention: Bool
+
+        var isResolved: Bool { status == .resolved }
+        var sourceLine: Int? { line }
+    }
+
+    enum CommentsChangeOrigin: Equatable {
+        case initialLoad
+        case localMutation
+        case externalRefresh
+    }
+
+    struct CommentsChange: Equatable {
+        let origin: CommentsChangeOrigin
+        let rootCommentIDs: [String]
+        let openRootCommentIDs: [String]
+        let openCount: Int
+        let newOpenRootIDs: [String]
+        let newAnnotationIDs: [String]
+        let externallyChangedRootIDs: [String]
+    }
+
+    private struct ComposerSelection {
+        var sourceRange: NSRange
     }
 
     private let textView: MarkdownTextView
@@ -38,6 +71,12 @@ final class EditorViewController: NSViewController,
     private var anchorsDeletedByEdit = Set<String>()
     private var pendingCommentAnchor: CommentAnchorInput?
     private var selectedThreadID: String?
+    private var currentComments: [MarginComment] = []
+    private var currentCommentRevision = 0
+    private var selectionAffordance: SelectionCommentAffordance?
+    private var composerSelection: ComposerSelection?
+    private var pendingContinuityState: EditorContinuityState?
+    private var isDocumentLoaded = false
 
     private let codec = EmbeddedCommentCodec()
     private let resolver = AnchorResolver()
@@ -46,6 +85,18 @@ final class EditorViewController: NSViewController,
 
     var isReaderModeActive: Bool { isReaderMode }
     var onCommentAvailabilityChanged: ((Bool) -> Void)?
+    var onCommentsChanged: ((CommentsChange) -> Void)?
+
+    var rootCommentIDsInSourceOrder: [String] {
+        orderedRootComments().map(\.id)
+    }
+
+    var openRootCommentIDsInSourceOrder: [String] {
+        orderedRootComments().filter { $0.status != .resolved }.map(\.id)
+    }
+
+    var selectedCommentThreadID: String? { selectedThreadID }
+    var canNavigateComments: Bool { !openRootCommentIDsInSourceOrder.isEmpty }
 
     init() {
         let textStorage = NSTextStorage()
@@ -82,7 +133,7 @@ final class EditorViewController: NSViewController,
         root.addSubview(statusLabel)
 
         NSLayoutConstraint.activate([
-            banner.topAnchor.constraint(equalTo: root.topAnchor),
+            banner.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
             banner.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             banner.trailingAnchor.constraint(equalTo: root.trailingAnchor),
 
@@ -103,18 +154,28 @@ final class EditorViewController: NSViewController,
         }
     }
 
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        selectionAffordance?.updatePosition()
+    }
+
     func connectComments(_ controller: CommentsViewController) {
         commentsViewController = controller
+        controller.setLocalActorID(currentActor.id)
         controller.onCreateComment = { [weak self] body in self?.createComment(body) }
         controller.onReply = { [weak self] parent, body in self?.reply(to: parent, body: body) }
-        controller.onResolve = { [weak self] id in self?.setResolved(true, id: id) }
-        controller.onReopen = { [weak self] id in self?.setResolved(false, id: id) }
+        controller.onResolve = { [weak self] id in _ = self?.setResolved(true, id: id) }
+        controller.onReopen = { [weak self] id in _ = self?.setResolved(false, id: id) }
         controller.onSelectComment = { [weak self] id in self?.selectThread(id) }
+        controller.onEditComment = { [weak self] id, body, displayedRevision in
+            self?.editComment(id: id, body: body, displayedRevision: displayedRevision)
+        }
+        controller.onDeleteComment = { [weak self] id, subtree in
+            self?.deleteComment(id: id, subtree: subtree)
+        }
         controller.onComposerDismiss = { [weak self] in
             guard let self else { return }
-            self.view.window?.makeFirstResponder(
-                self.isReaderMode ? (self.readerViewController?.textView ?? self.textView) : self.textView
-            )
+            self.restoreComposerSelectionAndFocus()
         }
         refreshCommentsPresentation()
     }
@@ -127,12 +188,19 @@ final class EditorViewController: NSViewController,
         fileWatcher = nil
 
         documentURL = url.standardizedFileURL
+        isDocumentLoaded = false
+        pendingContinuityState = nil
+        selectedThreadID = nil
+        currentComments = []
+        currentCommentRevision = 0
+        selectionAffordance?.reset()
+        composerSelection = nil
         loadGeneration = UUID()
         let generation = loadGeneration
         hideBanner()
 
         guard FileManager.default.fileExists(atPath: url.path) else {
-            applyLoadedDocument(body: "", bodyData: Data(), comments: [])
+            applyLoadedDocument(body: "", bodyData: Data(), comments: [], commentRevision: 0)
             textView.isEditable = true
             watchDocument(url)
             textView.window?.makeFirstResponder(textView)
@@ -153,7 +221,12 @@ final class EditorViewController: NSViewController,
                 guard let self, generation == self.loadGeneration else { return }
                 switch result {
                 case .success(let value):
-                    self.applyLoadedDocument(body: value.0.body, bodyData: value.0.bodyData, comments: value.1)
+                    self.applyLoadedDocument(
+                        body: value.0.body,
+                        bodyData: value.0.bodyData,
+                        comments: value.1,
+                        commentRevision: value.0.envelope?.revision ?? 0
+                    )
                     self.textView.isEditable = FileManager.default.isWritableFile(atPath: url.path)
                     self.watchDocument(url)
                     self.textView.window?.makeFirstResponder(
@@ -175,6 +248,13 @@ final class EditorViewController: NSViewController,
         fileWatcher?.stop()
         fileWatcher = nil
         documentURL = nil
+        isDocumentLoaded = false
+        pendingContinuityState = nil
+        selectedThreadID = nil
+        currentComments = []
+        currentCommentRevision = 0
+        selectionAffordance?.reset()
+        composerSelection = nil
         lastSavedBodyData = Data()
         anchorRanges.removeAll()
         anchorsDeletedByEdit.removeAll()
@@ -185,7 +265,7 @@ final class EditorViewController: NSViewController,
         textView.setAccessibilityHelp("Use File, Open to choose a Markdown document or directory")
         highlighter?.invalidate()
         readerViewController?.render(markdown: "", baseURL: nil)
-        commentsViewController?.display(comments: [], source: "")
+        commentsViewController?.display(comments: [], source: "", commentRevision: 0)
         onCommentAvailabilityChanged?(false)
         setDirty(false)
         statusLabel.stringValue = ""
@@ -211,10 +291,12 @@ final class EditorViewController: NSViewController,
             ) { [weak self] applied in
                 guard let self, applied, self.isReaderMode else { return }
                 self.updateReaderHighlights()
+                self.applyPendingContinuityStateIfPossible()
                 self.view.window?.makeFirstResponder(reader.textView)
                 self.statusLabel.stringValue = "Reader"
             }
         } else {
+            selectionAffordance?.hide()
             let readerSelection = readerViewController?.selectedSourceRange
             readerViewController?.view.isHidden = true
             editorScrollView.isHidden = false
@@ -273,13 +355,20 @@ final class EditorViewController: NSViewController,
                 let output = try codec.encode(bodyData: bodyData, envelope: envelope)
                 return AtomicDocumentMutation(
                     data: output,
-                    result: SavedDocument(bodyData: bodyData, comments: envelope?.items ?? [])
+                    result: SavedDocument(
+                        bodyData: bodyData,
+                        comments: envelope?.items ?? [],
+                        commentRevision: envelope?.revision ?? 0
+                    )
                 )
             }
             lastSavedBodyData = saved.bodyData
             setDirty(false)
-            rebuildAnchors(from: saved.comments)
-            refreshCommentsPresentation(comments: saved.comments)
+            applyComments(
+                saved.comments,
+                revision: saved.commentRevision,
+                origin: .localMutation
+            )
             updateStatus(savedMessage: true)
         } catch EditorError.externalConflict {
             showConflictBanner()
@@ -313,6 +402,59 @@ final class EditorViewController: NSViewController,
         )
     }
 
+    func captureContinuityState() -> EditorContinuityState {
+        _ = view
+        let selection = isReaderMode
+            ? (readerViewController?.selectedSourceRange ?? textView.selectedRange())
+            : textView.selectedRange()
+        return EditorContinuityState(
+            selectionLocation: selection.location == NSNotFound ? 0 : selection.location,
+            selectionLength: selection.location == NSNotFound ? 0 : selection.length,
+            scrollFraction: isReaderMode
+                ? (readerViewController?.scrollFraction ?? 0)
+                : sourceScrollFraction,
+            selectedThreadID: selectedThreadID
+        )
+    }
+
+    func restoreContinuityState(_ state: EditorContinuityState) {
+        _ = view
+        pendingContinuityState = state
+        applyPendingContinuityStateIfPossible()
+    }
+
+    /// Explicit refresh seam for hosts that receive their own metadata-change
+    /// signal. The file watcher calls the same path automatically.
+    func refreshCommentsFromDisk() {
+        refreshFromDisk(metadataOnly: true, origin: .externalRefresh)
+    }
+
+    @objc func selectPreviousOpenComment(_ sender: Any?) {
+        moveOpenCommentSelection(by: -1)
+    }
+
+    @objc func selectNextOpenComment(_ sender: Any?) {
+        moveOpenCommentSelection(by: 1)
+    }
+
+    @objc func resolveSelectedComment(_ sender: Any?) {
+        let openIDs = openRootCommentIDsInSourceOrder
+        guard let selectedThreadID,
+              let selectedIndex = openIDs.firstIndex(of: selectedThreadID) else { return }
+        let nextID = openIDs.count > 1
+            ? openIDs[(selectedIndex + 1) % openIDs.count]
+            : nil
+        guard setResolved(true, id: selectedThreadID) else { return }
+        if let nextID, openRootCommentIDsInSourceOrder.contains(nextID) {
+            selectThread(nextID)
+        } else {
+            self.selectedThreadID = nil
+            commentsViewController?.selectComment(nil)
+            updateCommentHighlights()
+            focusEditor()
+        }
+    }
+
     func headingDestinations() -> [HeadingDestination] {
         let source = textView.string
         let outline = MarkdownOutline(markdown: source)
@@ -326,6 +468,38 @@ final class EditorViewController: NSViewController,
                 range: range
             )
         }
+    }
+
+    /// Builds the on-demand palette model from already-loaded comments and
+    /// anchors. No extra document indexing is performed during launch.
+    func commentDestinations() -> [CommentDestination] {
+        orderedRootComments().map { comment in
+            let range = anchorRanges[comment.id]
+            let title = range.flatMap { commentQuote(in: $0) }
+                ?? conciseCommentText(comment.body.value)
+                ?? "Comment"
+            let isSelectionTarget: Bool
+            if case .selection = comment.target {
+                isSelectionTarget = true
+            } else {
+                isSelectionTarget = false
+            }
+            return CommentDestination(
+                id: comment.id,
+                title: title,
+                author: comment.creator.name,
+                status: comment.status == .resolved ? .resolved : .open,
+                line: range.map { sourceLine(atUTF16Location: $0.location) },
+                needsAttention: isSelectionTarget && range == nil
+            )
+        }
+    }
+
+    func revealComment(id: String) {
+        guard currentComments.contains(where: {
+            $0.motivation == "commenting" && $0.id == id
+        }) else { return }
+        selectThread(id)
     }
 
     func revealHeading(_ destination: HeadingDestination) {
@@ -349,6 +523,11 @@ final class EditorViewController: NSViewController,
         } else {
             selected = textView.selectedRange()
         }
+
+        composerSelection = ComposerSelection(
+            sourceRange: clamped(selected, limit: textView.string.utf16.count)
+        )
+        selectionAffordance?.hide()
 
         let anchorRange = selected.length > 0 ? selected : currentParagraphRange(at: selected.location)
         if anchorRange.length > 0,
@@ -388,6 +567,7 @@ final class EditorViewController: NSViewController,
 
     func textViewDidChangeSelection(_ notification: Notification) {
         guard !isApplyingDocument, !isReaderMode else { return }
+        handleSelectionChange(in: textView)
         let location = textView.selectedRange().location
         let next = anchorRanges
             .filter { !anchorsDeletedByEdit.contains($0.key) && NSLocationInRange(location, $0.value) }
@@ -395,7 +575,7 @@ final class EditorViewController: NSViewController,
             .first?.key
         if next != selectedThreadID {
             selectedThreadID = next
-            commentsViewController?.selectComment(next)
+            commentsViewController?.selectComment(next, markingRead: next != nil)
             updateCommentHighlights()
         }
         updateStatus()
@@ -419,6 +599,14 @@ final class EditorViewController: NSViewController,
 
     private func configureEditor() {
         textView.delegate = self
+        textView.onCommentOnSelection = { [weak self, weak textView] range in
+            guard let self, let textView else { return }
+            textView.setSelectedRange(range)
+            self.beginComment(textView)
+        }
+        textView.onCommentHighlightClick = { [weak self] location in
+            self?.activateSourceCommentHighlight(at: location) ?? false
+        }
         MarkdownHighlighter.prepare(textView)
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
@@ -455,6 +643,16 @@ final class EditorViewController: NSViewController,
             readerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             readerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
         ])
+        controller.onSelectionChanged = { [weak self] textView in
+            self?.handleSelectionChange(in: textView)
+        }
+        controller.onCommentOnSelection = { [weak self] in
+            guard let self else { return }
+            self.beginComment(self.readerViewController?.textView)
+        }
+        controller.onSelectComment = { [weak self] id in
+            self?.selectThread(id)
+        }
         readerViewController = controller
         return controller
     }
@@ -471,19 +669,25 @@ final class EditorViewController: NSViewController,
         statusLabel.setAccessibilityLabel("Document status")
     }
 
-    private func applyLoadedDocument(body: String, bodyData: Data, comments: [MarginComment]) {
+    private func applyLoadedDocument(
+        body: String,
+        bodyData: Data,
+        comments: [MarginComment],
+        commentRevision: Int,
+        commentsOrigin: CommentsChangeOrigin = .initialLoad
+    ) {
         isApplyingDocument = true
         textView.string = body
         textView.setSelectedRange(NSRange(location: 0, length: 0))
         isApplyingDocument = false
+        isDocumentLoaded = true
         let name = documentURL?.lastPathComponent ?? "Markdown document"
         textView.setAccessibilityHelp("Editing \(name) as literal Markdown. Formatting marks remain visible.")
         lastSavedBodyData = bodyData
         setDirty(false)
         installHighlighterIfNeeded()
         highlighter?.invalidate()
-        rebuildAnchors(from: comments)
-        refreshCommentsPresentation(comments: comments)
+        applyComments(comments, revision: commentRevision, origin: commentsOrigin)
         if isReaderMode {
             statusLabel.stringValue = "Preparing reader…"
             ensureReaderViewController().renderAsync(
@@ -492,8 +696,11 @@ final class EditorViewController: NSViewController,
             ) { [weak self] applied in
                 guard let self, applied, self.isReaderMode else { return }
                 self.updateReaderHighlights()
+                self.applyPendingContinuityStateIfPossible()
                 self.statusLabel.stringValue = "Reader"
             }
+        } else {
+            applyPendingContinuityStateIfPossible()
         }
         updateStatus()
         hideBanner()
@@ -545,6 +752,71 @@ final class EditorViewController: NSViewController,
         updateCommentHighlights()
     }
 
+    private func applyComments(
+        _ comments: [MarginComment],
+        revision: Int,
+        origin: CommentsChangeOrigin
+    ) {
+        let priorOpenIDs = Set(openRootCommentIDsInSourceOrder)
+        let priorAnnotationIDs = Set(currentComments.map(\.id))
+        currentComments = comments
+        currentCommentRevision = revision
+        rebuildAnchors(from: comments)
+        refreshCommentsPresentation(comments: comments)
+
+        let rootIDs = rootCommentIDsInSourceOrder
+        let openIDs = openRootCommentIDsInSourceOrder
+        let isExternal = origin == .externalRefresh
+        let newOpenIDs = isExternal
+            ? openIDs.filter { !priorOpenIDs.contains($0) }
+            : []
+        let newAnnotationIDs = isExternal
+            ? comments.map(\.id).filter { !priorAnnotationIDs.contains($0) }
+            : []
+        let changedRootSet = Set(
+            newAnnotationIDs.compactMap { rootID(containing: $0, in: comments) }
+        )
+        let externallyChangedRootIDs = rootIDs.filter { changedRootSet.contains($0) }
+        onCommentsChanged?(
+            CommentsChange(
+                origin: origin,
+                rootCommentIDs: rootIDs,
+                openRootCommentIDs: openIDs,
+                openCount: openIDs.count,
+                newOpenRootIDs: newOpenIDs,
+                newAnnotationIDs: newAnnotationIDs,
+                externallyChangedRootIDs: externallyChangedRootIDs
+            )
+        )
+    }
+
+    private func orderedRootComments() -> [MarginComment] {
+        currentComments
+            .filter { $0.motivation == "commenting" }
+            .sorted { lhs, rhs in
+                let leftLocation = anchorRanges[lhs.id]?.location ?? Int.max
+                let rightLocation = anchorRanges[rhs.id]?.location ?? Int.max
+                if leftLocation != rightLocation { return leftLocation < rightLocation }
+                if lhs.created != rhs.created { return lhs.created < rhs.created }
+                return lhs.id < rhs.id
+            }
+    }
+
+    private func rootID(
+        containing commentID: String,
+        in comments: [MarginComment]
+    ) -> String? {
+        let index = Dictionary(uniqueKeysWithValues: comments.map { ($0.id, $0) })
+        var currentID = commentID
+        var visited = Set<String>()
+        while visited.insert(currentID).inserted, let comment = index[currentID] {
+            if comment.motivation == "commenting" { return comment.id }
+            guard case .resource(let parentID) = comment.target else { return nil }
+            currentID = parentID
+        }
+        return nil
+    }
+
     private func migrateAnchors(through edit: NSRange, replacementUTF16Length: Int) {
         let oldEnd = NSMaxRange(edit)
         let delta = replacementUTF16Length - edit.length
@@ -591,7 +863,8 @@ final class EditorViewController: NSViewController,
             let range = clamped(rawRange, limit: entire.length)
             guard range.length > 0 else { continue }
             let active = id == selectedThreadID
-            let baseColor = NSColor.controlAccentColor
+            let resolved = currentComments.first(where: { $0.id == id })?.status == .resolved
+            let baseColor = resolved ? NSColor.tertiaryLabelColor : NSColor.controlAccentColor
             let color = baseColor.withAlphaComponent(active ? 0.15 : 0.075)
             layout.addTemporaryAttributes([
                 .backgroundColor: color,
@@ -606,7 +879,21 @@ final class EditorViewController: NSViewController,
         guard isReaderMode, let readerViewController else { return }
         let values = anchorRanges.compactMap { id, range -> ReaderViewController.CommentHighlight? in
             guard !anchorsDeletedByEdit.contains(id) else { return nil }
-            return .init(id: id, sourceRange: range, state: id == selectedThreadID ? .active : .normal)
+            let comment = currentComments.first(where: { $0.id == id })
+            let state: ReaderViewController.CommentHighlight.State
+            if id == selectedThreadID {
+                state = .active
+            } else if comment?.status == .resolved {
+                state = .resolved
+            } else {
+                state = .normal
+            }
+            return .init(
+                id: id,
+                sourceRange: range,
+                state: state,
+                summary: commentSummary(comment)
+            )
         }
         readerViewController.setCommentHighlights(values)
     }
@@ -623,7 +910,7 @@ final class EditorViewController: NSViewController,
             )
             selectedThreadID = receipt.rootID
             pendingCommentAnchor = nil
-            refreshFromDisk(metadataOnly: true)
+            refreshFromDisk(metadataOnly: true, origin: .localMutation)
         } catch {
             showBanner("Could not add comment: \(error.localizedDescription)")
         }
@@ -640,78 +927,373 @@ final class EditorViewController: NSViewController,
                 creator: currentActor
             )
             selectedThreadID = receipt.rootID
-            refreshFromDisk(metadataOnly: true)
+            refreshFromDisk(metadataOnly: true, origin: .localMutation)
         } catch {
             showBanner("Could not reply: \(error.localizedDescription)")
         }
     }
 
-    private func setResolved(_ resolved: Bool, id: String) {
+    private func editComment(id: String, body: String, displayedRevision: Int) {
         guard let url = documentURL else { return }
         guard prepareToClose() else { return }
+        do {
+            let receipt = try commentService.edit(
+                at: url,
+                id: id,
+                message: body,
+                editor: currentActor,
+                preconditions: CommentMutationPreconditions(revision: displayedRevision)
+            )
+            selectedThreadID = receipt.rootID
+            refreshFromDisk(metadataOnly: true, origin: .localMutation)
+            guard receipt.changed else { return }
+            showBanner("Comment updated.", actions: [
+                ("Undo", { [weak self] in self?.undoCommentEdit(receipt.undo) }),
+            ])
+        } catch {
+            showBanner("Could not edit comment: \(error.localizedDescription)")
+        }
+    }
+
+    private func undoCommentEdit(_ undo: CommentEditUndo) {
+        guard let url = documentURL else { return }
+        guard prepareToClose() else { return }
+        do {
+            let receipt = try commentService.edit(
+                at: url,
+                id: undo.id,
+                message: undo.message,
+                editor: currentActor,
+                preconditions: CommentMutationPreconditions(revision: undo.ifRevision)
+            )
+            selectedThreadID = receipt.rootID
+            refreshFromDisk(metadataOnly: true, origin: .localMutation)
+            showBanner("Comment edit undone.")
+        } catch {
+            showBanner("Could not undo the edit because the thread changed: \(error.localizedDescription)")
+        }
+    }
+
+    private func deleteComment(id: String, subtree: Bool) {
+        guard let url = documentURL else { return }
+        guard prepareToClose() else { return }
+        let displayedRevision = currentCommentRevision
+        do {
+            let receipt = try commentService.delete(
+                at: url,
+                id: id,
+                subtree: subtree,
+                preconditions: CommentMutationPreconditions(revision: displayedRevision)
+            )
+            selectedThreadID = id == receipt.rootID ? nil : receipt.rootID
+            refreshFromDisk(metadataOnly: true, origin: .localMutation)
+            let noun = receipt.deletedCount == 1 ? "Comment" : "Thread"
+            showBanner("\(noun) deleted.", actions: [
+                ("Undo", { [weak self] in
+                    self?.undoCommentDeletion(receipt.undo, rootID: receipt.rootID)
+                }),
+            ])
+        } catch {
+            showBanner("Could not delete comment: \(error.localizedDescription)")
+        }
+    }
+
+    private func undoCommentDeletion(_ undo: CommentDeleteUndo, rootID: String) {
+        guard let url = documentURL else { return }
+        guard prepareToClose() else { return }
+        do {
+            _ = try commentService.restoreDeletion(at: url, undo: undo)
+            selectedThreadID = rootID
+            refreshFromDisk(metadataOnly: true, origin: .localMutation)
+            showBanner("Deleted comment restored.")
+        } catch {
+            showBanner("Could not undo the deletion because the document changed: \(error.localizedDescription)")
+        }
+    }
+
+    @discardableResult
+    private func setResolved(_ resolved: Bool, id: String) -> Bool {
+        guard let url = documentURL else { return false }
+        guard prepareToClose() else { return false }
         do {
             if resolved {
                 _ = try commentService.resolve(at: url, id: id, actor: currentActor)
             } else {
                 _ = try commentService.reopen(at: url, id: id, actor: currentActor)
             }
-            refreshFromDisk(metadataOnly: true)
+            refreshFromDisk(metadataOnly: true, origin: .localMutation)
+            return true
         } catch {
             showBanner("Could not update thread: \(error.localizedDescription)")
+            return false
         }
     }
 
     private func selectThread(_ id: String) {
         selectedThreadID = id
-        guard let range = anchorRanges[id] else { return }
+        selectionAffordance?.hide()
+        if let workspace = view.window?.windowController as? WorkspaceWindowController,
+           !workspace.isCommentsVisible {
+            workspace.toggleComments(nil)
+        }
+        commentsViewController?.selectComment(id, markingRead: true)
+        guard let range = anchorRanges[id] else {
+            updateCommentHighlights()
+            return
+        }
         if isReaderMode {
             readerViewController?.selectSourceRange(range)
+            view.window?.makeFirstResponder(readerViewController?.textView)
         } else {
+            isApplyingDocument = true
             textView.setSelectedRange(range)
+            isApplyingDocument = false
             textView.scrollRangeToVisible(range)
             view.window?.makeFirstResponder(textView)
         }
         updateCommentHighlights()
     }
 
+    private func moveOpenCommentSelection(by offset: Int) {
+        let ids = openRootCommentIDsInSourceOrder
+        guard !ids.isEmpty else { return }
+        let nextIndex: Int
+        if let selectedThreadID,
+           let currentIndex = ids.firstIndex(of: selectedThreadID) {
+            nextIndex = (currentIndex + offset + ids.count) % ids.count
+        } else {
+            nextIndex = offset < 0 ? ids.count - 1 : 0
+        }
+        selectThread(ids[nextIndex])
+    }
+
+    @discardableResult
+    private func activateSourceCommentHighlight(at location: Int) -> Bool {
+        let ids = anchorRanges
+            .filter {
+                !anchorsDeletedByEdit.contains($0.key)
+                    && NSLocationInRange(location, $0.value)
+            }
+            .sorted { lhs, rhs in
+                if lhs.value.length != rhs.value.length {
+                    return lhs.value.length < rhs.value.length
+                }
+                if lhs.value.location != rhs.value.location {
+                    return lhs.value.location < rhs.value.location
+                }
+                return lhs.key < rhs.key
+            }
+            .map(\.key)
+        guard !ids.isEmpty else { return false }
+        let nextID: String
+        if let selectedThreadID,
+           let currentIndex = ids.firstIndex(of: selectedThreadID),
+           ids.count > 1 {
+            nextID = ids[(currentIndex + 1) % ids.count]
+        } else {
+            nextID = ids[0]
+        }
+        selectThread(nextID)
+        return true
+    }
+
+    private func handleSelectionChange(in textView: NSTextView) {
+        let selection = textView.selectedRange()
+        guard documentURL != nil,
+              selection.location != NSNotFound,
+              selection.length > 0 else {
+            selectionAffordance?.hide()
+            return
+        }
+        if selectionAffordance == nil {
+            selectionAffordance = SelectionCommentAffordance(
+                hostView: contentView
+            ) { [weak self] in
+                self?.beginComment(nil)
+            }
+        }
+        selectionAffordance?.selectionDidChange(in: textView)
+    }
+
+    private func restoreComposerSelectionAndFocus() {
+        if let composerSelection {
+            let range = clamped(
+                composerSelection.sourceRange,
+                limit: textView.string.utf16.count
+            )
+            if isReaderMode {
+                readerViewController?.selectSourceRange(range, scrollToVisible: true)
+            } else {
+                isApplyingDocument = true
+                textView.setSelectedRange(range)
+                isApplyingDocument = false
+                textView.scrollRangeToVisible(range)
+            }
+        }
+        composerSelection = nil
+        focusEditor()
+    }
+
+    private func commentSummary(_ comment: MarginComment?) -> String {
+        guard let comment else { return "Comment thread" }
+        let body = comment.body.value
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let excerpt = body.count > 96
+            ? String(body.prefix(93)) + "…"
+            : body
+        let state = comment.status == .resolved ? "Resolved comment" : "Open comment"
+        return excerpt.isEmpty
+            ? "\(state) by \(comment.creator.name)"
+            : "\(state) by \(comment.creator.name): \(excerpt)"
+    }
+
+    private func commentQuote(in range: NSRange) -> String? {
+        let safeRange = clamped(range, limit: textView.string.utf16.count)
+        guard safeRange.length > 0 else { return nil }
+        let value = (textView.string as NSString)
+            .substring(with: safeRange)
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        let excerpt = value.count > 72 ? String(value.prefix(69)) + "…" : value
+        return "“\(excerpt)”"
+    }
+
+    private func conciseCommentText(_ value: String) -> String? {
+        let flattened = value
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !flattened.isEmpty else { return nil }
+        return flattened.count > 72
+            ? String(flattened.prefix(69)) + "…"
+            : flattened
+    }
+
+    private func sourceLine(atUTF16Location location: Int) -> Int {
+        let text = textView.string as NSString
+        let safeLocation = min(max(location, 0), text.length)
+        let prefix = text.substring(to: safeLocation)
+        return prefix.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
+    }
+
+    private var sourceScrollFraction: Double {
+        let clip = editorScrollView.contentView
+        let documentHeight = editorScrollView.documentView?.bounds.height ?? 0
+        let maximum = max(documentHeight - clip.bounds.height, 0)
+        guard maximum > 0 else { return 0 }
+        return Double(min(max(clip.bounds.minY / maximum, 0), 1))
+    }
+
+    private func restoreSourceScrollFraction(_ fraction: Double) {
+        if let textContainer = textView.textContainer {
+            textView.layoutManager?.ensureLayout(for: textContainer)
+        }
+        let clip = editorScrollView.contentView
+        let documentHeight = editorScrollView.documentView?.bounds.height ?? 0
+        let maximum = max(documentHeight - clip.bounds.height, 0)
+        clip.scroll(
+            to: NSPoint(
+                x: clip.bounds.minX,
+                y: maximum * CGFloat(min(max(fraction, 0), 1))
+            )
+        )
+        editorScrollView.reflectScrolledClipView(clip)
+    }
+
+    private func applyPendingContinuityStateIfPossible() {
+        guard isDocumentLoaded, let state = pendingContinuityState else { return }
+        if isReaderMode {
+            guard let reader = readerViewController,
+                  reader.renderResult != nil,
+                  reader.markdown == textView.string else { return }
+        }
+
+        pendingContinuityState = nil
+        if let id = state.selectedThreadID,
+           currentComments.contains(where: { $0.motivation == "commenting" && $0.id == id }) {
+            selectedThreadID = id
+        } else {
+            selectedThreadID = nil
+        }
+        commentsViewController?.selectComment(selectedThreadID)
+        updateCommentHighlights()
+
+        let range = clamped(
+            NSRange(
+                location: max(0, state.selectionLocation),
+                length: max(0, state.selectionLength)
+            ),
+            limit: textView.string.utf16.count
+        )
+        if isReaderMode {
+            readerViewController?.selectSourceRange(range, scrollToVisible: false)
+            readerViewController?.restoreScrollFraction(state.scrollFraction)
+        } else {
+            isApplyingDocument = true
+            textView.setSelectedRange(range)
+            isApplyingDocument = false
+            restoreSourceScrollFraction(state.scrollFraction)
+            updateStatus()
+        }
+    }
+
     private func refreshCommentsPresentation(comments: [MarginComment]? = nil) {
         guard let controller = commentsViewController else { return }
         if let comments {
-            controller.display(comments: comments, source: textView.string, selectedCommentID: selectedThreadID)
+            controller.display(
+                comments: comments,
+                source: textView.string,
+                selectedCommentID: selectedThreadID,
+                commentRevision: currentCommentRevision
+            )
             onCommentAvailabilityChanged?(!comments.isEmpty)
             return
         }
-        guard let url = documentURL else {
-            controller.display(comments: [], source: "")
+        guard documentURL != nil else {
+            controller.display(comments: [], source: "", commentRevision: 0)
             onCommentAvailabilityChanged?(false)
             return
         }
-        if let decoded = try? codec.decode(Data(contentsOf: url, options: .mappedIfSafe)) {
-            let comments = decoded.envelope?.items ?? []
-            controller.display(comments: comments, source: textView.string, selectedCommentID: selectedThreadID)
-            onCommentAvailabilityChanged?(!comments.isEmpty)
-        }
+        controller.display(
+            comments: currentComments,
+            source: textView.string,
+            selectedCommentID: selectedThreadID,
+            commentRevision: currentCommentRevision
+        )
+        onCommentAvailabilityChanged?(!currentComments.isEmpty)
     }
 
     private func watchDocument(_ url: URL) {
         let watcher = FileSystemWatcher(url: url.deletingLastPathComponent()) { [weak self] _ in
-            self?.refreshFromDisk(metadataOnly: false)
+            self?.refreshFromDisk(metadataOnly: false, origin: .externalRefresh)
         }
         fileWatcher = watcher
         watcher.start()
     }
 
-    private func refreshFromDisk(metadataOnly: Bool) {
+    private func refreshFromDisk(
+        metadataOnly: Bool,
+        origin: CommentsChangeOrigin
+    ) {
         guard let url = documentURL, FileManager.default.fileExists(atPath: url.path) else { return }
         do {
             let decoded = try codec.decode(Data(contentsOf: url, options: .mappedIfSafe))
             if decoded.bodyData == lastSavedBodyData || metadataOnly {
-                rebuildAnchors(from: decoded.envelope?.items ?? [])
-                refreshCommentsPresentation(comments: decoded.envelope?.items ?? [])
-                hideBanner()
+                applyComments(
+                    decoded.envelope?.items ?? [],
+                    revision: decoded.envelope?.revision ?? 0,
+                    origin: origin
+                )
             } else if !isDirty {
                 let selection = textView.selectedRange()
-                applyLoadedDocument(body: decoded.body, bodyData: decoded.bodyData, comments: decoded.envelope?.items ?? [])
+                applyLoadedDocument(
+                    body: decoded.body,
+                    bodyData: decoded.bodyData,
+                    comments: decoded.envelope?.items ?? [],
+                    commentRevision: decoded.envelope?.revision ?? 0,
+                    commentsOrigin: origin
+                )
                 textView.setSelectedRange(clamped(selection, limit: textView.string.utf16.count))
             } else {
                 showConflictBanner()
@@ -722,8 +1304,11 @@ final class EditorViewController: NSViewController,
                 guard let self, self.documentURL == url else { return }
                 if let decoded = try? self.codec.decode(Data(contentsOf: url, options: .mappedIfSafe)),
                    decoded.bodyData == self.lastSavedBodyData {
-                    self.rebuildAnchors(from: decoded.envelope?.items ?? [])
-                    self.refreshCommentsPresentation(comments: decoded.envelope?.items ?? [])
+                    self.applyComments(
+                        decoded.envelope?.items ?? [],
+                        revision: decoded.envelope?.revision ?? 0,
+                        origin: origin
+                    )
                 }
             }
         }
@@ -861,6 +1446,7 @@ final class EditorViewController: NSViewController,
 private struct SavedDocument {
     let bodyData: Data
     let comments: [MarginComment]
+    let commentRevision: Int
 }
 
 private enum EditorError: Error, LocalizedError {

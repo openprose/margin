@@ -482,6 +482,8 @@ public enum CommentProtocolError: Error, LocalizedError, Sendable {
     case anchorNotFound
     case anchorAmbiguous([AnchorCandidate])
     case commentNotFound(String)
+    case commentHasReplies(id: String, count: Int)
+    case undoConflict(expected: String, actual: String)
     case resolvedThread(String)
     case idConflict(String)
     case revisionConflict(expected: Int, actual: Int)
@@ -503,6 +505,8 @@ public enum CommentProtocolError: Error, LocalizedError, Sendable {
         case .anchorNotFound: return "ANCHOR_NOT_FOUND"
         case .anchorAmbiguous: return "ANCHOR_AMBIGUOUS"
         case .commentNotFound: return "COMMENT_NOT_FOUND"
+        case .commentHasReplies: return "COMMENT_HAS_REPLIES"
+        case .undoConflict: return "UNDO_CONFLICT"
         case .resolvedThread: return "THREAD_RESOLVED"
         case .idConflict: return "ID_CONFLICT"
         case .revisionConflict: return "REVISION_CONFLICT"
@@ -518,11 +522,11 @@ public enum CommentProtocolError: Error, LocalizedError, Sendable {
         case .invalidAnchor, .anchorNotFound, .anchorAmbiguous, .invalidEnvelope,
              .invalidUTF8, .multipleCommentBlocks, .nonterminalCommentBlock,
              .unsupportedVersion, .contentLengthMismatch, .contentHashMismatch,
-             .resolvedThread, .idConflict:
+             .resolvedThread, .idConflict, .commentHasReplies:
             return 65
         case .commentNotFound:
             return 66
-        case .revisionConflict, .contentConflict, .lockTimeout, .concurrentModification:
+        case .revisionConflict, .contentConflict, .undoConflict, .lockTimeout, .concurrentModification:
             return 75
         case .io:
             return 74
@@ -553,6 +557,10 @@ public enum CommentProtocolError: Error, LocalizedError, Sendable {
             return "The quoted text matches \(candidates.count) possible locations."
         case .commentNotFound(let id):
             return "No comment with id '\(id)' exists in this document."
+        case .commentHasReplies(let id, let count):
+            return "Comment '\(id)' has \(count) descendant reply\(count == 1 ? "" : "s"). Use subtree deletion explicitly."
+        case .undoConflict(let expected, let actual):
+            return "The deletion undo token expected document state '\(expected)', but found '\(actual)'."
         case .resolvedThread(let id):
             return "Thread '\(id)' is resolved. Reopen it before replying."
         case .idConflict(let id):

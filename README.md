@@ -11,12 +11,12 @@ There is no account, server, database, WebView, plug-in runtime, or sidecar file
 - Browse directories in a lazy native tree without recursively indexing them at launch.
 - Edit literal Markdown with restrained syntax cues, delimiter pairing, list continuation, native undo, find, spellcheck, and accessibility.
 - Switch to a bounded, typography-first reader view.
-- Select a passage and start a comment with `⌘⌥M`.
-- Reply to comments to any depth, resolve or reopen whole threads, and follow anchors as the document changes.
-- Let agents inspect, outline, slice, comment on, reply to, and validate the same document through structured CLI commands.
+- Select a passage and comment from the inline bubble, the context menu, or `⌘⌥M` in either source or reader mode.
+- Review clickable source highlights and reader-margin markers, reply to any depth, edit or delete your own comments, and resolve or reopen whole threads.
+- Let agents inspect, outline, slice, review, watch, create, edit, delete, reply to, and validate the same document through structured CLI commands.
 - Preserve comment metadata as an ignorable terminal HTML comment containing W3C Web Annotation JSON-LD.
 
-Margin currently targets Apple silicon Macs running macOS 13 or newer. The v0.1 package is ad-hoc signed for local installation because this machine has no Developer ID certificate.
+Margin currently targets Apple silicon Macs running macOS 13 or newer. The v0.2 package is ad-hoc signed for local installation because this machine has no Developer ID certificate.
 
 ## Build and install
 
@@ -53,16 +53,20 @@ margin brief.md architecture.md review-notes.md
 margin architecture.md --wait
 ```
 
-In the app, select a passage and press `⌘⌥M` to open the composer. Comments appear in the right sidebar and the selected passage stays highlighted. A document with no comments opens without an inspector; a reviewed document reveals its conversation automatically. `⌘⇧R` toggles reader mode, `⌘0` toggles the directory navigator, and `⌘⌥0` toggles comments. The window supports native macOS full screen with `⌃⌘F`.
+In the app, select a passage to reveal a small comment affordance, use the native context menu, or press `⌘⌥M`. The same flow works in reader mode. Commented passages remain clickable in source, while reader mode adds quiet margin markers. A document with no comments opens without an inspector; a reviewed document reveals its conversation automatically. Later replies from an agent add a tab/toolbar unread indicator without interrupting the current task. `⌘⇧R` toggles reader mode, `⌘0` toggles the directory navigator, and `⌘⌥0` toggles comments. The window supports native macOS full screen with `⌃⌘F`.
 
 Navigation stays keyboard-first:
 
 - `⌘P` searches and opens files by fuzzy filename or path. Directory indexing begins only when the palette opens.
+- `⌘⇧P` opens the command palette; recent workspaces are read only when that palette appears.
 - `⌘⇧O` searches headings in the current document.
+- `⌘⌥[` and `⌘⌥]` move through open review threads in source order; Review → Go to Comment searches passages, authors, and status.
 - `⌘⌥←` and `⌘⌥→` open the previous or next visible file in the navigator.
 - `⌘T` opens a tab, `⌘N` opens a separate window, and `⌘W` closes the current tab.
 - `⌃Tab` / `⌃⇧Tab` (or `⌘⇧]` / `⌘⇧[`) move through tabs; `⌘1`…`⌘9` select them directly.
 - `⌃1`, `⌃2`, and `⌃3` focus the navigator, editor, and comments respectively.
+
+Margin restores the previous tabs, active document, reader/source state, sidebars, selection, scroll position, and active thread after a normal relaunch. An explicit file or directory supplied on the command line always takes precedence over restoration.
 
 Formatting shortcuts write ordinary Markdown characters: `⌘B` for bold, `⌘I` for emphasis, and `⌘K` for a link. Margin never replaces the source with hidden rich-text state.
 
@@ -73,6 +77,7 @@ Start with discovery instead of reading the raw embedded envelope:
 ```sh
 margin help agents
 margin inspect architecture.md --json --pretty
+margin review architecture.md --json
 margin outline architecture.md --json
 margin slice architecture.md --heading "Failure modes" --context 2
 ```
@@ -99,6 +104,23 @@ margin comments resolve architecture.md COMMENT_ID \
   --actor-type software --actor-name "implementation-agent"
 margin comments validate architecture.md --pretty
 ```
+
+For a long-lived collaborator, watch the same file without polling:
+
+```sh
+margin comments watch architecture.md --jsonl --since-revision 12
+```
+
+Agents can revise or safely remove their feedback while preserving the thread model:
+
+```sh
+margin comments edit architecture.md COMMENT_ID -m "A more precise finding." \
+  --actor-type software --actor-name "architecture-reviewer" --if-revision 13
+margin comments delete architecture.md REPLY_ID --if-revision 14
+margin comments delete architecture.md ROOT_ID --subtree --if-revision 15
+```
+
+`review` returns a deterministic, bounded view of headings, open/resolved threads, excerpts, and anchors needing attention. `watch` emits compact JSONL changes after an initial snapshot. Deleting a comment that has replies fails unless `--subtree` is explicit.
 
 Every comment mutation prints one JSON object to stdout. Errors print JSON to stderr, leave stdout empty, and use stable codes plus sysexits-compatible status values. Agents should use `--id` for idempotent retries and `--if-revision` / `--if-content-sha` when coordinating concurrent writes.
 
@@ -136,4 +158,4 @@ Measured launch results, the agent benchmark, and the complete verification reco
 
 ## Scope
 
-The Monday v0.1 deliberately excludes sync, accounts, general rich text, a complete CommonMark renderer, plug-ins, and LLM-powered filters. Summarizers and semantic filters are a later-week layer; the file protocol and bounded CLI reads are designed to support them without coupling the document to a model provider.
+Margin 0.2 deliberately excludes sync, accounts, general rich text, plug-ins, and LLM-powered filters. Summarizers and semantic lenses remain a later layer; the file protocol, bounded `review` snapshot, and event-driven `watch` stream are designed to support them without coupling the document to a model provider.

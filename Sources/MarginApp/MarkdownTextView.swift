@@ -1,6 +1,6 @@
 import AppKit
 
-final class MarkdownTextView: NSTextView {
+final class MarkdownTextView: CommentInteractionTextView {
     static let addCommentSelector = NSSelectorFromString("beginComment:")
     static let toggleReaderSelector = NSSelectorFromString("toggleReaderMode:")
 

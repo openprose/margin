@@ -1,5 +1,34 @@
 # Margin release notes
 
+## 0.2.0 — focused human-agent review
+
+Release date: 2026-08-16
+
+- Added a lazy inline comment affordance and native context-menu action for nonempty selections in both literal source and reader mode.
+- Made source highlights and reader-margin markers clickable, including compact overlap counts and source-preserving reader selection mapping.
+- Rebuilt the comment inspector around compact inactive threads, one quoted passage, a continuous reply rail, bounded visual nesting, long-thread context, native Markdown rendering, and accessible review progress.
+- Added source-ordered previous/next review commands, Go to Comment search, resolve-and-advance behavior, and `⌘⌥[` / `⌘⌥]` shortcuts.
+- Added owner-only comment/reply editing and explicit leaf/tree deletion with conflict-aware one-step Undo. Edit safety is bound to the revision visible when composition begins, so a later agent update cannot be overwritten by a stale open composer. Literal Markdown bytes and unknown protocol extensions remain unchanged.
+- Added non-disruptive unread activity for external agents: a lazy numeric tab/toolbar indicator and temporary New filter appear without opening the inspector or stealing focus.
+- Added an on-demand `⌘⇧P` command palette, recent workspaces, and relaunch continuity for tabs, active documents, reader/source state, sidebars, selection, scroll position, and active thread.
+- Added bounded `margin review --json`, event-driven `margin comments watch --jsonl`, and safe CLI `edit` / `delete --subtree` operations. Watch observes atomic replacement without polling and recovers from target-file deletion/recreation.
+- Clarified returned annotation IDs, bare/full UUID acceptance, read-command pretty printing, and digest shapes after a blind agent usability run.
+- Fixed overlapping-anchor selection feedback, narrow owner-action compression, filesystem-watcher dismissal of Undo, and full-size-titlebar safe-area placement found during live Mac inspection.
+
+### Verification
+
+- 71 XCTest cases pass, including Unicode anchors, concurrent CAS edits/deletes, stale-inspector rejection, exact deletion restore, watch replacement/reconnect, adversarially bounded review output, resolved-only navigation, external unread behavior, overlapping highlights, narrow action layout, persistent Undo, and reader performance.
+- The CLI contract suite passes all deterministic read, comment, concurrency, nested-thread, edit/delete, watch, validation, and source-preservation checks.
+- A blind agent, given only `--help`, completed review → comment → reply → edit → live watch event → resolve → validate. Every operation took 0.00–0.01 seconds, the watch observed the mutation in about 71 ms, and the logical Markdown SHA-256 remained byte-identical.
+- Live testing of the exact signed candidate covers source/reader selection comments, clickable overlapping threads, reader markers, unread external activity, owner edit/Undo, narrow and wide inspector layout, tabs, command palette, and accessible labels/focus.
+- Signed bundle smoke, archive verification, local installation, and the 15-run performance gate pass.
+
+### Performance and artifact
+
+On the current M1 Max Mac, the exact candidate reaches a visible real editor window in **307.327 ms median / 336.417 ms p95** across thirty warm launches, with **158.617 MiB median RSS**. Against an immediately rebuilt, identically measured v0.1.3 baseline, median launch improves by 2.6%, p95 by 12.0%, and median RSS by 3.8%. Optional review features remain strictly on demand; see `Docs/PERFORMANCE.md`.
+
+Release artifact: `Margin-0.2.0-macOS-arm64.zip` (1,645,858 bytes), SHA-256 `175066e656bb5ac58b664a40e341e2e89bda994a815b970a0bb02be18f833203`.
+
 ## 0.1.3 — native workspace behavior
 
 Release date: 2026-08-16

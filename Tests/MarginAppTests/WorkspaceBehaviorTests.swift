@@ -41,6 +41,62 @@ final class WorkspaceBehaviorTests: XCTestCase {
 
         waitUntil { controller.canShowComments }
         XCTAssertFalse(controller.isCommentsVisible)
+        XCTAssertFalse(controller.canNavigateAnyComments)
+        XCTAssertFalse(controller.canNavigateComments)
+    }
+
+    func testResolvedOnlyDocumentCanGoToCommentButCannotTraverseOpenReview() throws {
+        let fixture = try makeDocument("# Resolved review\n\nA finished passage.\n")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let service = CommentService()
+        let actor = MarginActor(
+            id: "urn:agent:resolved-test",
+            type: .software,
+            name: "Resolved Test"
+        )
+        let rootID = try service.add(
+            at: fixture.file,
+            message: "This thread is complete.",
+            creator: actor,
+            anchor: .quote(exact: "finished passage")
+        ).rootID
+        _ = try service.resolve(at: fixture.file, id: rootID, actor: actor)
+
+        let controller = WorkspaceWindowController(workspaceURL: fixture.file)
+        defer { controller.close() }
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+        waitUntil { controller.canNavigateAnyComments }
+
+        XCTAssertTrue(controller.canNavigateAnyComments)
+        XCTAssertFalse(controller.canNavigateComments)
+
+        let delegate = AppDelegate()
+        let goToComment = NSMenuItem(
+            title: "Go to Comment…",
+            action: #selector(AppDelegate.navigateToComment(_:)),
+            keyEquivalent: ""
+        )
+        let nextOpen = NSMenuItem(
+            title: "Next Open Comment",
+            action: #selector(AppDelegate.nextOpenComment(_:)),
+            keyEquivalent: ""
+        )
+        let previousOpen = NSMenuItem(
+            title: "Previous Open Comment",
+            action: #selector(AppDelegate.previousOpenComment(_:)),
+            keyEquivalent: ""
+        )
+        let resolveCurrent = NSMenuItem(
+            title: "Resolve Current Comment",
+            action: #selector(AppDelegate.resolveCurrentComment(_:)),
+            keyEquivalent: ""
+        )
+
+        XCTAssertTrue(delegate.validateMenuItem(goToComment, for: controller))
+        XCTAssertFalse(delegate.validateMenuItem(nextOpen, for: controller))
+        XCTAssertFalse(delegate.validateMenuItem(previousOpen, for: controller))
+        XCTAssertFalse(delegate.validateMenuItem(resolveCurrent, for: controller))
     }
 
     func testDocumentWithCommentsOpensInspectorAutomatically() throws {
@@ -64,6 +120,44 @@ final class WorkspaceBehaviorTests: XCTestCase {
         )
     }
 
+    func testExternalReplyCreatesUnreadActivityWithoutOpeningInspector() throws {
+        let fixture = try makeDocument("# Agent review\n\nA shared passage.\n")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let service = CommentService()
+        let root = try service.add(
+            at: fixture.file,
+            message: "Initial review.",
+            creator: MarginActor(id: "urn:agent:initial", type: .software, name: "Initial Agent"),
+            anchor: .quote(exact: "shared passage")
+        ).rootID
+        var editor: EditorViewController?
+        WorkspacePaneFactory.makeEditor = {
+            let value = EditorViewController()
+            editor = value
+            return value
+        }
+        let controller = WorkspaceWindowController(workspaceURL: fixture.file)
+        defer { controller.close() }
+        waitUntil { controller.isCommentsVisible && editor?.rootCommentIDsInSourceOrder == [root] }
+
+        controller.toggleComments(nil)
+        XCTAssertFalse(controller.isCommentsVisible)
+        _ = try service.reply(
+            at: fixture.file,
+            parentID: root,
+            message: "A new agent reply.",
+            creator: MarginActor(id: "urn:agent:new", type: .software, name: "New Agent")
+        )
+        editor?.refreshCommentsFromDisk()
+
+        waitUntil { controller.hasUnreadComments }
+        XCTAssertFalse(controller.isCommentsVisible)
+        controller.focusComments(nil)
+        XCTAssertTrue(controller.hasUnreadComments)
+        editor?.revealComment(id: root)
+        waitUntil { !controller.hasUnreadComments }
+    }
+
     func testPrimaryNavigationShortcutsReserveCommandDigitsForTabs() {
         let delegate = AppDelegate()
         AppMenu.install(for: NSApplication.shared, delegate: delegate)
@@ -83,6 +177,20 @@ final class WorkspaceBehaviorTests: XCTestCase {
         let nextTab = menuItem(named: "Show Next Tab")
         XCTAssertEqual(nextTab?.keyEquivalent, "\t")
         XCTAssertEqual(nextTab?.keyEquivalentModifierMask, [.control])
+
+        let commandPalette = menuItem(named: "Command Palette…")
+        XCTAssertEqual(commandPalette?.keyEquivalent, "p")
+        XCTAssertEqual(commandPalette?.keyEquivalentModifierMask, [.command, .shift])
+
+        let nextComment = menuItem(named: "Next Open Comment")
+        XCTAssertEqual(nextComment?.keyEquivalent, "]")
+        XCTAssertEqual(nextComment?.keyEquivalentModifierMask, [.command, .option])
+
+        let previousComment = menuItem(named: "Previous Open Comment")
+        XCTAssertEqual(previousComment?.keyEquivalent, "[")
+        XCTAssertEqual(previousComment?.keyEquivalentModifierMask, [.command, .option])
+
+        XCTAssertNotNil(menuItem(named: "Go to Comment…"))
     }
 
     func testFileWatcherNeverBlocksTheInteractionThreadWhileOpening() {
@@ -104,6 +212,77 @@ final class WorkspaceBehaviorTests: XCTestCase {
         XCTAssertLessThan(elapsed, .milliseconds(50))
         wait(for: [openerFinished], timeout: 1)
         watcher.stop()
+    }
+
+    func testWorkspaceSessionRoundTripsWithoutUnboundedState() throws {
+        let suite = "margin-session-tests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            return XCTFail("Expected isolated defaults")
+        }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = WorkspaceSessionStore(defaults: defaults, key: "session")
+        let value = WorkspaceSession(
+            tabs: [
+                WorkspaceTabSession(
+                    workspacePath: "/tmp/workspace",
+                    documentPath: "/tmp/workspace/note.md",
+                    readerMode: true,
+                    navigatorVisible: true,
+                    commentsVisible: false,
+                    editor: EditorContinuityState(
+                        selectionLocation: 42,
+                        selectionLength: 7,
+                        scrollFraction: 0.5,
+                        selectedThreadID: "urn:uuid:test"
+                    )
+                )
+            ],
+            selectedIndex: 0
+        )
+
+        store.save(value)
+        XCTAssertEqual(store.load(), value)
+        store.save(nil)
+        XCTAssertNil(store.load())
+    }
+
+    func testUnreadCommentBadgeIsLazyAndPersistsUntilActivityIsRead() throws {
+        let fixture = try makeDocument("# Review\n\nA passage.\n")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let controller = WorkspaceWindowController(workspaceURL: fixture.file)
+        defer { controller.close() }
+
+        XCTAssertFalse(controller.hasUnreadComments)
+        XCTAssertNil(controller.window?.tab.accessoryView)
+
+        controller.updateUnreadComments(3)
+        XCTAssertTrue(controller.hasUnreadComments)
+        XCTAssertNotNil(controller.window?.tab.accessoryView)
+
+        controller.focusComments(nil)
+        XCTAssertTrue(controller.hasUnreadComments)
+        XCTAssertNotNil(controller.window?.tab.accessoryView)
+
+        controller.updateUnreadComments(0)
+        XCTAssertFalse(controller.hasUnreadComments)
+        XCTAssertNil(controller.window?.tab.accessoryView)
+    }
+
+    func testRecentWorkspaceStoreIsOrderedDeduplicatedAndBounded() {
+        let suite = "margin-recents-tests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            return XCTFail("Expected isolated defaults")
+        }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = RecentWorkspaceStore(defaults: defaults, key: "recents")
+        let first = URL(fileURLWithPath: "/tmp/first.md")
+        let second = URL(fileURLWithPath: "/tmp/second.md")
+
+        store.record(first, limit: 2)
+        store.record(second, limit: 2)
+        store.record(first, limit: 2)
+
+        XCTAssertEqual(store.urls(limit: 10), [first, second])
     }
 
     private func waitUntil(

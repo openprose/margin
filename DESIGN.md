@@ -22,6 +22,8 @@ All panes use standard AppKit split-view behavior, system materials, native focu
 - Opening several files—through the Open panel, Finder, or the CLI—places them in native tabs. An empty tab is reused, duplicate paths focus their existing tab, and separate windows remain available with `⌘N`.
 - Tabs follow browser conventions: `⌘T`, `⌘W`, `⌃Tab`, `⌃⇧Tab`, and `⌘1`…`⌘9`. Pane focus uses `⌃1`…`⌃3` so it never competes with tab selection.
 - Reader presentation and file-provider change watching begin only after they are requested, away from the main interaction path. Stale reader work is discarded when the user switches files or modes.
+- A normal relaunch restores tabs and lightweight view state, but an explicit CLI target always wins. Persistence is deferred to a utility queue and never joins the first-window path.
+- New comments or replies arriving from another process never steal focus or open the inspector. They add a restrained numeric tab/toolbar signal and a temporary **New** filter until the affected thread is deliberately visited.
 
 ## Typography and color
 
@@ -37,8 +39,13 @@ Colors remain adaptive AppKit values, so the app follows light mode, dark mode, 
 - Formatting actions insert or toggle ordinary Markdown delimiters.
 - Lists, ordered lists, and block quotes continue on Return and terminate cleanly from an empty item.
 - A passage comment begins from the current selection; without a selection Margin uses the current paragraph, then falls back to the whole document.
-- Selecting a source highlight selects its thread. Selecting a thread reveals the source passage.
+- A nonempty selection exposes one quiet comment button and one native context-menu command. Both preserve the selection and work in source and reader mode.
+- Selecting a source highlight or reader-margin marker selects its thread. Selecting a thread reveals the source passage and marks only that thread read.
 - Reader/source toggling preserves the corresponding selection and scroll intent.
+- Review order follows source order. Previous/next review commands wrap predictably, resolving advances to the next open thread, and Go to Comment searches passage, author, state, and location.
+- Thread roots present the quote once. Replies share one continuous rail, visual nesting stops at two levels, deeper lineage remains textual, and long conversations retain selected/unread context while collapsing repetition.
+- Inactive threads remain compact; only the active thread exposes reply, resolve, edit, and delete actions. Edit and delete are owner-only, use explicit labels, preserve Markdown, and provide conflict-aware Undo.
+- The command palette is created only when invoked and unifies discoverable actions with recent workspaces without adding persistent chrome.
 - Autosave feedback is quiet; conflicts and unsafe metadata are explicit and actionable.
 
 ## Accessibility
@@ -51,5 +58,6 @@ Every structural pane, toolbar action, tree row, text surface, filter, empty sta
 - Do not recursively crawl directories; enumerate a folder only when it becomes visible.
 - Style source with temporary TextKit attributes; do not rebuild the document model while typing.
 - Parse reader presentation only when entering or refreshing reader mode.
+- Build selection affordances, comment indices, Markdown comment rendering, unread badges, palettes, and recursive filename indices only when their interaction first requires them.
 - Show the native window before optional background discovery work.
 - Treat launch time, idle footprint, and source stability as release acceptance measurements.

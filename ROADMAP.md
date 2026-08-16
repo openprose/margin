@@ -4,6 +4,10 @@
 
 The release gate is the complete local human-agent review loop: native file and directory opening, literal Markdown editing, reader mode, embedded threaded comments, deterministic CLI reads and writes, concurrency safety, packaging, and measured launch performance.
 
+## v0.2 review ergonomics
+
+The second release completes the focused review pass: inline source/reader commenting, clickable anchors and reader markers, source-ordered review navigation, compact threaded presentation, unread external activity, owner edit/delete with safe Undo, session continuity, a command palette, and bounded agent `review`/event-driven `watch` operations.
+
 ## Later in the week: semantic lenses
 
 The first model-assisted layer should remain optional and provider-neutral. It should consume the same bounded interfaces agents use today rather than gaining a second, privileged document representation.
@@ -23,7 +27,7 @@ The model layer must be visibly separate from deterministic source operations. I
 - Import/export generic W3C Annotation collections in addition to the current JSON-LD export.
 - Add converters for review systems that can preserve text quotes, positions, authors, timestamps, and reply relationships.
 - Specify a safe repair flow for Markdown changed by a non-Margin editor while retaining a stale comment envelope.
-- Evaluate comment editing and deletion semantics without weakening auditability.
+- Specify a durable cross-session audit/export policy for edited and deleted comments beyond the current local conflict-aware Undo window.
 
 ## Distribution work
 
