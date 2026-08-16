@@ -1,5 +1,24 @@
 # Margin release notes
 
+## 0.1.3 — native workspace behavior
+
+Release date: 2026-08-16
+
+- Corrected split-pane priorities so the document absorbs horizontal resize while navigator and comment panes retain useful widths.
+- Made sidebar collapse preserve the outer window frame, restored only valid on-screen frames, and removed unnecessary full-screen size overrides.
+- Added native macOS document tabs, multi-file Open/CLI launch, duplicate-tab focusing, tab tooltips, and standard tab/window commands.
+- Made the comment inspector contextual: hidden for empty and unreviewed documents, automatically visible for existing threads, and respectful of explicit user visibility choices.
+- Fixed lazy comment rendering when a reviewed document opens with its inspector initially collapsed.
+- Fixed an infinite reader loop caused by valid tables with blank header cells and added forward-progress regression coverage.
+- Moved reader construction and file-provider watcher setup off the main interaction path, with stale-work cancellation and a lightweight preparing state.
+- Added AppKit behavior and performance tests for resizing, quiet pane defaults, comment-aware visibility, delayed filesystem opens, reader tables, and launcher argument grouping.
+
+The Markdown/comment protocol remains byte-compatible with prior releases. Tabs and pane defaults are presentation behavior only.
+
+On the current M1 Max Mac, the exact signed candidate reached a visible window in 292.688 ms median / 338.877 ms p95 across fifteen warm launches. A same-session five-run control of the installed v0.1.2 binary measured 296.394 ms median, so the new workspace behavior does not add measurable launch latency in the current environment. See `Docs/PERFORMANCE.md` for the RSS and cross-session caveat.
+
+Release artifact: `Margin-0.1.3-macOS-arm64.zip` (1,234,406 bytes), SHA-256 `1dc44895fcd0353cf999a5c08cf1d8a05cab1f955df6abba9701f648e7644d63`.
+
 ## 0.1.2 — editorial instrument
 
 Release date: 2026-08-16

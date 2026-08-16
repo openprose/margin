@@ -2,16 +2,14 @@ import Foundation
 
 enum AppLauncher {
     static func open(_ item: URL?, wait: Bool, appOverride: String?) throws {
+        try open(item.map { [$0] } ?? [], wait: wait, appOverride: appOverride)
+    }
+
+    static func open(_ items: [URL], wait: Bool, appOverride: String?) throws {
         let app = try locateApp(override: appOverride)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        var arguments: [String] = []
-        if wait {
-            arguments.append(contentsOf: ["-W", "-n"])
-        }
-        arguments.append(contentsOf: ["-a", app.path])
-        if let item { arguments.append(item.path) }
-        process.arguments = arguments
+        process.arguments = launchArguments(app: app, items: items, wait: wait)
 
         do {
             try process.run()
@@ -22,6 +20,16 @@ enum AppLauncher {
         guard process.terminationStatus == 0 else {
             throw CLIError("APP_LAUNCH_FAILED", "The macOS open service could not launch Margin.", exit: .io)
         }
+    }
+
+    static func launchArguments(app: URL, items: [URL], wait: Bool) -> [String] {
+        var arguments: [String] = []
+        if wait {
+            arguments.append(contentsOf: ["-W", "-n"])
+        }
+        arguments.append(contentsOf: ["-a", app.path])
+        arguments.append(contentsOf: items.map(\.path))
+        return arguments
     }
 
     static func locateApp(override: String?) throws -> URL {

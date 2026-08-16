@@ -45,6 +45,7 @@ final class EditorViewController: NSViewController,
     private let commentService = CommentService()
 
     var isReaderModeActive: Bool { isReaderMode }
+    var onCommentAvailabilityChanged: ((Bool) -> Void)?
 
     init() {
         let textStorage = NSTextStorage()
@@ -185,6 +186,7 @@ final class EditorViewController: NSViewController,
         highlighter?.invalidate()
         readerViewController?.render(markdown: "", baseURL: nil)
         commentsViewController?.display(comments: [], source: "")
+        onCommentAvailabilityChanged?(false)
         setDirty(false)
         statusLabel.stringValue = ""
         hideBanner()
@@ -198,16 +200,20 @@ final class EditorViewController: NSViewController,
         isReaderMode.toggle()
         if isReaderMode {
             let reader = ensureReaderViewController()
-            reader.render(
-                markdown: textView.string,
-                baseURL: documentURL?.deletingLastPathComponent()
-            )
-            updateReaderHighlights()
-            reader.selectSourceRange(sourceSelection, scrollToVisible: true)
             editorScrollView.isHidden = true
             reader.view.isHidden = false
             view.window?.makeFirstResponder(reader.textView)
-            statusLabel.stringValue = "Reader"
+            statusLabel.stringValue = "Preparing reader…"
+            reader.renderAsync(
+                markdown: textView.string,
+                baseURL: documentURL?.deletingLastPathComponent(),
+                preferredSourceSelection: sourceSelection
+            ) { [weak self] applied in
+                guard let self, applied, self.isReaderMode else { return }
+                self.updateReaderHighlights()
+                self.view.window?.makeFirstResponder(reader.textView)
+                self.statusLabel.stringValue = "Reader"
+            }
         } else {
             let readerSelection = readerViewController?.selectedSourceRange
             readerViewController?.view.isHidden = true
@@ -479,11 +485,15 @@ final class EditorViewController: NSViewController,
         rebuildAnchors(from: comments)
         refreshCommentsPresentation(comments: comments)
         if isReaderMode {
-            ensureReaderViewController().render(
+            statusLabel.stringValue = "Preparing reader…"
+            ensureReaderViewController().renderAsync(
                 markdown: body,
                 baseURL: documentURL?.deletingLastPathComponent()
-            )
-            updateReaderHighlights()
+            ) { [weak self] applied in
+                guard let self, applied, self.isReaderMode else { return }
+                self.updateReaderHighlights()
+                self.statusLabel.stringValue = "Reader"
+            }
         }
         updateStatus()
         hideBanner()
@@ -668,14 +678,18 @@ final class EditorViewController: NSViewController,
         guard let controller = commentsViewController else { return }
         if let comments {
             controller.display(comments: comments, source: textView.string, selectedCommentID: selectedThreadID)
+            onCommentAvailabilityChanged?(!comments.isEmpty)
             return
         }
         guard let url = documentURL else {
             controller.display(comments: [], source: "")
+            onCommentAvailabilityChanged?(false)
             return
         }
         if let decoded = try? codec.decode(Data(contentsOf: url, options: .mappedIfSafe)) {
-            controller.display(comments: decoded.envelope?.items ?? [], source: textView.string, selectedCommentID: selectedThreadID)
+            let comments = decoded.envelope?.items ?? []
+            controller.display(comments: comments, source: textView.string, selectedCommentID: selectedThreadID)
+            onCommentAvailabilityChanged?(!comments.isEmpty)
         }
     }
 

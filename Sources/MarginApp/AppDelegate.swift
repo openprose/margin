@@ -67,6 +67,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
+    @objc func newWindow(_ sender: Any?) {
+        makeWorkspaceWindow(for: nil)
+    }
+
+    @objc func newWindowForTab(_ sender: Any?) {
+        makeWorkspaceWindow(for: nil, tabbedTo: activeWorkspaceWindow?.window)
+    }
+
+    @objc func selectTab(_ sender: NSMenuItem) {
+        guard let window = activeWorkspaceWindow?.window else { return }
+        let windows = window.tabGroup?.windows ?? [window]
+        guard !windows.isEmpty else { return }
+        let requestedIndex = sender.tag == 9 ? windows.count - 1 : sender.tag - 1
+        guard windows.indices.contains(requestedIndex) else { return }
+        let selected = windows[requestedIndex]
+        window.tabGroup?.selectedWindow = selected
+        selected.makeKeyAndOrderFront(sender)
+    }
+
     @objc func toggleNavigator(_ sender: Any?) {
         activeWorkspaceWindow?.toggleNavigator(sender)
     }
@@ -116,7 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return controller.canShowNavigator
         case #selector(toggleComments(_:)):
             menuItem.state = controller.isCommentsVisible ? .on : .off
-            return true
+            return controller.canShowComments
         case #selector(toggleReaderMode(_:)):
             menuItem.state = controller.isReaderModeActive ? .on : .off
             return controller.canToggleReaderMode
@@ -130,7 +149,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return controller.canNavigateFiles
         case #selector(focusNavigator(_:)):
             return controller.canShowNavigator
-        case #selector(focusEditor(_:)), #selector(focusComments(_:)):
+        case #selector(focusComments(_:)):
+            return controller.canShowComments
+        case #selector(focusEditor(_:)):
+            return true
+        case #selector(selectTab(_:)):
+            guard let window = controller.window else { return false }
+            let windows = window.tabGroup?.windows ?? [window]
+            let index = menuItem.tag == 9 ? windows.count - 1 : menuItem.tag - 1
+            guard windows.indices.contains(index) else {
+                menuItem.state = .off
+                return false
+            }
+            menuItem.state = windows[index] === window ? .on : .off
             return true
         default:
             return true
@@ -146,19 +177,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func open(_ urls: [URL]) {
         var seen = Set<String>()
+        var tabAnchor = activeWorkspaceWindow?.window
         for url in urls.map(\.standardizedFileURL) where seen.insert(url.path).inserted {
-            if let existing = workspaceWindows.first(where: { $0.workspaceURL == url }) {
-                existing.showWindow(nil)
-                existing.window?.makeKeyAndOrderFront(nil)
+            if let existing = workspaceWindows.first(where: {
+                $0.workspaceURL == url || $0.documentURL == url
+            }) {
+                focus(existing)
+                tabAnchor = existing.window
                 continue
             }
 
-            if let empty = workspaceWindows.first(where: \.isEmpty) {
+            if let empty = activeWorkspaceWindow, empty.isEmpty {
                 empty.open(url)
-                empty.showWindow(nil)
-                empty.window?.makeKeyAndOrderFront(nil)
+                focus(empty)
+                tabAnchor = empty.window
             } else {
-                makeWorkspaceWindow(for: url)
+                let created = makeWorkspaceWindow(for: url, tabbedTo: tabAnchor)
+                tabAnchor = created.window
             }
         }
 
@@ -166,16 +201,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @discardableResult
-    private func makeWorkspaceWindow(for url: URL?) -> WorkspaceWindowController {
+    private func makeWorkspaceWindow(
+        for url: URL?,
+        tabbedTo parentWindow: NSWindow? = nil
+    ) -> WorkspaceWindowController {
         let controller = WorkspaceWindowController(workspaceURL: url)
         controller.onClose = { [weak self, weak controller] in
             guard let self, let controller else { return }
             self.workspaceWindows.removeAll { $0 === controller }
         }
         workspaceWindows.append(controller)
+        if let parentWindow, let window = controller.window, parentWindow !== window {
+            let parentController = parentWindow.windowController as? WorkspaceWindowController
+            parentController?.prepareForTabAttachment()
+            controller.prepareForTabAttachment()
+            parentWindow.addTabbedWindow(window, ordered: .above)
+            parentController?.refreshTabPresentation()
+            controller.refreshTabPresentation()
+        }
         controller.showWindow(nil)
-        controller.window?.makeKeyAndOrderFront(nil)
+        focus(controller)
         return controller
+    }
+
+    private func focus(_ controller: WorkspaceWindowController) {
+        guard let window = controller.window else { return }
+        controller.showWindow(nil)
+        window.makeKeyAndOrderFront(nil)
     }
 
     private func commandLineURLs() -> [URL] {

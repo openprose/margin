@@ -58,6 +58,23 @@ enum AppMenu {
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(
             item(
+                "New Tab",
+                action: #selector(AppDelegate.newWindowForTab(_:)),
+                key: "t",
+                target: delegate
+            )
+        )
+        fileMenu.addItem(
+            item(
+                "New Window",
+                action: #selector(AppDelegate.newWindow(_:)),
+                key: "n",
+                target: delegate
+            )
+        )
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(
+            item(
                 "Open…",
                 action: #selector(AppDelegate.openDocument(_:)),
                 key: "o",
@@ -77,7 +94,7 @@ enum AppMenu {
             item("Save", action: #selector(WorkspaceDocumentSaving.saveDocument(_:)), key: "s")
         )
         fileMenu.addItem(.separator())
-        fileMenu.addItem(item("Close", action: #selector(NSWindow.performClose(_:)), key: "w"))
+        fileMenu.addItem(item("Close Tab", action: #selector(NSWindow.performClose(_:)), key: "w"))
         mainMenu.addItem(menuItem(title: "File", submenu: fileMenu))
 
         let editMenu = NSMenu(title: "Edit")
@@ -156,6 +173,7 @@ enum AppMenu {
                 "Focus Navigator",
                 action: #selector(AppDelegate.focusNavigator(_:)),
                 key: "1",
+                modifiers: [.control],
                 target: delegate
             )
         )
@@ -164,6 +182,7 @@ enum AppMenu {
                 "Focus Editor",
                 action: #selector(AppDelegate.focusEditor(_:)),
                 key: "2",
+                modifiers: [.control],
                 target: delegate
             )
         )
@@ -172,6 +191,7 @@ enum AppMenu {
                 "Focus Comments",
                 action: #selector(AppDelegate.focusComments(_:)),
                 key: "3",
+                modifiers: [.control],
                 target: delegate
             )
         )
@@ -239,6 +259,66 @@ enum AppMenu {
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(item("Minimize", action: #selector(NSWindow.performMiniaturize(_:)), key: "m"))
         windowMenu.addItem(item("Zoom", action: #selector(NSWindow.performZoom(_:))))
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(
+            item(
+                "Show Previous Tab",
+                action: #selector(NSWindow.selectPreviousTab(_:)),
+                key: "\t",
+                modifiers: [.control, .shift]
+            )
+        )
+        windowMenu.addItem(
+            item(
+                "Show Next Tab",
+                action: #selector(NSWindow.selectNextTab(_:)),
+                key: "\t",
+                modifiers: [.control]
+            )
+        )
+        let previousTabAlternate = item(
+            "Previous Tab",
+            action: #selector(NSWindow.selectPreviousTab(_:)),
+            key: "[",
+            modifiers: [.command, .shift]
+        )
+        previousTabAlternate.isHidden = true
+        previousTabAlternate.allowsKeyEquivalentWhenHidden = true
+        windowMenu.addItem(previousTabAlternate)
+        let nextTabAlternate = item(
+            "Next Tab",
+            action: #selector(NSWindow.selectNextTab(_:)),
+            key: "]",
+            modifiers: [.command, .shift]
+        )
+        nextTabAlternate.isHidden = true
+        nextTabAlternate.allowsKeyEquivalentWhenHidden = true
+        windowMenu.addItem(nextTabAlternate)
+
+        let selectTabMenu = NSMenu(title: "Select Tab")
+        for index in 1...9 {
+            let title = index == 9 ? "Last Tab" : "Tab \(index)"
+            let tabItem = item(
+                title,
+                action: #selector(AppDelegate.selectTab(_:)),
+                key: String(index),
+                target: delegate
+            )
+            tabItem.tag = index
+            selectTabMenu.addItem(tabItem)
+        }
+        windowMenu.addItem(menuItem(title: "Select Tab", submenu: selectTabMenu))
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(item("Move Tab to New Window", action: #selector(NSWindow.moveTabToNewWindow(_:))))
+        windowMenu.addItem(item("Merge All Windows", action: #selector(NSWindow.mergeAllWindows(_:))))
+        windowMenu.addItem(
+            item(
+                "Show All Tabs",
+                action: #selector(NSWindow.toggleTabOverview(_:)),
+                key: "\\",
+                modifiers: [.command, .shift]
+            )
+        )
         windowMenu.addItem(.separator())
         windowMenu.addItem(
             item(

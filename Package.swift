@@ -31,6 +31,16 @@ let package = Package(
             name: "MarginCoreTests",
             dependencies: ["MarginCore"],
             path: "Tests/MarginCoreTests"
+        ),
+        .testTarget(
+            name: "MarginAppTests",
+            dependencies: ["MarginApp"],
+            path: "Tests/MarginAppTests"
+        ),
+        .testTarget(
+            name: "MarginCLITests",
+            dependencies: ["MarginCLI"],
+            path: "Tests/MarginCLITests"
         )
     ]
 )

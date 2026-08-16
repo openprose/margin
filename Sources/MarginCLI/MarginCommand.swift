@@ -3,7 +3,7 @@ import Foundation
 import MarginCore
 
 enum MarginCommand {
-    static let version = "0.1.2"
+    static let version = "0.1.3"
     static let service = CommentService()
     static let codec = EmbeddedCommentCodec()
 
@@ -55,30 +55,45 @@ enum MarginCommand {
         case "comments", "comment":
             try runComments(&cursor)
         case "--wait":
-            let path = try cursor.require("file or directory")
             let appOverride = try cursor.takeValue("--app")
-            try cursor.rejectRemaining()
-            let item = try PathResolver.openableItem(path)
-            try AppLauncher.open(item, wait: true, appOverride: appOverride)
+            let paths = try takeOpenPaths(&cursor, requiringOne: true)
+            let items = try paths.map(PathResolver.openableItem)
+            try AppLauncher.open(items, wait: true, appOverride: appOverride)
         default:
             guard !command.hasPrefix("-") else {
                 throw CLIError.usage("Unknown option '\(command)'. Run 'margin --help'.")
             }
             let wait = cursor.takeFlag("--wait")
             let appOverride = try cursor.takeValue("--app")
-            try cursor.rejectRemaining()
-            let item = try PathResolver.openableItem(command)
-            try AppLauncher.open(item, wait: wait, appOverride: appOverride)
+            let paths = [command] + (try takeOpenPaths(&cursor, requiringOne: false))
+            let items = try paths.map(PathResolver.openableItem)
+            try AppLauncher.open(items, wait: wait, appOverride: appOverride)
         }
     }
 
     private static func runOpen(_ cursor: inout ArgumentCursor) throws {
         let wait = cursor.takeFlag("--wait")
         let appOverride = try cursor.takeValue("--app")
-        let rawPath = cursor.pop()
-        try cursor.rejectRemaining()
-        let item = try rawPath.map(PathResolver.openableItem)
-        try AppLauncher.open(item, wait: wait, appOverride: appOverride)
+        let paths = try takeOpenPaths(&cursor, requiringOne: false)
+        let items = try paths.map(PathResolver.openableItem)
+        try AppLauncher.open(items, wait: wait, appOverride: appOverride)
+    }
+
+    private static func takeOpenPaths(
+        _ cursor: inout ArgumentCursor,
+        requiringOne: Bool
+    ) throws -> [String] {
+        var paths: [String] = []
+        while let value = cursor.pop() {
+            guard !value.hasPrefix("-") else {
+                throw CLIError.usage("Unknown option '\(value)'. Run 'margin --help'.")
+            }
+            paths.append(value)
+        }
+        if requiringOne, paths.isEmpty {
+            throw CLIError.usage("Missing file or directory.")
+        }
+        return paths
     }
 
     private static func runInspect(_ cursor: inout ArgumentCursor) throws {
@@ -608,8 +623,8 @@ private extension MarginCommand {
     Margin \(version), a fast native Markdown editor and human-agent review protocol.
 
     USAGE
-      margin [FILE|DIRECTORY] [--wait]
-      margin open [FILE|DIRECTORY] [--wait]
+      margin [FILE|DIRECTORY ...] [--wait]
+      margin open [FILE|DIRECTORY ...] [--wait]
       margin inspect FILE [--json]
       margin outline FILE [--json]
       margin read FILE [--json] [--with-comments]
@@ -624,6 +639,7 @@ private extension MarginCommand {
 
     EXAMPLES
       margin architecture.md
+      margin brief.md architecture.md
       margin new-draft.md        # creates an empty file when its parent exists
       margin .
       margin inspect architecture.md --json --pretty

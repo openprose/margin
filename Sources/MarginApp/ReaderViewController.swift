@@ -65,6 +65,7 @@ final class ReaderViewController: NSViewController {
     private(set) var baseURL: URL?
     private var commentHighlights: [CommentHighlight] = []
     private var renderedHighlightRanges: [NSRange] = []
+    private var renderGeneration = UUID()
 
     var textView: NSTextView { readerTextView }
 
@@ -154,20 +155,65 @@ final class ReaderViewController: NSViewController {
         // Accessing `view` is the macOS 13-compatible way to force `loadView()`.
         _ = view
         let preserved = captureState()
-        clearRenderedHighlights()
+        renderGeneration = UUID()
 
         let renderer = MarkdownReaderRenderer(theme: theme, baseURL: baseURL)
         let result = renderer.render(markdown)
-        readerTextView.textStorage?.setAttributedString(result.attributedString)
-
-        self.markdown = markdown
-        self.baseURL = baseURL
-        renderResult = result
-
-        sizeDocumentViewToContent()
-        applyCommentHighlights()
-        restore(preserved)
+        apply(
+            result,
+            markdown: markdown,
+            baseURL: baseURL,
+            preserved: preserved,
+            preferredSourceSelection: nil
+        )
         return result
+    }
+
+    /// Builds the attributed reader document away from the main interaction
+    /// path, then installs it atomically. A newer request invalidates older
+    /// work so rapidly switching files or modes never flashes stale content.
+    func renderAsync(
+        markdown: String,
+        baseURL: URL?,
+        preferredSourceSelection: NSRange? = nil,
+        completion: ((Bool) -> Void)? = nil
+    ) {
+        _ = view
+        let generation = UUID()
+        renderGeneration = generation
+        let preserved = captureState()
+        let theme = theme
+
+        if renderResult == nil {
+            let preparing = NSAttributedString(
+                string: "Preparing reader…",
+                attributes: [
+                    .font: theme.bodyFont,
+                    .foregroundColor: theme.secondaryTextColor,
+                    .paragraphStyle: theme.bodyParagraphStyle,
+                ]
+            )
+            readerTextView.textStorage?.setAttributedString(preparing)
+            sizeDocumentViewToContent()
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = MarkdownReaderRenderer(theme: theme, baseURL: baseURL).render(markdown)
+            DispatchQueue.main.async {
+                guard let self, self.renderGeneration == generation else {
+                    completion?(false)
+                    return
+                }
+                self.apply(
+                    result,
+                    markdown: markdown,
+                    baseURL: baseURL,
+                    preserved: preserved,
+                    preferredSourceSelection: preferredSourceSelection
+                )
+                completion?(true)
+            }
+        }
     }
 
     func readerRange(forSourceRange sourceRange: NSRange) -> NSRange? {
@@ -205,6 +251,28 @@ final class ReaderViewController: NSViewController {
     func clearCommentHighlights() {
         commentHighlights.removeAll()
         clearRenderedHighlights()
+    }
+
+    private func apply(
+        _ result: MarkdownReaderRenderer.Result,
+        markdown: String,
+        baseURL: URL?,
+        preserved: PreservedState?,
+        preferredSourceSelection: NSRange?
+    ) {
+        clearRenderedHighlights()
+        readerTextView.textStorage?.setAttributedString(result.attributedString)
+        self.markdown = markdown
+        self.baseURL = baseURL
+        renderResult = result
+
+        sizeDocumentViewToContent()
+        applyCommentHighlights()
+        if let preferredSourceSelection {
+            selectSourceRange(preferredSourceSelection, scrollToVisible: true)
+        } else {
+            restore(preserved)
+        }
     }
 
     func commentHighlightIDs(atReaderLocation location: Int) -> [String] {

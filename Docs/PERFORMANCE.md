@@ -60,3 +60,11 @@ The navigation and thread-layout additions increased the app bundle to 2,019,197
 The exact signed v0.1.2 visual release was measured on the same machine and fixture with three warm-ups, fifteen runs, and the 250 ms RSS settle interval. It reached the first visible window in **223.750 ms median** and **232.907 ms p95**; median RSS was **80.734 MiB** (80.938 MiB p95).
 
 That distribution overlaps v0.1.1 and shows no launch regression: the median was 3.8% lower and p95 6.2% lower in this run, while median RSS differed by 0.343 MiB. The adaptive palette, typographic hierarchy, and refined review surfaces are code-native AppKit work; reader construction, recursive filename discovery, and document decoding remain outside the pre-window path. The bundle is 2,053,005 logical bytes and the main executable is 1,088,608 bytes.
+
+## Final v0.1.3 release gate
+
+The exact signed v0.1.3 candidate completed the standard three-warm-up/fifteen-run probe at **292.688 ms median** and **338.877 ms p95**; median RSS was **148.094 MiB** (148.609 MiB p95). The bundle is 2,086,301 logical bytes and the main executable is 1,121,904 bytes.
+
+The earlier v0.1.2 absolute distribution was not reproducible in the current machine session: rerunning the exact installed v0.1.2 binary back-to-back produced 296.394 ms median and 132.391 MiB median RSS across five measured launches. A matching five-run v0.1.3 control produced 286.834 ms median and 147.781 MiB median RSS. The current evidence therefore shows no launch-latency regression. The candidate used roughly 15 MiB more at this sampling point; native tab/window infrastructure and the larger useful default surface are the material presentation changes, but this probe does not isolate their individual shares.
+
+All optional v0.1.3 work remains off the single-document launch path: the comment view stays unloaded until a reviewed document needs it, reader construction begins only on demand, file-provider watcher descriptors open on a utility queue, and native tab groups are created only when a second document appears. The benchmark still measures a real editor window rather than a placeholder.

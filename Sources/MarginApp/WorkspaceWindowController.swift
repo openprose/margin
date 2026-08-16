@@ -31,6 +31,11 @@ enum WorkspacePaneFactory {
 }
 
 final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate, NSToolbarItemValidation {
+    private enum CommentsVisibilityChoice {
+        case automatic
+        case explicit
+    }
+
     enum WorkspaceKind {
         case empty
         case file(URL)
@@ -53,6 +58,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     private var navigationPaletteController: NavigationPaletteController?
     private var fileScanGeneration = UUID()
     private var indexedFileURLs: [URL] = []
+    private var commentsVisibilityChoice: CommentsVisibilityChoice = .automatic
+    private var pendingInitialWindowFrame: NSRect?
+    private var isExplicitlyTabbed = false
 
     var isEmpty: Bool {
         if case .empty = workspaceKind { return true }
@@ -71,6 +79,8 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     var isCommentsVisible: Bool {
         !commentsItem.isCollapsed
     }
+
+    var canShowComments: Bool { documentURL != nil }
 
     var canToggleReaderMode: Bool {
         documentURL != nil && editorViewController is WorkspaceReaderModeToggling
@@ -121,6 +131,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         }
         configureWindow(window)
         configureSplitView()
+        configureInitialWindowFrame(window)
         configureCallbacks()
 
         if let workspaceURL {
@@ -133,6 +144,30 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func showWindow(_ sender: Any?) {
+        let wasVisible = window?.isVisible == true
+        super.showWindow(sender)
+        guard !wasVisible, let window, let frame = pendingInitialWindowFrame else { return }
+        pendingInitialWindowFrame = nil
+
+        // AppKit asks a newly installed split view for its fitting size while
+        // ordering the window. Reapply the restored/default frame after that
+        // first layout pass; explicit child tabs instead inherit their group.
+        if !isExplicitlyTabbed {
+            window.setFrame(frame, display: true, animate: false)
+        }
+    }
+
+    func prepareForTabAttachment() {
+        isExplicitlyTabbed = true
+        pendingInitialWindowFrame = nil
+    }
+
+    func refreshTabPresentation() {
+        guard isExplicitlyTabbed, let window else { return }
+        window.tab.toolTip = (window.representedURL?.path).flatMap { $0.isEmpty ? nil : $0 } ?? "Margin"
     }
 
     func open(_ url: URL) {
@@ -158,8 +193,8 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     }
 
     @objc func toggleComments(_ sender: Any?) {
-        commentsItem.animator().isCollapsed.toggle()
-        window?.toolbar?.validateVisibleItems()
+        guard canShowComments else { return }
+        setCommentsVisible(!isCommentsVisible, explicit: true, animated: true)
     }
 
     @objc func toggleReaderMode(_ sender: Any?) {
@@ -168,6 +203,8 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     }
 
     @objc func addComment(_ sender: Any?) {
+        guard documentURL != nil else { return }
+        setCommentsVisible(true, explicit: true, animated: true)
         _ = NSApp.sendAction(NSSelectorFromString("beginComment:"), to: editorViewController, from: sender)
     }
 
@@ -251,9 +288,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     }
 
     @objc func focusComments(_ sender: Any?) {
-        commentsItem.isCollapsed = false
+        guard canShowComments else { return }
+        setCommentsVisible(true, explicit: true, animated: false)
         (commentsViewController as? CommentsViewController)?.focusComments()
-        window?.toolbar?.validateVisibleItems()
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -279,12 +316,15 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         window.toolbarStyle = .unified
         window.backgroundColor = MarginTheme.documentBackground
         window.isRestorable = false
-        window.minSize = NSSize(width: 760, height: 500)
-        window.maxSize = NSSize(width: 100_000, height: 100_000)
-        window.maxFullScreenContentSize = NSSize(width: 100_000, height: 100_000)
+        // Let AppKit own live resize and full-screen sizing. Explicit frame
+        // maxima are ignored by Auto Layout and can interact poorly with
+        // split-view fitting sizes; a content minimum is the native contract.
+        window.contentMinSize = NSSize(width: 720, height: 480)
         window.collectionBehavior.insert(.fullScreenPrimary)
-        window.center()
-        window.setFrameAutosaveName("MarginWorkspaceWindow")
+        window.tabbingMode = .disallowed
+        window.tabbingIdentifier = "ink.margin.workspace"
+        window.animationBehavior = .documentWindow
+        window.preservesContentDuringLiveResize = true
         window.setAccessibilityLabel("Margin workspace")
 
         let toolbar = NSToolbar(identifier: "MarginUnifiedToolbar")
@@ -293,6 +333,32 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         toolbar.allowsUserCustomization = false
         toolbar.showsBaselineSeparator = false
         window.toolbar = toolbar
+    }
+
+    private func configureInitialWindowFrame(_ window: NSWindow) {
+        let frameName = "MarginWorkspaceWindow.v3"
+        let restored = window.setFrameUsingName(frameName)
+        let restoredFrame = window.frame
+        let restoredIsUsable = restored
+            && restoredFrame.width >= 720
+            && restoredFrame.height >= 480
+            && NSScreen.screens.contains(where: {
+                NSIntersectionRect(restoredFrame, $0.visibleFrame).width >= 160
+                    && NSIntersectionRect(restoredFrame, $0.visibleFrame).height >= 120
+            })
+
+        if !restoredIsUsable {
+            let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame
+            let width = min(1180, max(720, (visibleFrame?.width ?? 1276) - 96))
+            let height = min(780, max(480, (visibleFrame?.height ?? 876) - 96))
+            window.setContentSize(NSSize(width: width, height: height))
+            window.center()
+        }
+        pendingInitialWindowFrame = window.frame
+
+        // Version the frame key when the window layout changes materially so
+        // an old, cramped frame does not become the new product default.
+        window.setFrameAutosaveName(frameName)
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -363,7 +429,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         case .marginAddComment:
             return documentURL != nil
         case .marginComments:
-            return true
+            return canShowComments
         default:
             return true
         }
@@ -379,16 +445,24 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         navigatorItem.preferredThicknessFraction = 0.19
         navigatorItem.allowsFullHeightLayout = true
         navigatorItem.canCollapse = true
+        navigatorItem.holdingPriority = .defaultHigh
+        navigatorItem.collapseBehavior = .preferResizingSiblingsWithFixedSplitView
+        navigatorItem.isCollapsed = true
 
         editorItem.minimumThickness = 420
         editorItem.maximumThickness = 100_000
-        editorItem.holdingPriority = .defaultHigh
+        // The document is the elastic pane. Sidebars keep their working width
+        // while the editor absorbs normal window growth and shrinkage.
+        editorItem.holdingPriority = .defaultLow
 
         commentsItem.minimumThickness = 260
         commentsItem.maximumThickness = 420
         commentsItem.preferredThicknessFraction = 0.25
         commentsItem.allowsFullHeightLayout = true
         commentsItem.canCollapse = true
+        commentsItem.holdingPriority = .defaultHigh
+        commentsItem.collapseBehavior = .preferResizingSiblingsWithFixedSplitView
+        commentsItem.isCollapsed = true
 
         splitViewController.addSplitViewItem(navigatorItem)
         splitViewController.addSplitViewItem(editorItem)
@@ -399,13 +473,21 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         fileTreeViewController.onOpenFile = { [weak self] url in
             self?.openFileFromDirectory(url)
         }
+        if let editor = editorViewController as? EditorViewController {
+            editor.onCommentAvailabilityChanged = { [weak self] hasComments in
+                guard let self, self.commentsVisibilityChoice == .automatic else { return }
+                self.setCommentsVisible(hasComments, explicit: false, animated: self.window?.isVisible == true)
+            }
+        }
     }
 
     private func showEmptyState() {
         workspaceKind = .empty
         workspaceURL = nil
         documentURL = nil
+        commentsVisibilityChoice = .automatic
         navigatorItem.isCollapsed = true
+        commentsItem.isCollapsed = true
         (editorViewController as? WorkspaceDocumentPresenting)?.clearDocument()
         (commentsViewController as? WorkspaceCommentsPresenting)?.presentComments(for: nil)
         updateWindowTitle(documentURL: nil, workspaceURL: nil)
@@ -422,9 +504,11 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     private func openDirectory(_ directoryURL: URL) {
         workspaceKind = .directory(directoryURL)
         documentURL = nil
+        commentsVisibilityChoice = .automatic
         indexedFileURLs.removeAll()
         fileScanGeneration = UUID()
         navigatorItem.isCollapsed = false
+        commentsItem.isCollapsed = true
         (editorViewController as? WorkspaceDocumentPresenting)?.clearDocument()
         (commentsViewController as? WorkspaceCommentsPresenting)?.presentComments(for: nil)
         updateWindowTitle(documentURL: nil, workspaceURL: directoryURL)
@@ -473,9 +557,25 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     }
 
     private func presentDocument(_ fileURL: URL) {
+        commentsVisibilityChoice = .automatic
+        commentsItem.isCollapsed = true
         (editorViewController as? WorkspaceDocumentPresenting)?.presentDocument(at: fileURL)
         (commentsViewController as? WorkspaceCommentsPresenting)?.presentComments(for: fileURL)
         updateWindowTitle(documentURL: fileURL, workspaceURL: workspaceURL)
+        window?.toolbar?.validateVisibleItems()
+    }
+
+    private func setCommentsVisible(_ visible: Bool, explicit: Bool, animated: Bool) {
+        if explicit { commentsVisibilityChoice = .explicit }
+        guard isCommentsVisible != visible else {
+            window?.toolbar?.validateVisibleItems()
+            return
+        }
+        if animated {
+            commentsItem.animator().isCollapsed = !visible
+        } else {
+            commentsItem.isCollapsed = !visible
+        }
         window?.toolbar?.validateVisibleItems()
     }
 
@@ -483,6 +583,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         guard let window else { return }
         let representedURL = documentURL ?? workspaceURL
         window.representedURL = representedURL
+        refreshTabPresentation()
 
         if let documentURL {
             window.title = documentURL.lastPathComponent

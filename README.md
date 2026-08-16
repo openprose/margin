@@ -7,6 +7,7 @@ There is no account, server, database, WebView, plug-in runtime, or sidecar file
 ## What works
 
 - Open a Markdown file or a directory from Terminal.
+- Keep several documents open in native macOS tabs.
 - Browse directories in a lazy native tree without recursively indexing them at launch.
 - Edit literal Markdown with restrained syntax cues, delimiter pairing, list continuation, native undo, find, spellcheck, and accessibility.
 - Switch to a bounded, typography-first reader view.
@@ -45,18 +46,23 @@ margin architecture.md
 # Open a workspace with a directory navigator.
 margin ~/code/my-project
 
+# Open several documents as tabs in one window.
+margin brief.md architecture.md review-notes.md
+
 # Block the terminal until this Margin window closes.
 margin architecture.md --wait
 ```
 
-In the app, select a passage and press `⌘⌥M` to open the composer. Comments appear in the right sidebar and the selected passage stays highlighted. `⌘⇧R` toggles reader mode, `⌘0` toggles the directory navigator, and `⌘⌥0` toggles comments. The window supports native macOS full screen with `⌃⌘F`.
+In the app, select a passage and press `⌘⌥M` to open the composer. Comments appear in the right sidebar and the selected passage stays highlighted. A document with no comments opens without an inspector; a reviewed document reveals its conversation automatically. `⌘⇧R` toggles reader mode, `⌘0` toggles the directory navigator, and `⌘⌥0` toggles comments. The window supports native macOS full screen with `⌃⌘F`.
 
 Navigation stays keyboard-first:
 
 - `⌘P` searches and opens files by fuzzy filename or path. Directory indexing begins only when the palette opens.
 - `⌘⇧O` searches headings in the current document.
 - `⌘⌥←` and `⌘⌥→` open the previous or next visible file in the navigator.
-- `⌘1`, `⌘2`, and `⌘3` focus the navigator, editor, and comments respectively.
+- `⌘T` opens a tab, `⌘N` opens a separate window, and `⌘W` closes the current tab.
+- `⌃Tab` / `⌃⇧Tab` (or `⌘⇧]` / `⌘⇧[`) move through tabs; `⌘1`…`⌘9` select them directly.
+- `⌃1`, `⌃2`, and `⌃3` focus the navigator, editor, and comments respectively.
 
 Formatting shortcuts write ordinary Markdown characters: `⌘B` for bold, `⌘I` for emphasis, and `⌘K` for a link. Margin never replaces the source with hidden rich-text state.
 

@@ -760,7 +760,13 @@ struct MarkdownReaderRenderer {
                 continue
             }
             let cells = tableCells(in: lines[index].contentRange, source: source)
-            guard !cells.isEmpty else { break }
+            guard !cells.isEmpty else {
+                // A malformed or otherwise unrenderable table must still move
+                // past its header and delimiter. Returning `start` here would
+                // make the outer renderer visit the same table forever.
+                index = max(index, min(lines.count, start + 2))
+                break
+            }
 
             let font = isHeader
                 ? font(byAdding: .boldFontMask, to: theme.bodyFont)
@@ -1264,7 +1270,10 @@ struct MarkdownReaderRenderer {
             }
             cursor += 1
         }
-        return cells.filter { $0.length > 0 }
+        // Empty table cells are meaningful. In particular, CommonMark tables
+        // often use a deliberately blank header (`| | |`). Dropping those
+        // cells leaves the row empty and can prevent the renderer advancing.
+        return cells
     }
 
     private func htmlCommentRanges(in source: NSString) -> [NSRange] {

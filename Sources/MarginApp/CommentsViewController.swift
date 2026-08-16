@@ -119,6 +119,14 @@ final class CommentsViewController: NSViewController {
         ])
     }
 
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        // The inspector is deliberately lazy when a document has no comments.
+        // If comment data arrived while it was collapsed, render that retained
+        // model as soon as AppKit materializes the pane.
+        reload()
+    }
+
     func display(comments: [MarginComment], source: String, selectedCommentID: String? = nil) {
         self.comments = comments
         self.source = source

@@ -14,6 +14,15 @@ Its visual character is an **editorial instrument**: the measured geometry and m
 
 All panes use standard AppKit split-view behavior, system materials, native focus rings, and familiar keyboard navigation. The layout has no decorative cards or persistent onboarding chrome.
 
+## Workspace defaults
+
+- A new or comment-free document begins with the source alone. The comment inspector opens automatically only when a document already contains review threads or the user starts a comment.
+- Standalone files hide the navigator; directory workspaces reveal it. Closing either sidebar gives its space to the document without changing the outer window frame.
+- The initial window uses a generous 1180 × 780 working size when the screen permits. Later launches restore only a usable, on-screen frame, and the document pane remains the elastic region during live resize and full screen.
+- Opening several files—through the Open panel, Finder, or the CLI—places them in native tabs. An empty tab is reused, duplicate paths focus their existing tab, and separate windows remain available with `⌘N`.
+- Tabs follow browser conventions: `⌘T`, `⌘W`, `⌃Tab`, `⌃⇧Tab`, and `⌘1`…`⌘9`. Pane focus uses `⌃1`…`⌃3` so it never competes with tab selection.
+- Reader presentation and file-provider change watching begin only after they are requested, away from the main interaction path. Stale reader work is discarded when the user switches files or modes.
+
 ## Typography and color
 
 Source editing uses a legible system face with a serif heading register, generous leading, and restrained syntax color. Every delimiter remains visible. The editing measure centers only when space permits, preserving a direct full-width canvas in compact windows. Reader mode uses a native serif design, increased leading, and a narrower book-like measure.
