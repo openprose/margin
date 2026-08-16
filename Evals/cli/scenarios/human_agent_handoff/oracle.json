@@ -1,0 +1,14 @@
+{
+  "schema": "urn:margin:cli-eval-oracle:v1",
+  "steps": [
+    {"argv": ["review", "$DOCUMENT", "--json"]},
+    {"argv": ["slice", "$DOCUMENT", "--comment", "40000000-0000-4000-8000-000000000001", "--context", "2", "--json"]},
+    {"argv": ["comments", "reply", "$DOCUMENT", "40000000-0000-4000-8000-000000000003", "-m", "Human handoff: Register before capture, then deduplicate by revision.", "--id", "40000000-0000-4000-8000-000000000006"]},
+    {"argv": ["comments", "resolve", "$DOCUMENT", "40000000-0000-4000-8000-000000000001"]},
+    {"argv": ["comments", "reply", "$DOCUMENT", "40000000-0000-4000-8000-000000000004", "-m", "Agent handoff: Retry up to three times only without an explicit precondition.", "--reopen", "--id", "40000000-0000-4000-8000-000000000007"]},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Agent synthesis: Ordering, bounded retries, and source preservation form the handoff contract.", "--document", "--id", "40000000-0000-4000-8000-000000000008"]},
+    {"argv": ["review", "$DOCUMENT", "--json", "--since-revision", "6"]},
+    {"argv": ["comments", "list", "$DOCUMENT", "--status", "all", "--thread", "40000000-0000-4000-8000-000000000006"]},
+    {"argv": ["comments", "validate", "$DOCUMENT"]}
+  ]
+}

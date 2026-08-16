@@ -1,0 +1,37 @@
+{
+  "caps": [
+    {"ifCheckFails": "source_preservation", "maxScore": 20},
+    {"ifCheckFails": "protocol_validation", "maxScore": 40},
+    {"ifCheckFails": "cli_only_policy", "maxScore": 70}
+  ],
+  "checks": [
+    {"id": "review_snapshot", "type": "command", "dimension": "review", "points": 5, "expect": {"startsWith": ["review"], "hasFlags": ["--json"], "exitCode": 0, "first": true}},
+    {"id": "edited_reply", "type": "comment", "dimension": "lifecycle", "points": 10, "expect": {"body": "Architect revision: SRE owns the handoff at minute five.", "id": "30000000-0000-4000-8000-000000000002", "creatorID": "urn:margin:eval:architect", "parentBody": "Human: clarify the rollback owner.", "depth": 1, "status": "resolved"}},
+    {"id": "conditional_edit", "type": "command", "dimension": "concurrency", "points": 5, "expect": {"startsWith": ["comments", "edit"], "hasFlags": ["--if-revision"], "exitCode": 0, "changed": true}},
+    {"id": "stale_delete_recovery", "type": "command_sequence", "dimension": "concurrency", "points": 10, "expect": {"steps": [{"startsWith": ["comments", "delete"], "hasFlags": ["--if-revision"], "errorCode": "REVISION_CONFLICT"}, {"startsWith": ["comments", "delete"], "hasFlags": ["--if-revision"], "exitCode": 0}]}},
+    {"id": "obsolete_deleted", "type": "comment", "dimension": "lifecycle", "points": 6, "expect": {"body": "Agent draft: old wording.", "absent": true}},
+    {"id": "resolved_reply_recovery", "type": "command_sequence", "dimension": "recovery", "points": 10, "expect": {"steps": [{"startsWith": ["comments", "reply"], "lacksFlags": ["--reopen"], "errorCode": "THREAD_RESOLVED"}, {"startsWith": ["comments", "reply"], "hasFlags": ["--reopen"], "exitCode": 0}]}},
+    {"id": "reopened_reply", "type": "comment", "dimension": "threading", "points": 10, "expect": {"body": "Agent: reopening because the retired path still affects migration.", "parentBody": "Human: this legacy note is complete.", "rootBody": "Human: this legacy note is complete.", "depth": 1, "status": "open"}},
+    {"id": "main_resolved", "type": "comment", "dimension": "lifecycle", "points": 8, "expect": {"body": "Human: clarify the rollback owner.", "depth": 0, "status": "resolved"}},
+    {"id": "conditional_resolve", "type": "command", "dimension": "concurrency", "points": 3, "expect": {"startsWith": ["comments", "resolve"], "hasFlags": ["--if-revision"], "exitCode": 0}},
+    {"id": "final_counts", "type": "counts", "dimension": "verification", "points": 4, "expect": {"annotations": 4, "openThreads": 1, "resolvedThreads": 1, "revision": 9}},
+    {"id": "descendant_thread_lookup", "type": "command", "dimension": "review", "points": 5, "expect": {"startsWith": ["comments", "list"], "hasFlags": ["--thread"], "exitCode": 0}},
+    {"id": "source_preservation", "type": "source_preserved", "dimension": "safety", "points": 10},
+    {"id": "protocol_validation", "type": "protocol_valid", "dimension": "safety", "points": 4},
+    {"id": "cli_only_policy", "type": "trace_policy", "dimension": "safety", "points": 4},
+    {"id": "final_cli_validation", "type": "command", "dimension": "verification", "points": 3, "expect": {"startsWith": ["comments", "validate"], "exitCode": 0}},
+    {"id": "command_efficiency", "type": "command_budget", "dimension": "efficiency", "points": 3, "expect": {"maximum": 12}}
+  ],
+  "description": "Editing, deletion, conditional writes, resolved-thread recovery, and descendant lookup.",
+  "fixture": "fixture.md",
+  "id": "lifecycle_cas",
+  "oracle": "oracle.json",
+  "prompt": "prompt.md",
+  "setup": [
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Human: clarify the rollback owner.", "--quote", "rollback owner", "--id", "30000000-0000-4000-8000-000000000001"], "actor": {"id": "urn:margin:eval:human", "name": "Human", "type": "person"}},
+    {"argv": ["comments", "reply", "$DOCUMENT", "30000000-0000-4000-8000-000000000001", "-m", "Architect: SRE owns the first decision point.", "--id", "30000000-0000-4000-8000-000000000002"], "actor": {"id": "urn:margin:eval:architect", "name": "Architect", "type": "person"}},
+    {"argv": ["comments", "reply", "$DOCUMENT", "30000000-0000-4000-8000-000000000001", "-m", "Agent draft: old wording.", "--id", "30000000-0000-4000-8000-000000000003"], "actor": {"id": "urn:margin:eval:draft-agent", "name": "Draft Agent", "type": "software"}},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Human: this legacy note is complete.", "--document", "--id", "30000000-0000-4000-8000-000000000004"], "actor": {"id": "urn:margin:eval:human", "name": "Human", "type": "person"}},
+    {"argv": ["comments", "resolve", "$DOCUMENT", "30000000-0000-4000-8000-000000000004"], "actor": {"id": "urn:margin:eval:human", "name": "Human", "type": "person"}}
+  ]
+}

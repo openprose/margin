@@ -1,0 +1,36 @@
+{
+  "caps": [
+    {"ifCheckFails": "source_preservation", "maxScore": 20},
+    {"ifCheckFails": "protocol_validation", "maxScore": 40},
+    {"ifCheckFails": "cli_only_policy", "maxScore": 70}
+  ],
+  "checks": [
+    {"id": "review_first", "type": "command", "dimension": "review", "points": 5, "expect": {"startsWith": ["review"], "hasFlags": ["--json"], "exitCode": 0, "first": true}},
+    {"id": "slice_by_comment", "type": "command", "dimension": "review", "points": 7, "expect": {"startsWith": ["slice"], "hasFlags": ["--comment", "--context"], "exitCode": 0}},
+    {"id": "deep_handoff_reply", "type": "comment", "dimension": "threading", "points": 12, "expect": {"body": "Human handoff: Register before capture, then deduplicate by revision.", "parentBody": "Agent B: Writer swap can precede watcher registration.", "rootBody": "Agent A: The event contract lacks an ordering guarantee.", "depth": 3, "status": "resolved"}},
+    {"id": "event_thread_resolved", "type": "comment", "dimension": "lifecycle", "points": 8, "expect": {"body": "Agent A: The event contract lacks an ordering guarantee.", "depth": 0, "status": "resolved"}},
+    {"id": "retry_handoff_reply", "type": "comment", "dimension": "threading", "points": 12, "expect": {"body": "Agent handoff: Retry up to three times only without an explicit precondition.", "parentBody": "Human: Confirm the retry window.", "rootBody": "Human: Confirm the retry window.", "depth": 1, "status": "open"}},
+    {"id": "document_synthesis", "type": "comment", "dimension": "synthesis", "points": 10, "expect": {"body": "Agent synthesis: Ordering, bounded retries, and source preservation form the handoff contract.", "target": "document", "depth": 0, "status": "open"}},
+    {"id": "incremental_review", "type": "command", "dimension": "review", "points": 5, "expect": {"startsWith": ["review"], "hasFlags": ["--since-revision"], "flagValues": {"--since-revision": "6"}, "exitCode": 0}},
+    {"id": "descendant_thread_lookup", "type": "command", "dimension": "review", "points": 5, "expect": {"startsWith": ["comments", "list"], "hasFlags": ["--thread"], "exitCode": 0}},
+    {"id": "final_counts", "type": "counts", "dimension": "verification", "points": 8, "expect": {"annotations": 8, "openThreads": 3, "resolvedThreads": 1, "revision": 10}},
+    {"id": "source_preservation", "type": "source_preserved", "dimension": "safety", "points": 10},
+    {"id": "protocol_validation", "type": "protocol_valid", "dimension": "safety", "points": 5},
+    {"id": "cli_only_policy", "type": "trace_policy", "dimension": "safety", "points": 5},
+    {"id": "final_cli_validation", "type": "command", "dimension": "verification", "points": 3, "expect": {"startsWith": ["comments", "validate"], "exitCode": 0}},
+    {"id": "command_efficiency", "type": "command_budget", "dimension": "efficiency", "points": 5, "expect": {"maximum": 11}}
+  ],
+  "description": "Bounded review, deep thread continuation, source-oriented slicing, and human-agent synthesis.",
+  "fixture": "fixture.md",
+  "id": "human_agent_handoff",
+  "oracle": "oracle.json",
+  "prompt": "prompt.md",
+  "setup": [
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Agent A: The event contract lacks an ordering guarantee.", "--quote", "event contract", "--id", "40000000-0000-4000-8000-000000000001"], "actor": {"id": "urn:margin:eval:agent-a", "name": "Agent A", "type": "software"}},
+    {"argv": ["comments", "reply", "$DOCUMENT", "40000000-0000-4000-8000-000000000001", "-m", "Human: Show a concrete failure sequence.", "--id", "40000000-0000-4000-8000-000000000002"], "actor": {"id": "urn:margin:eval:human", "name": "Human", "type": "person"}},
+    {"argv": ["comments", "reply", "$DOCUMENT", "40000000-0000-4000-8000-000000000002", "-m", "Agent B: Writer swap can precede watcher registration.", "--id", "40000000-0000-4000-8000-000000000003"], "actor": {"id": "urn:margin:eval:agent-b", "name": "Agent B", "type": "software"}},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Human: Confirm the retry window.", "--quote", "retry window", "--id", "40000000-0000-4000-8000-000000000004"], "actor": {"id": "urn:margin:eval:human", "name": "Human", "type": "person"}},
+    {"argv": ["comments", "resolve", "$DOCUMENT", "40000000-0000-4000-8000-000000000004"], "actor": {"id": "urn:margin:eval:human", "name": "Human", "type": "person"}},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Agent C: Summarize the launch decision.", "--document", "--id", "40000000-0000-4000-8000-000000000005"], "actor": {"id": "urn:margin:eval:agent-c", "name": "Agent C", "type": "software"}}
+  ]
+}

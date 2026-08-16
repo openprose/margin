@@ -1,0 +1,9 @@
+{
+  "models": [
+    {"model": "gpt-5.6-luna", "provider": "openai"},
+    {"model": "gpt-5.6-terra", "provider": "openai"},
+    {"model": "gpt-5.6-sol", "provider": "openai"},
+    {"model": "deepseek/deepseek-v4-flash", "provider": "openrouter"}
+  ],
+  "schema": "urn:margin:cli-eval-models:v1"
+}

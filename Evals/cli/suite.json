@@ -1,0 +1,12 @@
+{
+  "description": "Deterministic end-to-end evaluations of agent usability for Margin's CLI.",
+  "scenarios": [
+    {"id": "discovery_review", "weight": 1.0},
+    {"id": "anchor_precision", "weight": 1.0},
+    {"id": "lifecycle_cas", "weight": 1.2},
+    {"id": "human_agent_handoff", "weight": 1.2},
+    {"id": "safe_retries", "weight": 1.0},
+    {"id": "bounded_triage", "weight": 1.2}
+  ],
+  "schema": "urn:margin:cli-eval-suite:v1"
+}

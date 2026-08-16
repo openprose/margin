@@ -1,0 +1,14 @@
+{
+  "schema": "urn:margin:cli-eval-oracle:v1",
+  "steps": [
+    {"argv": ["inspect", "$DOCUMENT", "--json"]},
+    {"argv": ["review", "$DOCUMENT", "--json"]},
+    {"argv": ["slice", "$DOCUMENT", "--comment", "60000000-0000-4000-8000-000000000001", "--context", "2", "--json"]},
+    {"argv": ["slice", "$DOCUMENT", "--comment", "60000000-0000-4000-8000-000000000003", "--context", "2", "--json"]},
+    {"argv": ["comments", "reply", "$DOCUMENT", "60000000-0000-4000-8000-000000000002", "-m", "Triage: route ledger ownership must be confirmed before evacuation.", "--id", "60000000-0000-4000-8000-000000000007"]},
+    {"argv": ["comments", "resolve", "$DOCUMENT", "60000000-0000-4000-8000-000000000003"]},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Triage: make the human decision point explicit in the launch checklist.", "--quote", "region failover", "--occurrence", "2", "--id", "60000000-0000-4000-8000-000000000008"]},
+    {"argv": ["review", "$DOCUMENT", "--json", "--since-revision", "8"]},
+    {"argv": ["comments", "validate", "$DOCUMENT"]}
+  ]
+}

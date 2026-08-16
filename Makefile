@@ -6,7 +6,7 @@ BUILD_SCRATCH_PATH ?= $(SCRATCH_ROOT)/command-line-tools
 TEST_SCRATCH_PATH ?= $(SCRATCH_ROOT)/xcode-15.4
 OUTPUT_DIR ?= $(PROJECT_DIR)/build
 
-.PHONY: debug test release package install smoke benchmark clean
+.PHONY: debug test release package install smoke benchmark eval eval-preflight clean
 
 debug:
 	DEVELOPER_DIR="$(BUILD_DEVELOPER_DIR)" \
@@ -44,6 +44,16 @@ benchmark: release
 	MARGIN_BUILD_OUTPUT_DIR="$(OUTPUT_DIR)" \
 	MARGIN_PERFORMANCE_SCRATCH_PATH="$(PROJECT_DIR)/.build/performance" \
 		"$(PROJECT_DIR)/Scripts/benchmark-performance.sh"
+
+eval: release
+	PYTHONDONTWRITEBYTECODE=1 \
+		python3 -m unittest discover -s "$(PROJECT_DIR)/Evals/cli/tests" -p 'test_*.py'
+	PYTHONDONTWRITEBYTECODE=1 \
+		"$(PROJECT_DIR)/Evals/cli/self_test.py" --margin-bin "$(OUTPUT_DIR)/margin"
+
+eval-preflight: release
+	PYTHONDONTWRITEBYTECODE=1 \
+		"$(PROJECT_DIR)/Evals/cli/run.py" --margin-bin "$(OUTPUT_DIR)/margin"
 
 clean:
 	"$(PROJECT_DIR)/Scripts/clean.sh"

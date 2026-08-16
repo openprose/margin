@@ -1,0 +1,19 @@
+{
+  "schema": "urn:margin:cli-eval-oracle:v1",
+  "steps": [
+    {"argv": ["--help"]},
+    {"argv": ["inspect", "$DOCUMENT", "--json"]},
+    {"argv": ["outline", "$DOCUMENT", "--json"]},
+    {"argv": ["slice", "$DOCUMENT", "--heading", "Signals", "--json"]},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Benchmark: define a measurable startup target.", "--quote", "launch budget", "--id", "10000000-0000-4000-8000-000000000001"]},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Benchmark: verify this range against the implementation.", "--from", "9:1", "--to", "9:64", "--expect", "Cold start must stay below 45 milliseconds on the baseline Mac.", "--id", "10000000-0000-4000-8000-000000000002"]},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Benchmark: add a compatibility note for macOS 13.", "--document", "--id", "10000000-0000-4000-8000-000000000003"]},
+    {"argv": ["comments", "reply", "$DOCUMENT", "10000000-0000-4000-8000-000000000001", "-m", "Benchmark reply: capture both warm and cold measurements.", "--id", "10000000-0000-4000-8000-000000000004"]},
+    {"argv": ["comments", "reply", "$DOCUMENT", "10000000-0000-4000-8000-000000000004", "-m", "Benchmark nested reply: include sample size and variance.", "--id", "10000000-0000-4000-8000-000000000005"]},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "This attempt must fail.", "--quote", "shared signal"], "expectedExit": 65},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Benchmark: this refers to the second shared signal.", "--quote", "shared signal", "--occurrence", "2", "--id", "10000000-0000-4000-8000-000000000006"]},
+    {"argv": ["comments", "resolve", "$DOCUMENT", "10000000-0000-4000-8000-000000000001"]},
+    {"argv": ["comments", "list", "$DOCUMENT", "--status", "all"]},
+    {"argv": ["comments", "validate", "$DOCUMENT"]}
+  ]
+}

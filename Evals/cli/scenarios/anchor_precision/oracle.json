@@ -1,0 +1,15 @@
+{
+  "schema": "urn:margin:cli-eval-oracle:v1",
+  "steps": [
+    {"argv": ["--help"]},
+    {"argv": ["inspect", "$DOCUMENT", "--json"]},
+    {"argv": ["slice", "$DOCUMENT", "--heading", "Unicode Coordinates", "--json"]},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Precision: Unicode line and column coordinates are exact.", "--from", "7:5", "--to", "7:14", "--expect", "résumé/東京", "--id", "20000000-0000-4000-8000-000000000001"]},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "This attempt must fail.", "--quote", "cache key"], "expectedExit": 65},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Precision: this is the fallback cache key.", "--quote", "cache key", "--prefix", "Fallback path rotates the ", "--id", "20000000-0000-4000-8000-000000000002"]},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Precision: preserve the visible Markdown delimiters.", "--quote", "`**literal**`", "--id", "20000000-0000-4000-8000-000000000003"]},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Precision: coordinate checks complete.", "--document", "--id", "20000000-0000-4000-8000-000000000004"]},
+    {"argv": ["comments", "list", "$DOCUMENT", "--status", "all"]},
+    {"argv": ["comments", "validate", "$DOCUMENT"]}
+  ]
+}

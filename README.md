@@ -147,14 +147,15 @@ The directory tree loads one expanded folder at a time. Highlighting uses tempor
 
 ```sh
 make test              # unit and concurrency tests
+make eval              # deterministic CLI-agent eval oracles and harness tests
 make smoke             # packaged CLI and application smoke tests
 make benchmark         # local launch and footprint measurements
 make package           # signed local app/CLI zip plus SHA-256 checksum
 ```
 
-The real-agent benchmark lives in `Benchmarks/agent_benchmark`. It gives a fresh agent only the task and `margin --help`, then scores discovery, bounded reading, comment creation, nested replies, ambiguity recovery, resolution, validation, and byte-exact source preservation. See its README for the privacy and cost controls.
+The original real-agent benchmark lives in `Benchmarks/agent_benchmark`. The hill-climbing suite in `Evals/cli` expands it into six task families with first-pass/final scoring, safety caps, repair telemetry, repeated model matrices, and baseline comparison. See `Evals/cli/README.md` for the paid-run gate, privacy boundary, and experiment workflow.
 
-Measured launch results, the agent benchmark, and the complete verification record are in `Docs/PERFORMANCE.md`, `Docs/AGENT_BENCHMARK.md`, and `Docs/RELEASE_NOTES.md`.
+Measured launch results, agent benchmarks/evals, and the complete verification record are in `Docs/PERFORMANCE.md`, `Docs/AGENT_BENCHMARK.md`, `Docs/CLI_EVALS.md`, and `Docs/RELEASE_NOTES.md`.
 
 ## Scope
 

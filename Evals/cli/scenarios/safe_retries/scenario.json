@@ -1,0 +1,29 @@
+{
+  "caps": [
+    {"ifCheckFails": "source_preservation", "maxScore": 20},
+    {"ifCheckFails": "protocol_validation", "maxScore": 40},
+    {"ifCheckFails": "cli_only_policy", "maxScore": 70}
+  ],
+  "checks": [
+    {"id": "inspect_first", "type": "command", "dimension": "discovery", "points": 5, "expect": {"startsWith": ["inspect"], "hasFlags": ["--json"], "exitCode": 0, "first": true}},
+    {"id": "idempotent_comment", "type": "comment", "dimension": "idempotency", "points": 12, "expect": {"body": "Retry eval: this approval has an idempotency key.", "id": "50000000-0000-4000-8000-000000000001", "anchorExact": "release token", "status": "open", "depth": 0}},
+    {"id": "idempotent_replay", "type": "command_sequence", "dimension": "idempotency", "points": 12, "expect": {"steps": [{"startsWith": ["comments", "add"], "hasFlags": ["--id", "--if-revision", "--if-content-sha"], "exitCode": 0, "changed": true}, {"startsWith": ["comments", "add"], "hasFlags": ["--id", "--if-revision", "--if-content-sha"], "exitCode": 0, "changed": false}]}},
+    {"id": "id_conflict", "type": "command", "dimension": "idempotency", "points": 8, "expect": {"startsWith": ["comments", "add"], "errorCode": "ID_CONFLICT"}},
+    {"id": "revision_recovery", "type": "command_sequence", "dimension": "concurrency", "points": 12, "expect": {"steps": [{"startsWith": ["comments", "add"], "hasFlags": ["--if-revision", "--if-content-sha"], "errorCode": "REVISION_CONFLICT"}, {"startsWith": ["comments", "add"], "hasFlags": ["--if-revision", "--if-content-sha"], "errorCode": "CONTENT_CONFLICT"}, {"startsWith": ["comments", "add"], "hasFlags": ["--if-revision", "--if-content-sha"], "exitCode": 0}]}},
+    {"id": "content_conflict", "type": "command", "dimension": "concurrency", "points": 6, "expect": {"startsWith": ["comments", "add"], "hasFlags": ["--if-content-sha"], "errorCode": "CONTENT_CONFLICT"}},
+    {"id": "conditional_comment", "type": "comment", "dimension": "concurrency", "points": 10, "expect": {"body": "Retry eval: conditional recovery succeeded.", "id": "50000000-0000-4000-8000-000000000002", "target": "document", "status": "open", "depth": 0}},
+    {"id": "final_counts", "type": "counts", "dimension": "verification", "points": 5, "expect": {"annotations": 2, "openThreads": 2, "resolvedThreads": 0, "revision": 2}},
+    {"id": "source_preservation", "type": "source_preserved", "dimension": "safety", "points": 10},
+    {"id": "protocol_validation", "type": "protocol_valid", "dimension": "safety", "points": 4},
+    {"id": "cli_only_policy", "type": "trace_policy", "dimension": "safety", "points": 5},
+    {"id": "expected_failures_only", "type": "error_budget", "dimension": "efficiency", "points": 4, "expect": {"minimum": 3, "maximum": 3}},
+    {"id": "final_cli_verification", "type": "command_sequence", "dimension": "verification", "points": 4, "expect": {"steps": [{"startsWith": ["comments", "list"], "exitCode": 0}, {"startsWith": ["comments", "validate"], "exitCode": 0}]}},
+    {"id": "command_efficiency", "type": "command_budget", "dimension": "efficiency", "points": 3, "expect": {"maximum": 12}}
+  ],
+  "description": "Idempotency keys, content/revision preconditions, expected failures, and recovery.",
+  "fixture": "fixture.md",
+  "id": "safe_retries",
+  "oracle": "oracle.json",
+  "prompt": "prompt.md",
+  "setup": []
+}

@@ -1,0 +1,2764 @@
+{
+  "aggregate": {
+    "cells": {
+      "openai/gpt-5.6-luna :: anchor_precision": {
+        "commandMean": 12.0,
+        "cost": 0.010302,
+        "durationMeanSeconds": 33.076,
+        "finalScore": 100.0,
+        "finalScoreMaximum": 100.0,
+        "finalScoreMinimum": 100.0,
+        "firstPassScore": 100.0,
+        "firstPassScoreMaximum": 100.0,
+        "firstPassScoreMinimum": 100.0,
+        "policyComplianceRate": 1.0,
+        "repairMean": 0.0,
+        "runs": 2,
+        "successRate": 1.0,
+        "timedOut": 0,
+        "tokens": 26025
+      },
+      "openai/gpt-5.6-luna :: bounded_triage": {
+        "commandMean": 11.0,
+        "cost": 0.011034,
+        "durationMeanSeconds": 33.799,
+        "finalScore": 100.0,
+        "finalScoreMaximum": 100.0,
+        "finalScoreMinimum": 100.0,
+        "firstPassScore": 100.0,
+        "firstPassScoreMaximum": 100.0,
+        "firstPassScoreMinimum": 100.0,
+        "policyComplianceRate": 1.0,
+        "repairMean": 0.0,
+        "runs": 2,
+        "successRate": 1.0,
+        "timedOut": 0,
+        "tokens": 28872
+      },
+      "openai/gpt-5.6-luna :: discovery_review": {
+        "commandMean": 17.5,
+        "cost": 0.014324,
+        "durationMeanSeconds": 36.163,
+        "finalScore": 100.0,
+        "finalScoreMaximum": 100.0,
+        "finalScoreMinimum": 100.0,
+        "firstPassScore": 100.0,
+        "firstPassScoreMaximum": 100.0,
+        "firstPassScoreMinimum": 100.0,
+        "policyComplianceRate": 1.0,
+        "repairMean": 0.0,
+        "runs": 2,
+        "successRate": 1.0,
+        "timedOut": 0,
+        "tokens": 34888
+      },
+      "openai/gpt-5.6-luna :: human_agent_handoff": {
+        "commandMean": 11.5,
+        "cost": 0.009891,
+        "durationMeanSeconds": 24.129,
+        "finalScore": 97.5,
+        "finalScoreMaximum": 100.0,
+        "finalScoreMinimum": 95.0,
+        "firstPassScore": 97.5,
+        "firstPassScoreMaximum": 100.0,
+        "firstPassScoreMinimum": 95.0,
+        "policyComplianceRate": 1.0,
+        "repairMean": 0.0,
+        "runs": 2,
+        "successRate": 0.5,
+        "timedOut": 0,
+        "tokens": 24355
+      },
+      "openai/gpt-5.6-luna :: lifecycle_cas": {
+        "commandMean": 11.0,
+        "cost": 0.009012,
+        "durationMeanSeconds": 23.806,
+        "finalScore": 100.0,
+        "finalScoreMaximum": 100.0,
+        "finalScoreMinimum": 100.0,
+        "firstPassScore": 100.0,
+        "firstPassScoreMaximum": 100.0,
+        "firstPassScoreMinimum": 100.0,
+        "policyComplianceRate": 1.0,
+        "repairMean": 0.0,
+        "runs": 2,
+        "successRate": 1.0,
+        "timedOut": 0,
+        "tokens": 20029
+      },
+      "openai/gpt-5.6-luna :: safe_retries": {
+        "commandMean": 11.0,
+        "cost": 0.008489,
+        "durationMeanSeconds": 25.878,
+        "finalScore": 100.0,
+        "finalScoreMaximum": 100.0,
+        "finalScoreMinimum": 100.0,
+        "firstPassScore": 100.0,
+        "firstPassScoreMaximum": 100.0,
+        "firstPassScoreMinimum": 100.0,
+        "policyComplianceRate": 1.0,
+        "repairMean": 0.0,
+        "runs": 2,
+        "successRate": 1.0,
+        "timedOut": 0,
+        "tokens": 19773
+      },
+      "openrouter/deepseek/deepseek-v4-flash :: anchor_precision": {
+        "commandMean": 15.5,
+        "cost": 0.033983,
+        "durationMeanSeconds": 96.509,
+        "finalScore": 83.5,
+        "finalScoreMaximum": 97.0,
+        "finalScoreMinimum": 70.0,
+        "firstPassScore": 83.5,
+        "firstPassScoreMaximum": 97.0,
+        "firstPassScoreMinimum": 70.0,
+        "policyComplianceRate": 0.5,
+        "repairMean": 0.0,
+        "runs": 2,
+        "successRate": 0.0,
+        "timedOut": 0,
+        "tokens": 203300
+      },
+      "openrouter/deepseek/deepseek-v4-flash :: bounded_triage": {
+        "commandMean": 14.5,
+        "cost": 0.033883,
+        "durationMeanSeconds": 80.781,
+        "finalScore": 70.0,
+        "finalScoreMaximum": 70.0,
+        "finalScoreMinimum": 70.0,
+        "firstPassScore": 70.0,
+        "firstPassScoreMaximum": 70.0,
+        "firstPassScoreMinimum": 70.0,
+        "policyComplianceRate": 0.0,
+        "repairMean": 1.0,
+        "runs": 2,
+        "successRate": 0.0,
+        "timedOut": 0,
+        "tokens": 62662
+      },
+      "openrouter/deepseek/deepseek-v4-flash :: discovery_review": {
+        "commandMean": 19.5,
+        "cost": 0.049665,
+        "durationMeanSeconds": 106.433,
+        "finalScore": 85.0,
+        "finalScoreMaximum": 100.0,
+        "finalScoreMinimum": 70.0,
+        "firstPassScore": 85.0,
+        "firstPassScoreMaximum": 100.0,
+        "firstPassScoreMinimum": 70.0,
+        "policyComplianceRate": 0.5,
+        "repairMean": 0.0,
+        "runs": 2,
+        "successRate": 0.5,
+        "timedOut": 0,
+        "tokens": 291333
+      },
+      "openrouter/deepseek/deepseek-v4-flash :: human_agent_handoff": {
+        "commandMean": 16.0,
+        "cost": 0.016847,
+        "durationMeanSeconds": 59.302,
+        "finalScore": 95.0,
+        "finalScoreMaximum": 95.0,
+        "finalScoreMinimum": 95.0,
+        "firstPassScore": 95.0,
+        "firstPassScoreMaximum": 95.0,
+        "firstPassScoreMinimum": 95.0,
+        "policyComplianceRate": 1.0,
+        "repairMean": 0.0,
+        "runs": 2,
+        "successRate": 0.0,
+        "timedOut": 0,
+        "tokens": 43358
+      },
+      "openrouter/deepseek/deepseek-v4-flash :: lifecycle_cas": {
+        "commandMean": 20.5,
+        "cost": 0.042295,
+        "durationMeanSeconds": 104.707,
+        "finalScore": 70.0,
+        "finalScoreMaximum": 70.0,
+        "finalScoreMinimum": 70.0,
+        "firstPassScore": 70.0,
+        "firstPassScoreMaximum": 70.0,
+        "firstPassScoreMinimum": 70.0,
+        "policyComplianceRate": 0.0,
+        "repairMean": 0.0,
+        "runs": 2,
+        "successRate": 0.0,
+        "timedOut": 0,
+        "tokens": 223333
+      },
+      "openrouter/deepseek/deepseek-v4-flash :: safe_retries": {
+        "commandMean": 17.0,
+        "cost": 0.028165,
+        "durationMeanSeconds": 84.999,
+        "finalScore": 70.0,
+        "finalScoreMaximum": 70.0,
+        "finalScoreMinimum": 70.0,
+        "firstPassScore": 70.0,
+        "firstPassScoreMaximum": 70.0,
+        "firstPassScoreMinimum": 70.0,
+        "policyComplianceRate": 0.0,
+        "repairMean": 1.0,
+        "runs": 2,
+        "successRate": 0.0,
+        "timedOut": 0,
+        "tokens": 51671
+      }
+    },
+    "dimensions": {
+      "anchoring": {
+        "finalPercent": 100.0,
+        "firstPassPercent": 100.0
+      },
+      "concurrency": {
+        "finalPercent": 100.0,
+        "firstPassPercent": 100.0
+      },
+      "coordinates": {
+        "finalPercent": 100.0,
+        "firstPassPercent": 100.0
+      },
+      "discovery": {
+        "finalPercent": 94.355,
+        "firstPassPercent": 94.355
+      },
+      "efficiency": {
+        "finalPercent": 52.336,
+        "firstPassPercent": 55.841
+      },
+      "idempotency": {
+        "finalPercent": 100.0,
+        "firstPassPercent": 100.0
+      },
+      "lifecycle": {
+        "finalPercent": 100.0,
+        "firstPassPercent": 100.0
+      },
+      "recovery": {
+        "finalPercent": 100.0,
+        "firstPassPercent": 100.0
+      },
+      "review": {
+        "finalPercent": 92.188,
+        "firstPassPercent": 92.188
+      },
+      "safety": {
+        "finalPercent": 90.625,
+        "firstPassPercent": 90.625
+      },
+      "synthesis": {
+        "finalPercent": 100.0,
+        "firstPassPercent": 100.0
+      },
+      "threading": {
+        "finalPercent": 100.0,
+        "firstPassPercent": 100.0
+      },
+      "triage": {
+        "finalPercent": 100.0,
+        "firstPassPercent": 100.0
+      },
+      "verification": {
+        "finalPercent": 100.0,
+        "firstPassPercent": 92.578
+      }
+    },
+    "models": {
+      "openai/gpt-5.6-luna": {
+        "commandMean": 12.333,
+        "cost": 0.063052,
+        "durationMeanSeconds": 29.475,
+        "finalScore": 99.545,
+        "finalScoreMaximum": 100.0,
+        "finalScoreMinimum": 95.0,
+        "firstPassScore": 99.545,
+        "firstPassScoreMaximum": 100.0,
+        "firstPassScoreMinimum": 95.0,
+        "policyComplianceRate": 1.0,
+        "repairMean": 0.0,
+        "runs": 12,
+        "successRate": 0.9167,
+        "timedOut": 0,
+        "tokens": 153942
+      },
+      "openrouter/deepseek/deepseek-v4-flash": {
+        "commandMean": 17.167,
+        "cost": 0.204837,
+        "durationMeanSeconds": 88.788,
+        "finalScore": 78.864,
+        "finalScoreMaximum": 100.0,
+        "finalScoreMinimum": 70.0,
+        "firstPassScore": 78.864,
+        "firstPassScoreMaximum": 100.0,
+        "firstPassScoreMinimum": 70.0,
+        "policyComplianceRate": 0.3333,
+        "repairMean": 0.333,
+        "runs": 12,
+        "successRate": 0.0833,
+        "timedOut": 0,
+        "tokens": 875657
+      }
+    },
+    "overall": {
+      "commandMean": 14.75,
+      "cost": 0.26789,
+      "durationMeanSeconds": 59.132,
+      "finalScore": 89.205,
+      "finalScoreMaximum": 100.0,
+      "finalScoreMinimum": 70.0,
+      "firstPassScore": 89.205,
+      "firstPassScoreMaximum": 100.0,
+      "firstPassScoreMinimum": 70.0,
+      "policyComplianceRate": 0.6667,
+      "repairMean": 0.167,
+      "runs": 24,
+      "successRate": 0.5,
+      "timedOut": 0,
+      "tokens": 1029599
+    },
+    "scenarios": {
+      "anchor_precision": {
+        "commandMean": 13.75,
+        "cost": 0.044285,
+        "durationMeanSeconds": 64.793,
+        "finalScore": 91.75,
+        "finalScoreMaximum": 100.0,
+        "finalScoreMinimum": 70.0,
+        "firstPassScore": 91.75,
+        "firstPassScoreMaximum": 100.0,
+        "firstPassScoreMinimum": 70.0,
+        "policyComplianceRate": 0.75,
+        "repairMean": 0.0,
+        "runs": 4,
+        "successRate": 0.5,
+        "timedOut": 0,
+        "tokens": 229325
+      },
+      "bounded_triage": {
+        "commandMean": 12.75,
+        "cost": 0.044917,
+        "durationMeanSeconds": 57.29,
+        "finalScore": 85.0,
+        "finalScoreMaximum": 100.0,
+        "finalScoreMinimum": 70.0,
+        "firstPassScore": 85.0,
+        "firstPassScoreMaximum": 100.0,
+        "firstPassScoreMinimum": 70.0,
+        "policyComplianceRate": 0.5,
+        "repairMean": 0.5,
+        "runs": 4,
+        "successRate": 0.5,
+        "timedOut": 0,
+        "tokens": 91534
+      },
+      "discovery_review": {
+        "commandMean": 18.5,
+        "cost": 0.063989,
+        "durationMeanSeconds": 71.298,
+        "finalScore": 92.5,
+        "finalScoreMaximum": 100.0,
+        "finalScoreMinimum": 70.0,
+        "firstPassScore": 92.5,
+        "firstPassScoreMaximum": 100.0,
+        "firstPassScoreMinimum": 70.0,
+        "policyComplianceRate": 0.75,
+        "repairMean": 0.0,
+        "runs": 4,
+        "successRate": 0.75,
+        "timedOut": 0,
+        "tokens": 326221
+      },
+      "human_agent_handoff": {
+        "commandMean": 13.75,
+        "cost": 0.026738,
+        "durationMeanSeconds": 41.715,
+        "finalScore": 96.25,
+        "finalScoreMaximum": 100.0,
+        "finalScoreMinimum": 95.0,
+        "firstPassScore": 96.25,
+        "firstPassScoreMaximum": 100.0,
+        "firstPassScoreMinimum": 95.0,
+        "policyComplianceRate": 1.0,
+        "repairMean": 0.0,
+        "runs": 4,
+        "successRate": 0.25,
+        "timedOut": 0,
+        "tokens": 67713
+      },
+      "lifecycle_cas": {
+        "commandMean": 15.75,
+        "cost": 0.051307,
+        "durationMeanSeconds": 64.257,
+        "finalScore": 85.0,
+        "finalScoreMaximum": 100.0,
+        "finalScoreMinimum": 70.0,
+        "firstPassScore": 85.0,
+        "firstPassScoreMaximum": 100.0,
+        "firstPassScoreMinimum": 70.0,
+        "policyComplianceRate": 0.5,
+        "repairMean": 0.0,
+        "runs": 4,
+        "successRate": 0.5,
+        "timedOut": 0,
+        "tokens": 243362
+      },
+      "safe_retries": {
+        "commandMean": 14.0,
+        "cost": 0.036654,
+        "durationMeanSeconds": 55.439,
+        "finalScore": 85.0,
+        "finalScoreMaximum": 100.0,
+        "finalScoreMinimum": 70.0,
+        "firstPassScore": 85.0,
+        "firstPassScoreMaximum": 100.0,
+        "firstPassScoreMinimum": 70.0,
+        "policyComplianceRate": 0.5,
+        "repairMean": 0.5,
+        "runs": 4,
+        "successRate": 0.5,
+        "timedOut": 0,
+        "tokens": 71444
+      }
+    }
+  },
+  "metadata": {
+    "createdAt": "2026-08-16T22:13:42.785606+00:00",
+    "experiment": "cli-evals-v1-hardened",
+    "gitRevision": "04e4e922bd291f5af819994619a61e6bb15dbab4",
+    "harnessSha256": "8774d3ff8051d36bc9ad0db39aca501d5c82ed3f66aa0044a05c1a3e62976c9c",
+    "marginBinarySha256": "2939f485c7b29b56a68125656a09771435c772f84df24eb706d1b05a3a1d5af5",
+    "marginHelpSha256": "1016bfd5d63d9e75d5265520345e377e11b92c4f9132be483bca35818637e058",
+    "primeAgentVersion": "0.7.0",
+    "repositoryDirty": true,
+    "scenarioHashes": {
+      "anchor_precision": "cc4f90761aa92b98a5ea0774b4a4eedc0c5503ed319d10cdd0fdaedae25b67c0",
+      "bounded_triage": "1c63be6e46bb3d7ec4208d464a7f7e86e4bf301fc056e4f68cea4379e9c508e7",
+      "discovery_review": "ddb52dd6dec088a427495272b104133dc4f40531536add01ab57568d198185d5",
+      "human_agent_handoff": "ac543a75755e7e61480c661aea625029864d6d0b3c9caa3c01cf25d8eb1864a6",
+      "lifecycle_cas": "dcb13fb285eaf2f2c60c51ca93533069a05e86566e121ee4b563c1350ea3d897",
+      "safe_retries": "c75e944368ddfc7e4af0e59f4fcf4417c1b6d7b84bc7e258467304ccdc1860e6"
+    },
+    "sourceEvalSetSha256": "1a304f1f2b9580ba150309bfb2c41a5e455f481b665748af9b6e3b7fc70acf5e"
+  },
+  "runs": [
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 17,
+      "dimensions": {
+        "anchoring": {
+          "earned": 36,
+          "possible": 36
+        },
+        "discovery": {
+          "earned": 16,
+          "possible": 16
+        },
+        "lifecycle": {
+          "earned": 6,
+          "possible": 6
+        },
+        "recovery": {
+          "earned": 6,
+          "possible": 6
+        },
+        "safety": {
+          "earned": 16,
+          "possible": 16
+        },
+        "threading": {
+          "earned": 16,
+          "possible": 16
+        },
+        "verification": {
+          "earned": 4,
+          "possible": 4
+        }
+      },
+      "durationSeconds": 39.813,
+      "failedCheckIDs": [],
+      "finalScore": 100,
+      "firstPassDimensions": {
+        "anchoring": {
+          "earned": 36,
+          "possible": 36
+        },
+        "discovery": {
+          "earned": 16,
+          "possible": 16
+        },
+        "lifecycle": {
+          "earned": 6,
+          "possible": 6
+        },
+        "recovery": {
+          "earned": 6,
+          "possible": 6
+        },
+        "safety": {
+          "earned": 16,
+          "possible": 16
+        },
+        "threading": {
+          "earned": 16,
+          "possible": 16
+        },
+        "verification": {
+          "earned": 4,
+          "possible": 4
+        }
+      },
+      "firstPassFailedCheckIDs": [],
+      "firstPassScore": 100,
+      "gateAttempts": 1,
+      "model": "openai/gpt-5.6-luna",
+      "policyCompliant": true,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 1,
+      "scenario": "discovery_review",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 16,
+        "cacheRead": 114265,
+        "cacheWrite": 0,
+        "cost": 0.007487300000000002,
+        "input": 15966,
+        "output": 1674
+      },
+      "weight": 1.0
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 18,
+      "dimensions": {
+        "anchoring": {
+          "earned": 36,
+          "possible": 36
+        },
+        "discovery": {
+          "earned": 16,
+          "possible": 16
+        },
+        "lifecycle": {
+          "earned": 6,
+          "possible": 6
+        },
+        "recovery": {
+          "earned": 6,
+          "possible": 6
+        },
+        "safety": {
+          "earned": 16,
+          "possible": 16
+        },
+        "threading": {
+          "earned": 16,
+          "possible": 16
+        },
+        "verification": {
+          "earned": 4,
+          "possible": 4
+        }
+      },
+      "durationSeconds": 32.512,
+      "failedCheckIDs": [],
+      "finalScore": 100,
+      "firstPassDimensions": {
+        "anchoring": {
+          "earned": 36,
+          "possible": 36
+        },
+        "discovery": {
+          "earned": 16,
+          "possible": 16
+        },
+        "lifecycle": {
+          "earned": 6,
+          "possible": 6
+        },
+        "recovery": {
+          "earned": 6,
+          "possible": 6
+        },
+        "safety": {
+          "earned": 16,
+          "possible": 16
+        },
+        "threading": {
+          "earned": 16,
+          "possible": 16
+        },
+        "verification": {
+          "earned": 4,
+          "possible": 4
+        }
+      },
+      "firstPassFailedCheckIDs": [],
+      "firstPassScore": 100,
+      "gateAttempts": 1,
+      "model": "openai/gpt-5.6-luna",
+      "policyCompliant": true,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 2,
+      "scenario": "discovery_review",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 14,
+        "cacheRead": 94710,
+        "cacheWrite": 0,
+        "cost": 0.0068368000000000005,
+        "input": 15755,
+        "output": 1493
+      },
+      "weight": 1.0
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 13,
+      "dimensions": {
+        "anchoring": {
+          "earned": 35,
+          "possible": 35
+        },
+        "coordinates": {
+          "earned": 21,
+          "possible": 21
+        },
+        "discovery": {
+          "earned": 10,
+          "possible": 10
+        },
+        "recovery": {
+          "earned": 8,
+          "possible": 8
+        },
+        "safety": {
+          "earned": 19,
+          "possible": 19
+        },
+        "verification": {
+          "earned": 7,
+          "possible": 7
+        }
+      },
+      "durationSeconds": 38.41,
+      "failedCheckIDs": [],
+      "finalScore": 100,
+      "firstPassDimensions": {
+        "anchoring": {
+          "earned": 35,
+          "possible": 35
+        },
+        "coordinates": {
+          "earned": 21,
+          "possible": 21
+        },
+        "discovery": {
+          "earned": 10,
+          "possible": 10
+        },
+        "recovery": {
+          "earned": 8,
+          "possible": 8
+        },
+        "safety": {
+          "earned": 19,
+          "possible": 19
+        },
+        "verification": {
+          "earned": 7,
+          "possible": 7
+        }
+      },
+      "firstPassFailedCheckIDs": [],
+      "firstPassScore": 100,
+      "gateAttempts": 1,
+      "model": "openai/gpt-5.6-luna",
+      "policyCompliant": true,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 1,
+      "scenario": "anchor_precision",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 14,
+        "cacheRead": 74198,
+        "cacheWrite": 0,
+        "cost": 0.005514160000000001,
+        "input": 12105,
+        "output": 1341
+      },
+      "weight": 1.0
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 11,
+      "dimensions": {
+        "anchoring": {
+          "earned": 35,
+          "possible": 35
+        },
+        "coordinates": {
+          "earned": 21,
+          "possible": 21
+        },
+        "discovery": {
+          "earned": 10,
+          "possible": 10
+        },
+        "recovery": {
+          "earned": 8,
+          "possible": 8
+        },
+        "safety": {
+          "earned": 19,
+          "possible": 19
+        },
+        "verification": {
+          "earned": 7,
+          "possible": 7
+        }
+      },
+      "durationSeconds": 27.743,
+      "failedCheckIDs": [],
+      "finalScore": 100,
+      "firstPassDimensions": {
+        "anchoring": {
+          "earned": 35,
+          "possible": 35
+        },
+        "coordinates": {
+          "earned": 21,
+          "possible": 21
+        },
+        "discovery": {
+          "earned": 10,
+          "possible": 10
+        },
+        "recovery": {
+          "earned": 8,
+          "possible": 8
+        },
+        "safety": {
+          "earned": 19,
+          "possible": 19
+        },
+        "verification": {
+          "earned": 7,
+          "possible": 7
+        }
+      },
+      "firstPassFailedCheckIDs": [],
+      "firstPassScore": 100,
+      "gateAttempts": 1,
+      "model": "openai/gpt-5.6-luna",
+      "policyCompliant": true,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 2,
+      "scenario": "anchor_precision",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 12,
+        "cacheRead": 61332,
+        "cacheWrite": 0,
+        "cost": 0.0047874400000000004,
+        "input": 11534,
+        "output": 1045
+      },
+      "weight": 1.0
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 11,
+      "dimensions": {
+        "concurrency": {
+          "earned": 18,
+          "possible": 18
+        },
+        "efficiency": {
+          "earned": 3,
+          "possible": 3
+        },
+        "lifecycle": {
+          "earned": 24,
+          "possible": 24
+        },
+        "recovery": {
+          "earned": 10,
+          "possible": 10
+        },
+        "review": {
+          "earned": 10,
+          "possible": 10
+        },
+        "safety": {
+          "earned": 18,
+          "possible": 18
+        },
+        "threading": {
+          "earned": 10,
+          "possible": 10
+        },
+        "verification": {
+          "earned": 7,
+          "possible": 7
+        }
+      },
+      "durationSeconds": 24.422,
+      "failedCheckIDs": [],
+      "finalScore": 100,
+      "firstPassDimensions": {
+        "concurrency": {
+          "earned": 18,
+          "possible": 18
+        },
+        "efficiency": {
+          "earned": 3,
+          "possible": 3
+        },
+        "lifecycle": {
+          "earned": 24,
+          "possible": 24
+        },
+        "recovery": {
+          "earned": 10,
+          "possible": 10
+        },
+        "review": {
+          "earned": 10,
+          "possible": 10
+        },
+        "safety": {
+          "earned": 18,
+          "possible": 18
+        },
+        "threading": {
+          "earned": 10,
+          "possible": 10
+        },
+        "verification": {
+          "earned": 7,
+          "possible": 7
+        }
+      },
+      "firstPassFailedCheckIDs": [],
+      "firstPassScore": 100,
+      "gateAttempts": 1,
+      "model": "openai/gpt-5.6-luna",
+      "policyCompliant": true,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 1,
+      "scenario": "lifecycle_cas",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 12,
+        "cacheRead": 64540,
+        "cacheWrite": 0,
+        "cost": 0.0044812,
+        "input": 8848,
+        "output": 1184
+      },
+      "weight": 1.2
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 11,
+      "dimensions": {
+        "concurrency": {
+          "earned": 18,
+          "possible": 18
+        },
+        "efficiency": {
+          "earned": 3,
+          "possible": 3
+        },
+        "lifecycle": {
+          "earned": 24,
+          "possible": 24
+        },
+        "recovery": {
+          "earned": 10,
+          "possible": 10
+        },
+        "review": {
+          "earned": 10,
+          "possible": 10
+        },
+        "safety": {
+          "earned": 18,
+          "possible": 18
+        },
+        "threading": {
+          "earned": 10,
+          "possible": 10
+        },
+        "verification": {
+          "earned": 7,
+          "possible": 7
+        }
+      },
+      "durationSeconds": 23.191,
+      "failedCheckIDs": [],
+      "finalScore": 100,
+      "firstPassDimensions": {
+        "concurrency": {
+          "earned": 18,
+          "possible": 18
+        },
+        "efficiency": {
+          "earned": 3,
+          "possible": 3
+        },
+        "lifecycle": {
+          "earned": 24,
+          "possible": 24
+        },
+        "recovery": {
+          "earned": 10,
+          "possible": 10
+        },
+        "review": {
+          "earned": 10,
+          "possible": 10
+        },
+        "safety": {
+          "earned": 18,
+          "possible": 18
+        },
+        "threading": {
+          "earned": 10,
+          "possible": 10
+        },
+        "verification": {
+          "earned": 7,
+          "possible": 7
+        }
+      },
+      "firstPassFailedCheckIDs": [],
+      "firstPassScore": 100,
+      "gateAttempts": 1,
+      "model": "openai/gpt-5.6-luna",
+      "policyCompliant": true,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 2,
+      "scenario": "lifecycle_cas",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 13,
+        "cacheRead": 67712,
+        "cacheWrite": 0,
+        "cost": 0.004530640000000001,
+        "input": 8820,
+        "output": 1177
+      },
+      "weight": 1.2
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 11,
+      "dimensions": {
+        "efficiency": {
+          "earned": 5,
+          "possible": 5
+        },
+        "lifecycle": {
+          "earned": 8,
+          "possible": 8
+        },
+        "review": {
+          "earned": 22,
+          "possible": 22
+        },
+        "safety": {
+          "earned": 20,
+          "possible": 20
+        },
+        "synthesis": {
+          "earned": 10,
+          "possible": 10
+        },
+        "threading": {
+          "earned": 24,
+          "possible": 24
+        },
+        "verification": {
+          "earned": 11,
+          "possible": 11
+        }
+      },
+      "durationSeconds": 23.539,
+      "failedCheckIDs": [],
+      "finalScore": 100,
+      "firstPassDimensions": {
+        "efficiency": {
+          "earned": 5,
+          "possible": 5
+        },
+        "lifecycle": {
+          "earned": 8,
+          "possible": 8
+        },
+        "review": {
+          "earned": 22,
+          "possible": 22
+        },
+        "safety": {
+          "earned": 20,
+          "possible": 20
+        },
+        "synthesis": {
+          "earned": 10,
+          "possible": 10
+        },
+        "threading": {
+          "earned": 24,
+          "possible": 24
+        },
+        "verification": {
+          "earned": 11,
+          "possible": 11
+        }
+      },
+      "firstPassFailedCheckIDs": [],
+      "firstPassScore": 100,
+      "gateAttempts": 1,
+      "model": "openai/gpt-5.6-luna",
+      "policyCompliant": true,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 1,
+      "scenario": "human_agent_handoff",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 12,
+        "cacheRead": 69297,
+        "cacheWrite": 0,
+        "cost": 0.00479134,
+        "input": 11009,
+        "output": 1003
+      },
+      "weight": 1.2
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 12,
+      "dimensions": {
+        "efficiency": {
+          "earned": 0,
+          "possible": 5
+        },
+        "lifecycle": {
+          "earned": 8,
+          "possible": 8
+        },
+        "review": {
+          "earned": 22,
+          "possible": 22
+        },
+        "safety": {
+          "earned": 20,
+          "possible": 20
+        },
+        "synthesis": {
+          "earned": 10,
+          "possible": 10
+        },
+        "threading": {
+          "earned": 24,
+          "possible": 24
+        },
+        "verification": {
+          "earned": 11,
+          "possible": 11
+        }
+      },
+      "durationSeconds": 24.718,
+      "failedCheckIDs": [
+        "command_efficiency"
+      ],
+      "finalScore": 95,
+      "firstPassDimensions": {
+        "efficiency": {
+          "earned": 0,
+          "possible": 5
+        },
+        "lifecycle": {
+          "earned": 8,
+          "possible": 8
+        },
+        "review": {
+          "earned": 22,
+          "possible": 22
+        },
+        "safety": {
+          "earned": 20,
+          "possible": 20
+        },
+        "synthesis": {
+          "earned": 10,
+          "possible": 10
+        },
+        "threading": {
+          "earned": 24,
+          "possible": 24
+        },
+        "verification": {
+          "earned": 11,
+          "possible": 11
+        }
+      },
+      "firstPassFailedCheckIDs": [
+        "command_efficiency"
+      ],
+      "firstPassScore": 95,
+      "gateAttempts": 1,
+      "model": "openai/gpt-5.6-luna",
+      "policyCompliant": true,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 2,
+      "scenario": "human_agent_handoff",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 13,
+        "cacheRead": 75318,
+        "cacheWrite": 0,
+        "cost": 0.00509996,
+        "input": 11218,
+        "output": 1125
+      },
+      "weight": 1.2
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 11,
+      "dimensions": {
+        "concurrency": {
+          "earned": 28,
+          "possible": 28
+        },
+        "discovery": {
+          "earned": 5,
+          "possible": 5
+        },
+        "efficiency": {
+          "earned": 7,
+          "possible": 7
+        },
+        "idempotency": {
+          "earned": 32,
+          "possible": 32
+        },
+        "safety": {
+          "earned": 19,
+          "possible": 19
+        },
+        "verification": {
+          "earned": 9,
+          "possible": 9
+        }
+      },
+      "durationSeconds": 26.488,
+      "failedCheckIDs": [],
+      "finalScore": 100,
+      "firstPassDimensions": {
+        "concurrency": {
+          "earned": 28,
+          "possible": 28
+        },
+        "discovery": {
+          "earned": 5,
+          "possible": 5
+        },
+        "efficiency": {
+          "earned": 7,
+          "possible": 7
+        },
+        "idempotency": {
+          "earned": 32,
+          "possible": 32
+        },
+        "safety": {
+          "earned": 19,
+          "possible": 19
+        },
+        "verification": {
+          "earned": 9,
+          "possible": 9
+        }
+      },
+      "firstPassFailedCheckIDs": [],
+      "firstPassScore": 100,
+      "gateAttempts": 1,
+      "model": "openai/gpt-5.6-luna",
+      "policyCompliant": true,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 1,
+      "scenario": "safe_retries",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 11,
+        "cacheRead": 47968,
+        "cacheWrite": 0,
+        "cost": 0.004111760000000001,
+        "input": 8616,
+        "output": 1191
+      },
+      "weight": 1.0
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 11,
+      "dimensions": {
+        "concurrency": {
+          "earned": 28,
+          "possible": 28
+        },
+        "discovery": {
+          "earned": 5,
+          "possible": 5
+        },
+        "efficiency": {
+          "earned": 7,
+          "possible": 7
+        },
+        "idempotency": {
+          "earned": 32,
+          "possible": 32
+        },
+        "safety": {
+          "earned": 19,
+          "possible": 19
+        },
+        "verification": {
+          "earned": 9,
+          "possible": 9
+        }
+      },
+      "durationSeconds": 25.269,
+      "failedCheckIDs": [],
+      "finalScore": 100,
+      "firstPassDimensions": {
+        "concurrency": {
+          "earned": 28,
+          "possible": 28
+        },
+        "discovery": {
+          "earned": 5,
+          "possible": 5
+        },
+        "efficiency": {
+          "earned": 7,
+          "possible": 7
+        },
+        "idempotency": {
+          "earned": 32,
+          "possible": 32
+        },
+        "safety": {
+          "earned": 19,
+          "possible": 19
+        },
+        "verification": {
+          "earned": 9,
+          "possible": 9
+        }
+      },
+      "firstPassFailedCheckIDs": [],
+      "firstPassScore": 100,
+      "gateAttempts": 1,
+      "model": "openai/gpt-5.6-luna",
+      "policyCompliant": true,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 2,
+      "scenario": "safe_retries",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 12,
+        "cacheRead": 56196,
+        "cacheWrite": 0,
+        "cost": 0.00437712,
+        "input": 8706,
+        "output": 1260
+      },
+      "weight": 1.0
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 11,
+      "dimensions": {
+        "anchoring": {
+          "earned": 10,
+          "possible": 10
+        },
+        "efficiency": {
+          "earned": 4,
+          "possible": 4
+        },
+        "lifecycle": {
+          "earned": 13,
+          "possible": 13
+        },
+        "safety": {
+          "earned": 21,
+          "possible": 21
+        },
+        "threading": {
+          "earned": 10,
+          "possible": 10
+        },
+        "triage": {
+          "earned": 34,
+          "possible": 34
+        },
+        "verification": {
+          "earned": 8,
+          "possible": 8
+        }
+      },
+      "durationSeconds": 39.519,
+      "failedCheckIDs": [],
+      "finalScore": 100,
+      "firstPassDimensions": {
+        "anchoring": {
+          "earned": 10,
+          "possible": 10
+        },
+        "efficiency": {
+          "earned": 4,
+          "possible": 4
+        },
+        "lifecycle": {
+          "earned": 13,
+          "possible": 13
+        },
+        "safety": {
+          "earned": 21,
+          "possible": 21
+        },
+        "threading": {
+          "earned": 10,
+          "possible": 10
+        },
+        "triage": {
+          "earned": 34,
+          "possible": 34
+        },
+        "verification": {
+          "earned": 8,
+          "possible": 8
+        }
+      },
+      "firstPassFailedCheckIDs": [],
+      "firstPassScore": 100,
+      "gateAttempts": 1,
+      "model": "openai/gpt-5.6-luna",
+      "policyCompliant": true,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 1,
+      "scenario": "bounded_triage",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 12,
+        "cacheRead": 77909,
+        "cacheWrite": 0,
+        "cost": 0.00553458,
+        "input": 13348,
+        "output": 1089
+      },
+      "weight": 1.2
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 11,
+      "dimensions": {
+        "anchoring": {
+          "earned": 10,
+          "possible": 10
+        },
+        "efficiency": {
+          "earned": 4,
+          "possible": 4
+        },
+        "lifecycle": {
+          "earned": 13,
+          "possible": 13
+        },
+        "safety": {
+          "earned": 21,
+          "possible": 21
+        },
+        "threading": {
+          "earned": 10,
+          "possible": 10
+        },
+        "triage": {
+          "earned": 34,
+          "possible": 34
+        },
+        "verification": {
+          "earned": 8,
+          "possible": 8
+        }
+      },
+      "durationSeconds": 28.08,
+      "failedCheckIDs": [],
+      "finalScore": 100,
+      "firstPassDimensions": {
+        "anchoring": {
+          "earned": 10,
+          "possible": 10
+        },
+        "efficiency": {
+          "earned": 4,
+          "possible": 4
+        },
+        "lifecycle": {
+          "earned": 13,
+          "possible": 13
+        },
+        "safety": {
+          "earned": 21,
+          "possible": 21
+        },
+        "threading": {
+          "earned": 10,
+          "possible": 10
+        },
+        "triage": {
+          "earned": 34,
+          "possible": 34
+        },
+        "verification": {
+          "earned": 8,
+          "possible": 8
+        }
+      },
+      "firstPassFailedCheckIDs": [],
+      "firstPassScore": 100,
+      "gateAttempts": 1,
+      "model": "openai/gpt-5.6-luna",
+      "policyCompliant": true,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 2,
+      "scenario": "bounded_triage",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 12,
+        "cacheRead": 78441,
+        "cacheWrite": 0,
+        "cost": 0.005499820000000001,
+        "input": 13391,
+        "output": 1044
+      },
+      "weight": 1.2
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 17,
+      "dimensions": {
+        "anchoring": {
+          "earned": 36,
+          "possible": 36
+        },
+        "discovery": {
+          "earned": 12,
+          "possible": 16
+        },
+        "lifecycle": {
+          "earned": 6,
+          "possible": 6
+        },
+        "recovery": {
+          "earned": 6,
+          "possible": 6
+        },
+        "safety": {
+          "earned": 13,
+          "possible": 16
+        },
+        "threading": {
+          "earned": 16,
+          "possible": 16
+        },
+        "verification": {
+          "earned": 4,
+          "possible": 4
+        }
+      },
+      "durationSeconds": 92.66,
+      "failedCheckIDs": [
+        "bounded_slice",
+        "cli_only_policy"
+      ],
+      "finalScore": 70,
+      "firstPassDimensions": {
+        "anchoring": {
+          "earned": 36,
+          "possible": 36
+        },
+        "discovery": {
+          "earned": 12,
+          "possible": 16
+        },
+        "lifecycle": {
+          "earned": 6,
+          "possible": 6
+        },
+        "recovery": {
+          "earned": 6,
+          "possible": 6
+        },
+        "safety": {
+          "earned": 13,
+          "possible": 16
+        },
+        "threading": {
+          "earned": 16,
+          "possible": 16
+        },
+        "verification": {
+          "earned": 4,
+          "possible": 4
+        }
+      },
+      "firstPassFailedCheckIDs": [
+        "bounded_slice",
+        "cli_only_policy"
+      ],
+      "firstPassScore": 70,
+      "gateAttempts": 1,
+      "model": "openrouter/deepseek/deepseek-v4-flash",
+      "policyCompliant": false,
+      "primeAgentExitCode": 1,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 1,
+      "scenario": "discovery_review",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 22,
+        "cacheRead": 121856,
+        "cacheWrite": 0,
+        "cost": 0.020550067999999998,
+        "input": 110647,
+        "output": 5884
+      },
+      "weight": 1.0
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 22,
+      "dimensions": {
+        "anchoring": {
+          "earned": 36,
+          "possible": 36
+        },
+        "discovery": {
+          "earned": 16,
+          "possible": 16
+        },
+        "lifecycle": {
+          "earned": 6,
+          "possible": 6
+        },
+        "recovery": {
+          "earned": 6,
+          "possible": 6
+        },
+        "safety": {
+          "earned": 16,
+          "possible": 16
+        },
+        "threading": {
+          "earned": 16,
+          "possible": 16
+        },
+        "verification": {
+          "earned": 4,
+          "possible": 4
+        }
+      },
+      "durationSeconds": 120.207,
+      "failedCheckIDs": [],
+      "finalScore": 100,
+      "firstPassDimensions": {
+        "anchoring": {
+          "earned": 36,
+          "possible": 36
+        },
+        "discovery": {
+          "earned": 16,
+          "possible": 16
+        },
+        "lifecycle": {
+          "earned": 6,
+          "possible": 6
+        },
+        "recovery": {
+          "earned": 6,
+          "possible": 6
+        },
+        "safety": {
+          "earned": 16,
+          "possible": 16
+        },
+        "threading": {
+          "earned": 16,
+          "possible": 16
+        },
+        "verification": {
+          "earned": 4,
+          "possible": 4
+        }
+      },
+      "firstPassFailedCheckIDs": [],
+      "firstPassScore": 100,
+      "gateAttempts": 1,
+      "model": "openrouter/deepseek/deepseek-v4-flash",
+      "policyCompliant": true,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 2,
+      "scenario": "discovery_review",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 23,
+        "cacheRead": 128512,
+        "cacheWrite": 0,
+        "cost": 0.029114455999999997,
+        "input": 167346,
+        "output": 7456
+      },
+      "weight": 1.0
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 14,
+      "dimensions": {
+        "anchoring": {
+          "earned": 35,
+          "possible": 35
+        },
+        "coordinates": {
+          "earned": 21,
+          "possible": 21
+        },
+        "discovery": {
+          "earned": 10,
+          "possible": 10
+        },
+        "recovery": {
+          "earned": 8,
+          "possible": 8
+        },
+        "safety": {
+          "earned": 14,
+          "possible": 19
+        },
+        "verification": {
+          "earned": 7,
+          "possible": 7
+        }
+      },
+      "durationSeconds": 66.902,
+      "failedCheckIDs": [
+        "cli_only_policy"
+      ],
+      "finalScore": 70,
+      "firstPassDimensions": {
+        "anchoring": {
+          "earned": 35,
+          "possible": 35
+        },
+        "coordinates": {
+          "earned": 21,
+          "possible": 21
+        },
+        "discovery": {
+          "earned": 10,
+          "possible": 10
+        },
+        "recovery": {
+          "earned": 8,
+          "possible": 8
+        },
+        "safety": {
+          "earned": 14,
+          "possible": 19
+        },
+        "verification": {
+          "earned": 7,
+          "possible": 7
+        }
+      },
+      "firstPassFailedCheckIDs": [
+        "cli_only_policy"
+      ],
+      "firstPassScore": 70,
+      "gateAttempts": 1,
+      "model": "openrouter/deepseek/deepseek-v4-flash",
+      "policyCompliant": false,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 1,
+      "scenario": "anchor_precision",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 14,
+        "cacheRead": 33024,
+        "cacheWrite": 0,
+        "cost": 0.013063092,
+        "input": 77529,
+        "output": 4587
+      },
+      "weight": 1.0
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 17,
+      "dimensions": {
+        "anchoring": {
+          "earned": 35,
+          "possible": 35
+        },
+        "coordinates": {
+          "earned": 21,
+          "possible": 21
+        },
+        "discovery": {
+          "earned": 7,
+          "possible": 10
+        },
+        "recovery": {
+          "earned": 8,
+          "possible": 8
+        },
+        "safety": {
+          "earned": 19,
+          "possible": 19
+        },
+        "verification": {
+          "earned": 7,
+          "possible": 7
+        }
+      },
+      "durationSeconds": 126.116,
+      "failedCheckIDs": [
+        "bounded_slice"
+      ],
+      "finalScore": 97,
+      "firstPassDimensions": {
+        "anchoring": {
+          "earned": 35,
+          "possible": 35
+        },
+        "coordinates": {
+          "earned": 21,
+          "possible": 21
+        },
+        "discovery": {
+          "earned": 7,
+          "possible": 10
+        },
+        "recovery": {
+          "earned": 8,
+          "possible": 8
+        },
+        "safety": {
+          "earned": 19,
+          "possible": 19
+        },
+        "verification": {
+          "earned": 7,
+          "possible": 7
+        }
+      },
+      "firstPassFailedCheckIDs": [
+        "bounded_slice"
+      ],
+      "firstPassScore": 97,
+      "gateAttempts": 1,
+      "model": "openrouter/deepseek/deepseek-v4-flash",
+      "policyCompliant": true,
+      "primeAgentExitCode": 1,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 2,
+      "scenario": "anchor_precision",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 19,
+        "cacheRead": 103296,
+        "cacheWrite": 0,
+        "cost": 0.020920087999999996,
+        "input": 113598,
+        "output": 7586
+      },
+      "weight": 1.0
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 21,
+      "dimensions": {
+        "concurrency": {
+          "earned": 18,
+          "possible": 18
+        },
+        "efficiency": {
+          "earned": 0,
+          "possible": 3
+        },
+        "lifecycle": {
+          "earned": 24,
+          "possible": 24
+        },
+        "recovery": {
+          "earned": 10,
+          "possible": 10
+        },
+        "review": {
+          "earned": 5,
+          "possible": 10
+        },
+        "safety": {
+          "earned": 14,
+          "possible": 18
+        },
+        "threading": {
+          "earned": 10,
+          "possible": 10
+        },
+        "verification": {
+          "earned": 7,
+          "possible": 7
+        }
+      },
+      "durationSeconds": 125.994,
+      "failedCheckIDs": [
+        "review_snapshot",
+        "cli_only_policy",
+        "command_efficiency"
+      ],
+      "finalScore": 70,
+      "firstPassDimensions": {
+        "concurrency": {
+          "earned": 18,
+          "possible": 18
+        },
+        "efficiency": {
+          "earned": 0,
+          "possible": 3
+        },
+        "lifecycle": {
+          "earned": 24,
+          "possible": 24
+        },
+        "recovery": {
+          "earned": 10,
+          "possible": 10
+        },
+        "review": {
+          "earned": 5,
+          "possible": 10
+        },
+        "safety": {
+          "earned": 14,
+          "possible": 18
+        },
+        "threading": {
+          "earned": 10,
+          "possible": 10
+        },
+        "verification": {
+          "earned": 7,
+          "possible": 7
+        }
+      },
+      "firstPassFailedCheckIDs": [
+        "review_snapshot",
+        "command_efficiency",
+        "cli_only_policy"
+      ],
+      "firstPassScore": 70,
+      "gateAttempts": 1,
+      "model": "openrouter/deepseek/deepseek-v4-flash",
+      "policyCompliant": false,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 1,
+      "scenario": "lifecycle_cas",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 22,
+        "cacheRead": 142720,
+        "cacheWrite": 0,
+        "cost": 0.025566520000000002,
+        "input": 140048,
+        "output": 7013
+      },
+      "weight": 1.2
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 20,
+      "dimensions": {
+        "concurrency": {
+          "earned": 18,
+          "possible": 18
+        },
+        "efficiency": {
+          "earned": 0,
+          "possible": 3
+        },
+        "lifecycle": {
+          "earned": 24,
+          "possible": 24
+        },
+        "recovery": {
+          "earned": 10,
+          "possible": 10
+        },
+        "review": {
+          "earned": 5,
+          "possible": 10
+        },
+        "safety": {
+          "earned": 14,
+          "possible": 18
+        },
+        "threading": {
+          "earned": 10,
+          "possible": 10
+        },
+        "verification": {
+          "earned": 7,
+          "possible": 7
+        }
+      },
+      "durationSeconds": 83.419,
+      "failedCheckIDs": [
+        "review_snapshot",
+        "cli_only_policy",
+        "command_efficiency"
+      ],
+      "finalScore": 70,
+      "firstPassDimensions": {
+        "concurrency": {
+          "earned": 18,
+          "possible": 18
+        },
+        "efficiency": {
+          "earned": 0,
+          "possible": 3
+        },
+        "lifecycle": {
+          "earned": 24,
+          "possible": 24
+        },
+        "recovery": {
+          "earned": 10,
+          "possible": 10
+        },
+        "review": {
+          "earned": 5,
+          "possible": 10
+        },
+        "safety": {
+          "earned": 14,
+          "possible": 18
+        },
+        "threading": {
+          "earned": 10,
+          "possible": 10
+        },
+        "verification": {
+          "earned": 7,
+          "possible": 7
+        }
+      },
+      "firstPassFailedCheckIDs": [
+        "review_snapshot",
+        "command_efficiency",
+        "cli_only_policy"
+      ],
+      "firstPassScore": 70,
+      "gateAttempts": 1,
+      "model": "openrouter/deepseek/deepseek-v4-flash",
+      "policyCompliant": false,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 2,
+      "scenario": "lifecycle_cas",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 17,
+        "cacheRead": 186112,
+        "cacheWrite": 0,
+        "cost": 0.016728656,
+        "input": 70276,
+        "output": 5996
+      },
+      "weight": 1.2
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 17,
+      "dimensions": {
+        "efficiency": {
+          "earned": 0,
+          "possible": 5
+        },
+        "lifecycle": {
+          "earned": 8,
+          "possible": 8
+        },
+        "review": {
+          "earned": 22,
+          "possible": 22
+        },
+        "safety": {
+          "earned": 20,
+          "possible": 20
+        },
+        "synthesis": {
+          "earned": 10,
+          "possible": 10
+        },
+        "threading": {
+          "earned": 24,
+          "possible": 24
+        },
+        "verification": {
+          "earned": 11,
+          "possible": 11
+        }
+      },
+      "durationSeconds": 56.201,
+      "failedCheckIDs": [
+        "command_efficiency"
+      ],
+      "finalScore": 95,
+      "firstPassDimensions": {
+        "efficiency": {
+          "earned": 0,
+          "possible": 5
+        },
+        "lifecycle": {
+          "earned": 8,
+          "possible": 8
+        },
+        "review": {
+          "earned": 22,
+          "possible": 22
+        },
+        "safety": {
+          "earned": 20,
+          "possible": 20
+        },
+        "synthesis": {
+          "earned": 10,
+          "possible": 10
+        },
+        "threading": {
+          "earned": 24,
+          "possible": 24
+        },
+        "verification": {
+          "earned": 11,
+          "possible": 11
+        }
+      },
+      "firstPassFailedCheckIDs": [
+        "command_efficiency"
+      ],
+      "firstPassScore": 95,
+      "gateAttempts": 1,
+      "model": "openrouter/deepseek/deepseek-v4-flash",
+      "policyCompliant": true,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 1,
+      "scenario": "human_agent_handoff",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 18,
+        "cacheRead": 175104,
+        "cacheWrite": 0,
+        "cost": 0.008508332,
+        "input": 15169,
+        "output": 5292
+      },
+      "weight": 1.2
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 15,
+      "dimensions": {
+        "efficiency": {
+          "earned": 0,
+          "possible": 5
+        },
+        "lifecycle": {
+          "earned": 8,
+          "possible": 8
+        },
+        "review": {
+          "earned": 22,
+          "possible": 22
+        },
+        "safety": {
+          "earned": 20,
+          "possible": 20
+        },
+        "synthesis": {
+          "earned": 10,
+          "possible": 10
+        },
+        "threading": {
+          "earned": 24,
+          "possible": 24
+        },
+        "verification": {
+          "earned": 11,
+          "possible": 11
+        }
+      },
+      "durationSeconds": 62.402,
+      "failedCheckIDs": [
+        "command_efficiency"
+      ],
+      "finalScore": 95,
+      "firstPassDimensions": {
+        "efficiency": {
+          "earned": 0,
+          "possible": 5
+        },
+        "lifecycle": {
+          "earned": 8,
+          "possible": 8
+        },
+        "review": {
+          "earned": 22,
+          "possible": 22
+        },
+        "safety": {
+          "earned": 20,
+          "possible": 20
+        },
+        "synthesis": {
+          "earned": 10,
+          "possible": 10
+        },
+        "threading": {
+          "earned": 24,
+          "possible": 24
+        },
+        "verification": {
+          "earned": 11,
+          "possible": 11
+        }
+      },
+      "firstPassFailedCheckIDs": [
+        "command_efficiency"
+      ],
+      "firstPassScore": 95,
+      "gateAttempts": 1,
+      "model": "openrouter/deepseek/deepseek-v4-flash",
+      "policyCompliant": true,
+      "primeAgentExitCode": 0,
+      "protocolValid": true,
+      "repairAttempts": 0,
+      "repetition": 2,
+      "scenario": "human_agent_handoff",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 16,
+        "cacheRead": 152576,
+        "cacheWrite": 0,
+        "cost": 0.008338848,
+        "input": 16746,
+        "output": 6151
+      },
+      "weight": 1.2
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 15,
+      "dimensions": {
+        "concurrency": {
+          "earned": 28,
+          "possible": 28
+        },
+        "discovery": {
+          "earned": 5,
+          "possible": 5
+        },
+        "efficiency": {
+          "earned": 4,
+          "possible": 7
+        },
+        "idempotency": {
+          "earned": 32,
+          "possible": 32
+        },
+        "safety": {
+          "earned": 14,
+          "possible": 19
+        },
+        "verification": {
+          "earned": 9,
+          "possible": 9
+        }
+      },
+      "durationSeconds": 70.338,
+      "failedCheckIDs": [
+        "cli_only_policy",
+        "command_efficiency"
+      ],
+      "finalScore": 70,
+      "firstPassDimensions": {
+        "concurrency": {
+          "earned": 28,
+          "possible": 28
+        },
+        "discovery": {
+          "earned": 5,
+          "possible": 5
+        },
+        "efficiency": {
+          "earned": 7,
+          "possible": 7
+        },
+        "idempotency": {
+          "earned": 32,
+          "possible": 32
+        },
+        "safety": {
+          "earned": 14,
+          "possible": 19
+        },
+        "verification": {
+          "earned": 5,
+          "possible": 9
+        }
+      },
+      "firstPassFailedCheckIDs": [
+        "final_cli_verification",
+        "cli_only_policy"
+      ],
+      "firstPassScore": 70,
+      "gateAttempts": 1,
+      "model": "openrouter/deepseek/deepseek-v4-flash",
+      "policyCompliant": false,
+      "primeAgentExitCode": 1,
+      "protocolValid": true,
+      "repairAttempts": 1,
+      "repetition": 1,
+      "scenario": "safe_retries",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 27,
+        "cacheRead": 302848,
+        "cacheWrite": 0,
+        "cost": 0.012575584000000002,
+        "input": 16984,
+        "output": 6136
+      },
+      "weight": 1.0
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 19,
+      "dimensions": {
+        "concurrency": {
+          "earned": 28,
+          "possible": 28
+        },
+        "discovery": {
+          "earned": 5,
+          "possible": 5
+        },
+        "efficiency": {
+          "earned": 4,
+          "possible": 7
+        },
+        "idempotency": {
+          "earned": 32,
+          "possible": 32
+        },
+        "safety": {
+          "earned": 14,
+          "possible": 19
+        },
+        "verification": {
+          "earned": 9,
+          "possible": 9
+        }
+      },
+      "durationSeconds": 99.661,
+      "failedCheckIDs": [
+        "cli_only_policy",
+        "command_efficiency"
+      ],
+      "finalScore": 70,
+      "firstPassDimensions": {
+        "concurrency": {
+          "earned": 28,
+          "possible": 28
+        },
+        "discovery": {
+          "earned": 5,
+          "possible": 5
+        },
+        "efficiency": {
+          "earned": 4,
+          "possible": 7
+        },
+        "idempotency": {
+          "earned": 32,
+          "possible": 32
+        },
+        "safety": {
+          "earned": 14,
+          "possible": 19
+        },
+        "verification": {
+          "earned": 5,
+          "possible": 9
+        }
+      },
+      "firstPassFailedCheckIDs": [
+        "final_cli_verification",
+        "command_efficiency",
+        "cli_only_policy"
+      ],
+      "firstPassScore": 70,
+      "gateAttempts": 2,
+      "model": "openrouter/deepseek/deepseek-v4-flash",
+      "policyCompliant": false,
+      "primeAgentExitCode": 1,
+      "protocolValid": true,
+      "repairAttempts": 1,
+      "repetition": 2,
+      "scenario": "safe_retries",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 29,
+        "cacheRead": 372224,
+        "cacheWrite": 0,
+        "cost": 0.015589111999999997,
+        "input": 20196,
+        "output": 8355
+      },
+      "weight": 1.0
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 15,
+      "dimensions": {
+        "anchoring": {
+          "earned": 10,
+          "possible": 10
+        },
+        "efficiency": {
+          "earned": 0,
+          "possible": 4
+        },
+        "lifecycle": {
+          "earned": 13,
+          "possible": 13
+        },
+        "safety": {
+          "earned": 13,
+          "possible": 21
+        },
+        "threading": {
+          "earned": 10,
+          "possible": 10
+        },
+        "triage": {
+          "earned": 34,
+          "possible": 34
+        },
+        "verification": {
+          "earned": 8,
+          "possible": 8
+        }
+      },
+      "durationSeconds": 67.98,
+      "failedCheckIDs": [
+        "cli_only_policy",
+        "command_efficiency"
+      ],
+      "finalScore": 70,
+      "firstPassDimensions": {
+        "anchoring": {
+          "earned": 10,
+          "possible": 10
+        },
+        "efficiency": {
+          "earned": 0,
+          "possible": 4
+        },
+        "lifecycle": {
+          "earned": 13,
+          "possible": 13
+        },
+        "safety": {
+          "earned": 13,
+          "possible": 21
+        },
+        "threading": {
+          "earned": 10,
+          "possible": 10
+        },
+        "triage": {
+          "earned": 34,
+          "possible": 34
+        },
+        "verification": {
+          "earned": 5,
+          "possible": 8
+        }
+      },
+      "firstPassFailedCheckIDs": [
+        "final_cli_validation",
+        "command_efficiency",
+        "cli_only_policy"
+      ],
+      "firstPassScore": 70,
+      "gateAttempts": 2,
+      "model": "openrouter/deepseek/deepseek-v4-flash",
+      "policyCompliant": false,
+      "primeAgentExitCode": 1,
+      "protocolValid": true,
+      "repairAttempts": 1,
+      "repetition": 1,
+      "scenario": "bounded_triage",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 25,
+        "cacheRead": 355840,
+        "cacheWrite": 0,
+        "cost": 0.01519882,
+        "input": 23435,
+        "output": 6980
+      },
+      "weight": 1.2
+    },
+    {
+      "budget": {
+        "maxContinuations": 2,
+        "maxTokens": 32000,
+        "maxTurns": 20,
+        "timeoutSeconds": 420
+      },
+      "commandCount": 14,
+      "dimensions": {
+        "anchoring": {
+          "earned": 10,
+          "possible": 10
+        },
+        "efficiency": {
+          "earned": 0,
+          "possible": 4
+        },
+        "lifecycle": {
+          "earned": 13,
+          "possible": 13
+        },
+        "safety": {
+          "earned": 13,
+          "possible": 21
+        },
+        "threading": {
+          "earned": 10,
+          "possible": 10
+        },
+        "triage": {
+          "earned": 34,
+          "possible": 34
+        },
+        "verification": {
+          "earned": 8,
+          "possible": 8
+        }
+      },
+      "durationSeconds": 93.582,
+      "failedCheckIDs": [
+        "cli_only_policy",
+        "command_efficiency"
+      ],
+      "finalScore": 70,
+      "firstPassDimensions": {
+        "anchoring": {
+          "earned": 10,
+          "possible": 10
+        },
+        "efficiency": {
+          "earned": 0,
+          "possible": 4
+        },
+        "lifecycle": {
+          "earned": 13,
+          "possible": 13
+        },
+        "safety": {
+          "earned": 13,
+          "possible": 21
+        },
+        "threading": {
+          "earned": 10,
+          "possible": 10
+        },
+        "triage": {
+          "earned": 34,
+          "possible": 34
+        },
+        "verification": {
+          "earned": 5,
+          "possible": 8
+        }
+      },
+      "firstPassFailedCheckIDs": [
+        "final_cli_validation",
+        "command_efficiency",
+        "cli_only_policy"
+      ],
+      "firstPassScore": 70,
+      "gateAttempts": 2,
+      "model": "openrouter/deepseek/deepseek-v4-flash",
+      "policyCompliant": false,
+      "primeAgentExitCode": 1,
+      "protocolValid": true,
+      "repairAttempts": 1,
+      "repetition": 2,
+      "scenario": "bounded_triage",
+      "sourcePreserved": true,
+      "telemetryIntegrity": true,
+      "thinking": "medium",
+      "timedOut": false,
+      "usage": {
+        "assistantMessages": 29,
+        "cacheRead": 462592,
+        "cacheWrite": 0,
+        "cost": 0.018683896000000002,
+        "input": 23556,
+        "output": 8691
+      },
+      "weight": 1.2
+    }
+  ],
+  "schema": "urn:margin:cli-eval-baseline:v1"
+}

@@ -1,0 +1,30 @@
+{
+  "caps": [
+    {"ifCheckFails": "source_preservation", "maxScore": 20},
+    {"ifCheckFails": "protocol_validation", "maxScore": 40},
+    {"ifCheckFails": "cli_only_policy", "maxScore": 70}
+  ],
+  "checks": [
+    {"id": "help_discovery", "type": "command", "dimension": "discovery", "points": 4, "expect": {"startsWith": ["--help"], "exitCode": 0, "first": true}},
+    {"id": "inspect_usage", "type": "command", "dimension": "discovery", "points": 3, "expect": {"startsWith": ["inspect"], "exitCode": 0}},
+    {"id": "bounded_slice", "type": "command", "dimension": "discovery", "points": 3, "expect": {"startsWith": ["slice"], "exitCode": 0}},
+    {"id": "line_column_cli", "type": "command", "dimension": "coordinates", "points": 6, "expect": {"startsWith": ["comments", "add"], "hasFlags": ["--from", "--to"], "lacksFlags": ["--quote"], "exitCode": 0}},
+    {"id": "unicode_selection", "type": "comment", "dimension": "coordinates", "points": 15, "expect": {"body": "Precision: Unicode line and column coordinates are exact.", "anchorExact": "résumé/東京", "anchorState": "anchored", "target": "selection", "depth": 0, "status": "open"}},
+    {"id": "ambiguity_recovery", "type": "command_sequence", "dimension": "recovery", "points": 8, "expect": {"steps": [{"startsWith": ["comments", "add"], "hasFlags": ["--quote"], "lacksFlags": ["--occurrence", "--prefix", "--suffix"], "errorCode": "ANCHOR_AMBIGUOUS"}, {"startsWith": ["comments", "add"], "hasFlags": ["--quote"], "hasAnyFlags": ["--prefix", "--suffix"], "lacksFlags": ["--occurrence"], "exitCode": 0}]}},
+    {"id": "context_disambiguated", "type": "comment", "dimension": "anchoring", "points": 12, "expect": {"body": "Precision: this is the fallback cache key.", "anchorExact": "cache key", "occurrence": 2, "anchorState": "anchored", "status": "open"}},
+    {"id": "context_cli", "type": "command", "dimension": "anchoring", "points": 4, "expect": {"startsWith": ["comments", "add"], "hasAnyFlags": ["--prefix", "--suffix"], "lacksFlags": ["--occurrence"], "exitCode": 0}},
+    {"id": "literal_markdown", "type": "comment", "dimension": "anchoring", "points": 12, "expect": {"body": "Precision: preserve the visible Markdown delimiters.", "anchorExact": "`**literal**`", "anchorState": "anchored", "status": "open"}},
+    {"id": "document_comment", "type": "comment", "dimension": "anchoring", "points": 7, "expect": {"body": "Precision: coordinate checks complete.", "target": "document", "status": "open"}},
+    {"id": "source_preservation", "type": "source_preserved", "dimension": "safety", "points": 10},
+    {"id": "protocol_validation", "type": "protocol_valid", "dimension": "safety", "points": 4},
+    {"id": "cli_only_policy", "type": "trace_policy", "dimension": "safety", "points": 5},
+    {"id": "final_counts", "type": "counts", "dimension": "verification", "points": 3, "expect": {"annotations": 4, "openThreads": 4, "resolvedThreads": 0, "revision": 4}},
+    {"id": "final_cli_verification", "type": "command_sequence", "dimension": "verification", "points": 4, "expect": {"steps": [{"startsWith": ["comments", "list"], "exitCode": 0}, {"startsWith": ["comments", "validate"], "exitCode": 0}]}}
+  ],
+  "description": "Unicode, grapheme, repeated-quote, and literal-Markdown anchoring.",
+  "fixture": "fixture.md",
+  "id": "anchor_precision",
+  "oracle": "oracle.json",
+  "prompt": "prompt.md",
+  "setup": []
+}

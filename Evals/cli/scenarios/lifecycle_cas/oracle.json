@@ -1,0 +1,14 @@
+{
+  "schema": "urn:margin:cli-eval-oracle:v1",
+  "steps": [
+    {"argv": ["review", "$DOCUMENT", "--json"]},
+    {"argv": ["comments", "edit", "$DOCUMENT", "30000000-0000-4000-8000-000000000002", "-m", "Architect revision: SRE owns the handoff at minute five.", "--if-revision", "5"]},
+    {"argv": ["comments", "delete", "$DOCUMENT", "30000000-0000-4000-8000-000000000003", "--if-revision", "5"], "expectedExit": 75},
+    {"argv": ["comments", "delete", "$DOCUMENT", "30000000-0000-4000-8000-000000000003", "--if-revision", "6"]},
+    {"argv": ["comments", "reply", "$DOCUMENT", "30000000-0000-4000-8000-000000000004", "-m", "Agent: reopening because the retired path still affects migration."], "expectedExit": 65},
+    {"argv": ["comments", "reply", "$DOCUMENT", "30000000-0000-4000-8000-000000000004", "-m", "Agent: reopening because the retired path still affects migration.", "--reopen", "--if-revision", "7", "--id", "30000000-0000-4000-8000-000000000005"]},
+    {"argv": ["comments", "resolve", "$DOCUMENT", "30000000-0000-4000-8000-000000000001", "--if-revision", "8"]},
+    {"argv": ["comments", "list", "$DOCUMENT", "--status", "all", "--thread", "30000000-0000-4000-8000-000000000002"]},
+    {"argv": ["comments", "validate", "$DOCUMENT"]}
+  ]
+}

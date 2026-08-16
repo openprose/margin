@@ -1,0 +1,14 @@
+{
+  "schema": "urn:margin:cli-eval-oracle:v1",
+  "steps": [
+    {"argv": ["inspect", "$DOCUMENT", "--json"]},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Retry eval: this approval has an idempotency key.", "--quote", "release token", "--id", "50000000-0000-4000-8000-000000000001", "--if-revision", "0", "--if-content-sha", "$CONTENT_SHA"]},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Retry eval: this approval has an idempotency key.", "--quote", "release token", "--id", "50000000-0000-4000-8000-000000000001", "--if-revision", "0", "--if-content-sha", "$CONTENT_SHA"]},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Retry eval: conflicting reuse must fail.", "--quote", "release token", "--id", "50000000-0000-4000-8000-000000000001"], "expectedExit": 65},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Retry eval: conditional recovery succeeded.", "--document", "--id", "50000000-0000-4000-8000-000000000002", "--if-revision", "0", "--if-content-sha", "$CONTENT_SHA"], "expectedExit": 75},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Retry eval: conditional recovery succeeded.", "--document", "--id", "50000000-0000-4000-8000-000000000002", "--if-revision", "1", "--if-content-sha", "sha256:0000000000000000000000000000000000000000000000000000000000000000"], "expectedExit": 75},
+    {"argv": ["comments", "add", "$DOCUMENT", "-m", "Retry eval: conditional recovery succeeded.", "--document", "--id", "50000000-0000-4000-8000-000000000002", "--if-revision", "1", "--if-content-sha", "$CONTENT_SHA"]},
+    {"argv": ["comments", "list", "$DOCUMENT", "--status", "all"]},
+    {"argv": ["comments", "validate", "$DOCUMENT"]}
+  ]
+}

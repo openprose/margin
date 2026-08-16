@@ -1,0 +1,31 @@
+{
+  "caps": [
+    {"ifCheckFails": "source_preservation", "maxScore": 20},
+    {"ifCheckFails": "protocol_validation", "maxScore": 40},
+    {"ifCheckFails": "cli_only_policy", "maxScore": 70}
+  ],
+  "checks": [
+    {"id": "help_discovery", "type": "command", "dimension": "discovery", "points": 4, "expect": {"startsWith": ["--help"], "exitCode": 0, "first": true}},
+    {"id": "inspect_usage", "type": "command", "dimension": "discovery", "points": 4, "expect": {"startsWith": ["inspect"], "exitCode": 0}},
+    {"id": "outline_usage", "type": "command", "dimension": "discovery", "points": 4, "expect": {"startsWith": ["outline"], "exitCode": 0}},
+    {"id": "bounded_slice", "type": "command", "dimension": "discovery", "points": 4, "expect": {"startsWith": ["slice"], "hasFlags": ["--heading"], "exitCode": 0}},
+    {"id": "quote_comment", "type": "comment", "dimension": "anchoring", "points": 10, "expect": {"body": "Benchmark: define a measurable startup target.", "anchorExact": "launch budget", "anchorState": "anchored", "target": "selection", "status": "resolved", "depth": 0}},
+    {"id": "range_comment", "type": "comment", "dimension": "anchoring", "points": 10, "expect": {"body": "Benchmark: verify this range against the implementation.", "anchorExact": "Cold start must stay below 45 milliseconds on the baseline Mac.", "anchorState": "anchored", "target": "selection", "status": "open", "depth": 0}},
+    {"id": "document_comment", "type": "comment", "dimension": "anchoring", "points": 8, "expect": {"body": "Benchmark: add a compatibility note for macOS 13.", "target": "document", "status": "open", "depth": 0}},
+    {"id": "first_reply", "type": "comment", "dimension": "threading", "points": 8, "expect": {"body": "Benchmark reply: capture both warm and cold measurements.", "parentBody": "Benchmark: define a measurable startup target.", "rootBody": "Benchmark: define a measurable startup target.", "depth": 1, "status": "resolved"}},
+    {"id": "nested_reply", "type": "comment", "dimension": "threading", "points": 8, "expect": {"body": "Benchmark nested reply: include sample size and variance.", "parentBody": "Benchmark reply: capture both warm and cold measurements.", "rootBody": "Benchmark: define a measurable startup target.", "depth": 2, "status": "resolved"}},
+    {"id": "ambiguity_recovery", "type": "command_sequence", "dimension": "recovery", "points": 6, "expect": {"steps": [{"startsWith": ["comments", "add"], "hasFlags": ["--quote"], "lacksFlags": ["--occurrence", "--prefix", "--suffix"], "errorCode": "ANCHOR_AMBIGUOUS"}, {"startsWith": ["comments", "add"], "hasFlags": ["--quote", "--occurrence"], "exitCode": 0}]}},
+    {"id": "second_occurrence", "type": "comment", "dimension": "anchoring", "points": 8, "expect": {"body": "Benchmark: this refers to the second shared signal.", "anchorExact": "shared signal", "occurrence": 2, "anchorState": "anchored", "status": "open", "depth": 0}},
+    {"id": "resolved_thread", "type": "command", "dimension": "lifecycle", "points": 6, "expect": {"startsWith": ["comments", "resolve"], "exitCode": 0}},
+    {"id": "final_cli_verification", "type": "command_sequence", "dimension": "verification", "points": 4, "expect": {"steps": [{"startsWith": ["comments", "list"], "exitCode": 0}, {"startsWith": ["comments", "validate"], "exitCode": 0}]}},
+    {"id": "source_preservation", "type": "source_preserved", "dimension": "safety", "points": 10},
+    {"id": "protocol_validation", "type": "protocol_valid", "dimension": "safety", "points": 3},
+    {"id": "cli_only_policy", "type": "trace_policy", "dimension": "safety", "points": 3}
+  ],
+  "description": "Cold-start discovery and complete comment-thread workflow.",
+  "fixture": "fixture.md",
+  "id": "discovery_review",
+  "oracle": "oracle.json",
+  "prompt": "prompt.md",
+  "setup": []
+}

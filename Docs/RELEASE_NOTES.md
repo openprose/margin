@@ -13,11 +13,13 @@ Release date: 2026-08-16
 - Added an on-demand `⌘⇧P` command palette, recent workspaces, and relaunch continuity for tabs, active documents, reader/source state, sidebars, selection, scroll position, and active thread.
 - Added bounded `margin review --json`, event-driven `margin comments watch --jsonl`, and safe CLI `edit` / `delete --subtree` operations. Watch observes atomic replacement without polling and recovers from target-file deletion/recreation.
 - Clarified returned annotation IDs, bare/full UUID acceptance, read-command pretty printing, and digest shapes after a blind agent usability run.
+- Added a six-scenario CLI-agent eval suite with deterministic semantic grading, first-pass/final scores, privacy-preserving command telemetry, safety caps, repeated model matrices, and reproducible baseline comparison.
 - Fixed overlapping-anchor selection feedback, narrow owner-action compression, filesystem-watcher dismissal of Undo, and full-size-titlebar safe-area placement found during live Mac inspection.
 
 ### Verification
 
 - 71 XCTest cases pass, including Unicode anchors, concurrent CAS edits/deletes, stale-inspector rejection, exact deletion restore, watch replacement/reconnect, adversarially bounded review output, resolved-only navigation, external unread behavior, overlapping highlights, narrow action layout, persistent Undo, and reader performance.
+- All 21 eval-harness tests and six no-model oracles pass. The portable v1 baseline contains 24 complete Luna/DeepSeek runs with byte-exact source preservation, valid comment protocols, intact telemetry, and no timeouts.
 - The CLI contract suite passes all deterministic read, comment, concurrency, nested-thread, edit/delete, watch, validation, and source-preservation checks.
 - A blind agent, given only `--help`, completed review → comment → reply → edit → live watch event → resolve → validate. Every operation took 0.00–0.01 seconds, the watch observed the mutation in about 71 ms, and the logical Markdown SHA-256 remained byte-identical.
 - Live testing of the exact signed candidate covers source/reader selection comments, clickable overlapping threads, reader markers, unread external activity, owner edit/Undo, narrow and wide inspector layout, tabs, command palette, and accessible labels/focus.
