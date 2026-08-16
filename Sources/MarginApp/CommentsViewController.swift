@@ -34,17 +34,17 @@ final class CommentsViewController: NSViewController {
     private var composerWidthConstraint: NSLayoutConstraint?
 
     override func loadView() {
-        view = NSView()
+        view = MarginSurfaceView(fillColor: MarginTheme.inspectorBackground)
         view.translatesAutoresizingMaskIntoConstraints = false
         view.setAccessibilityLabel("Document comments")
 
-        let header = NSView()
+        let header = MarginSurfaceView(fillColor: MarginTheme.inspectorBackground)
         header.translatesAutoresizingMaskIntoConstraints = false
         headerLabel.translatesAutoresizingMaskIntoConstraints = false
-        headerLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        headerLabel.font = .systemFont(ofSize: 13.5, weight: .semibold)
         countLabel.translatesAutoresizingMaskIntoConstraints = false
-        countLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        countLabel.textColor = .secondaryLabelColor
+        countLabel.font = .monospacedSystemFont(ofSize: 9.5, weight: .medium)
+        countLabel.textColor = .tertiaryLabelColor
         filterControl.translatesAutoresizingMaskIntoConstraints = false
         filterControl.segmentStyle = .automatic
         filterControl.selectedSegment = Filter.open.rawValue
@@ -55,14 +55,16 @@ final class CommentsViewController: NSViewController {
         header.addSubview(countLabel)
         header.addSubview(filterControl)
 
-        let separator = NSBox()
+        let separator = MarginHairlineView()
         separator.translatesAutoresizingMaskIntoConstraints = false
-        separator.boxType = .separator
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = MarginTheme.inspectorBackground
+        scrollView.contentView.drawsBackground = true
+        scrollView.contentView.backgroundColor = MarginTheme.inspectorBackground
         scrollView.borderType = .noBorder
 
         let documentView = FlippedDocumentView()
@@ -102,6 +104,7 @@ final class CommentsViewController: NSViewController {
             separator.topAnchor.constraint(equalTo: header.bottomAnchor),
             separator.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 1),
 
             scrollView.topAnchor.constraint(equalTo: separator.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -173,17 +176,12 @@ final class CommentsViewController: NSViewController {
         }.sorted(by: rootOrder)
 
         let openCount = roots.filter { $0.status != .resolved }.count
-        countLabel.stringValue = roots.isEmpty ? "" : "\(openCount) open"
+        countLabel.attributedStringValue = roots.isEmpty
+            ? NSAttributedString(string: "")
+            : MarginTheme.microLabel("\(openCount) open")
 
         if visibleRoots.isEmpty {
-            let empty = NSTextField(wrappingLabelWithString: currentFilter == .open
-                ? "Select a passage and press ⌘⌥M to begin a precise conversation."
-                : "No comments in this view.")
-            empty.textColor = .secondaryLabelColor
-            empty.font = .systemFont(ofSize: 13)
-            empty.maximumNumberOfLines = 0
-            empty.preferredMaxLayoutWidth = 250
-            empty.setAccessibilityLabel("No comments")
+            let empty = makeEmptyState()
             contentStack.addArrangedSubview(empty)
             empty.widthAnchor.constraint(equalTo: contentStack.widthAnchor, constant: -36).isActive = true
             return
@@ -283,8 +281,8 @@ final class CommentsViewController: NSViewController {
 
         if selectedCommentID == root.id {
             container.wantsLayer = true
-            container.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.07).cgColor
-            container.layer?.cornerRadius = 7
+            container.layer?.backgroundColor = MarginTheme.annotationFill.cgColor
+            container.layer?.cornerRadius = 6
         }
 
         let separator = NSBox()
@@ -355,10 +353,10 @@ final class CommentsViewController: NSViewController {
         symbol.translatesAutoresizingMaskIntoConstraints = false
         symbol.setAccessibilityElement(false)
         let author = NSTextField(labelWithString: comment.creator.name)
-        author.font = .systemFont(ofSize: 11.5, weight: .semibold)
+        author.font = .systemFont(ofSize: 11.75, weight: .semibold)
         let date = NSTextField(labelWithString: relativeDate(comment.created))
-        date.font = .systemFont(ofSize: 10.5)
-        date.textColor = .secondaryLabelColor
+        date.font = .monospacedSystemFont(ofSize: 9.5, weight: .regular)
+        date.textColor = .tertiaryLabelColor
         row.addArrangedSubview(symbol)
         row.addArrangedSubview(author)
         row.addArrangedSubview(date)
@@ -370,9 +368,18 @@ final class CommentsViewController: NSViewController {
     }
 
     private func commentBody(_ comment: MarginComment) -> NSTextField {
-        let label = NSTextField(wrappingLabelWithString: comment.body.value)
-        label.font = .systemFont(ofSize: 13)
-        label.textColor = .labelColor
+        let label = NSTextField(wrappingLabelWithString: "")
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 2.5
+        paragraph.lineBreakMode = .byWordWrapping
+        label.attributedStringValue = NSAttributedString(
+            string: comment.body.value,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 13.25),
+                .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: paragraph,
+            ]
+        )
         label.isSelectable = true
         label.maximumNumberOfLines = 0
         return label
@@ -392,8 +399,9 @@ final class CommentsViewController: NSViewController {
         symbol.setAccessibilityElement(false)
 
         let label = NSTextField(wrappingLabelWithString: quote)
-        label.font = .systemFont(ofSize: 11.5, weight: .medium)
-        label.textColor = .secondaryLabelColor
+        let serif = MarginTheme.serifFont(ofSize: 12.25, weight: .regular)
+        label.font = NSFontManager.shared.convert(serif, toHaveTrait: .italicFontMask)
+        label.textColor = MarginTheme.secondaryInk
         label.maximumNumberOfLines = 3
         label.lineBreakMode = .byTruncatingTail
 
@@ -412,6 +420,38 @@ final class CommentsViewController: NSViewController {
               let exact = target.quoteSelector?.exact else { return nil }
         let singleLine = exact.replacingOccurrences(of: "\n", with: " ")
         return singleLine.count > 180 ? String(singleLine.prefix(177)) + "…" : singleLine
+    }
+
+    private func makeEmptyState() -> NSView {
+        let symbol = NSImageView()
+        symbol.image = NSImage(systemSymbolName: "text.bubble", accessibilityDescription: nil)
+        symbol.contentTintColor = .tertiaryLabelColor
+        symbol.imageScaling = .scaleProportionallyDown
+        symbol.translatesAutoresizingMaskIntoConstraints = false
+
+        let title = NSTextField(labelWithString: currentFilter == .open ? "No open threads" : "No comments here")
+        title.font = .systemFont(ofSize: 13, weight: .semibold)
+
+        let detail = NSTextField(wrappingLabelWithString: currentFilter == .open
+            ? "Select a passage and press ⌘⌥M to begin."
+            : "Choose another filter to continue reviewing.")
+        detail.font = .systemFont(ofSize: 12)
+        detail.textColor = .secondaryLabelColor
+        detail.maximumNumberOfLines = 0
+
+        let stack = NSStackView(views: [symbol, title, detail])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.setCustomSpacing(11, after: symbol)
+        stack.setAccessibilityElement(true)
+        stack.setAccessibilityRole(.group)
+        stack.setAccessibilityLabel("No comments")
+        NSLayoutConstraint.activate([
+            symbol.widthAnchor.constraint(equalToConstant: 18),
+            symbol.heightAnchor.constraint(equalToConstant: 18),
+        ])
+        return stack
     }
 
     private func statusLabel(_ title: String) -> NSTextField {
@@ -516,7 +556,7 @@ private final class ThreadReplyView: NSView {
         super.draw(dirtyRect)
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         let lineWidth = 1 / scale
-        NSColor.controlAccentColor.withAlphaComponent(0.34).setStroke()
+        MarginTheme.annotationRail.setStroke()
 
         let path = NSBezierPath()
         path.lineWidth = lineWidth
@@ -596,17 +636,26 @@ private final class CommentComposerView: NSView {
             let normalized = quote.replacingOccurrences(of: "\n", with: " ")
             let ending = normalized.count > 140 ? "…”" : "”"
             let label = NSTextField(wrappingLabelWithString: "On “\(String(normalized.prefix(140)))\(ending)")
-            label.font = .systemFont(ofSize: 11)
-            label.textColor = .secondaryLabelColor
+            let serif = MarginTheme.serifFont(ofSize: 11.5, weight: .regular)
+            label.font = NSFontManager.shared.convert(serif, toHaveTrait: .italicFontMask)
+            label.textColor = MarginTheme.secondaryInk
             label.maximumNumberOfLines = 2
             stack.addArrangedSubview(label)
         }
 
         let scroll = NSScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.borderType = .bezelBorder
+        scroll.borderType = .noBorder
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
+        scroll.drawsBackground = true
+        scroll.backgroundColor = MarginTheme.documentBackground
+        scroll.contentView.drawsBackground = true
+        scroll.contentView.backgroundColor = MarginTheme.documentBackground
+        scroll.wantsLayer = true
+        scroll.layer?.cornerRadius = 6
+        scroll.layer?.borderWidth = 1
+        scroll.layer?.borderColor = MarginTheme.rule.cgColor
         textView.isRichText = false
         textView.allowsUndo = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
@@ -616,6 +665,7 @@ private final class CommentComposerView: NSView {
         textView.isAutomaticDataDetectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = true
         textView.font = .systemFont(ofSize: 13)
+        textView.backgroundColor = MarginTheme.documentBackground
         textView.textContainerInset = NSSize(width: 7, height: 7)
         textView.setAccessibilityLabel("Comment text")
         textView.setAccessibilityHelp("Write a Markdown comment. Press Command-Return to submit or Escape to cancel.")
@@ -668,4 +718,14 @@ private final class CommentComposerView: NSView {
 
 private final class FlippedDocumentView: NSView {
     override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        MarginTheme.inspectorBackground.setFill()
+        dirtyRect.fill()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
 }

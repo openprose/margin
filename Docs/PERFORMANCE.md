@@ -54,3 +54,9 @@ The exact signed v0.1.1 build was measured with the same machine, document, thre
 The main reduction comes from constructing the reader subsystem only when reader mode is first requested. Quick Open's recursive filename index is also strictly on demand after `⌘P`; it adds no startup traversal. The source editor remains real and interactive in the initial window—no placeholder pane is used. A separate five-run probe sampling RSS one second after the window appeared measured 80.484 MiB median, confirming that the memory change was not a 250 ms sampling artifact.
 
 The navigation and thread-layout additions increased the app bundle to 2,019,197 logical bytes and the main executable to 1,054,800 bytes. The result remains an external warm-launch proxy, not a claim about cold launch after reboot or the final compositor frame.
+
+## Final v0.1.2 release gate
+
+The exact signed v0.1.2 visual release was measured on the same machine and fixture with three warm-ups, fifteen runs, and the 250 ms RSS settle interval. It reached the first visible window in **223.750 ms median** and **232.907 ms p95**; median RSS was **80.734 MiB** (80.938 MiB p95).
+
+That distribution overlaps v0.1.1 and shows no launch regression: the median was 3.8% lower and p95 6.2% lower in this run, while median RSS differed by 0.343 MiB. The adaptive palette, typographic hierarchy, and refined review surfaces are code-native AppKit work; reader construction, recursive filename discovery, and document decoding remain outside the pre-window path. The bundle is 2,053,005 logical bytes and the main executable is 1,088,608 bytes.

@@ -66,9 +66,7 @@ final class EditorViewController: NSViewController,
     }
 
     override func loadView() {
-        let root = NSView()
-        root.wantsLayer = true
-        root.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+        let root = MarginSurfaceView(fillColor: MarginTheme.documentBackground)
         view = root
 
         configureBanner()
@@ -427,7 +425,7 @@ final class EditorViewController: NSViewController,
         editorScrollView.autohidesScrollers = true
         editorScrollView.borderType = .noBorder
         editorScrollView.drawsBackground = true
-        editorScrollView.backgroundColor = .textBackgroundColor
+        editorScrollView.backgroundColor = MarginTheme.documentBackground
         contentView.addSubview(editorScrollView)
         NSLayoutConstraint.activate([
             editorScrollView.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -517,7 +515,8 @@ final class EditorViewController: NSViewController,
         let lineStart = (prefix as NSString).range(of: "\n", options: .backwards).location
         let column = lineStart == NSNotFound ? location + 1 : location - lineStart
         let state = savedMessage ? "Saved" : (isDirty ? "Edited" : "")
-        statusLabel.stringValue = "Ln \(line), Col \(column)   \(state)"
+        let coordinate = "Ln \(line)  ·  Col \(column)"
+        statusLabel.stringValue = state.isEmpty ? coordinate : "\(coordinate)  ·  \(state)"
         if savedMessage {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.updateStatus() }
         }
@@ -582,11 +581,11 @@ final class EditorViewController: NSViewController,
             let range = clamped(rawRange, limit: entire.length)
             guard range.length > 0 else { continue }
             let active = id == selectedThreadID
-            let baseColor = active ? NSColor.controlAccentColor : NSColor.systemYellow
-            let color = baseColor.withAlphaComponent(active ? 0.22 : 0.14)
+            let baseColor = NSColor.controlAccentColor
+            let color = baseColor.withAlphaComponent(active ? 0.15 : 0.075)
             layout.addTemporaryAttributes([
                 .backgroundColor: color,
-                .underlineColor: baseColor.withAlphaComponent(active ? 0.9 : 0.82),
+                .underlineColor: baseColor.withAlphaComponent(active ? 0.90 : 0.48),
                 .underlineStyle: active ? NSUnderlineStyle.thick.rawValue : NSUnderlineStyle.single.rawValue,
             ], forCharacterRange: range)
         }

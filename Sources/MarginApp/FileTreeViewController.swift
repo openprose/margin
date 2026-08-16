@@ -6,6 +6,8 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
     private let outlineView = NSOutlineView()
     private let scrollView = NSScrollView()
     private let directoryLabel = NSTextField(labelWithString: "Files")
+    private let directoryIcon = NSImageView()
+    private let headerRule = MarginHairlineView()
     private var rootNode: FileNode?
     private var watcher: FileSystemWatcher?
     private var representedDirectoryURL: URL?
@@ -20,11 +22,18 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
         background.state = .followsWindowActiveState
         view = background
 
-        directoryLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        directoryLabel.font = .monospacedSystemFont(ofSize: 10.5, weight: .medium)
         directoryLabel.textColor = .secondaryLabelColor
         directoryLabel.lineBreakMode = .byTruncatingMiddle
         directoryLabel.translatesAutoresizingMaskIntoConstraints = false
         directoryLabel.setAccessibilityLabel("Open directory")
+
+        directoryIcon.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+        directoryIcon.contentTintColor = .tertiaryLabelColor
+        directoryIcon.imageScaling = .scaleProportionallyDown
+        directoryIcon.translatesAutoresizingMaskIntoConstraints = false
+        directoryIcon.setAccessibilityElement(false)
+        headerRule.translatesAutoresizingMaskIntoConstraints = false
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("FileColumn"))
         column.resizingMask = .autoresizingMask
@@ -34,9 +43,10 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
         outlineView.delegate = self
         outlineView.dataSource = self
         outlineView.style = .sourceList
-        outlineView.rowHeight = 23
-        outlineView.indentationPerLevel = 14
+        outlineView.rowHeight = 26
+        outlineView.indentationPerLevel = 15
         outlineView.intercellSpacing = NSSize(width: 0, height: 1)
+        outlineView.backgroundColor = .clear
         outlineView.autosaveExpandedItems = false
         outlineView.target = self
         outlineView.doubleAction = #selector(doubleClickedItem(_:))
@@ -50,13 +60,26 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
         scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
+        background.addSubview(directoryIcon)
         background.addSubview(directoryLabel)
+        background.addSubview(headerRule)
         background.addSubview(scrollView)
         NSLayoutConstraint.activate([
-            directoryLabel.topAnchor.constraint(equalTo: background.safeAreaLayoutGuide.topAnchor, constant: 11),
-            directoryLabel.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 13),
+            directoryIcon.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 13),
+            directoryIcon.centerYAnchor.constraint(equalTo: directoryLabel.centerYAnchor),
+            directoryIcon.widthAnchor.constraint(equalToConstant: 14),
+            directoryIcon.heightAnchor.constraint(equalToConstant: 14),
+
+            directoryLabel.topAnchor.constraint(equalTo: background.safeAreaLayoutGuide.topAnchor, constant: 13),
+            directoryLabel.leadingAnchor.constraint(equalTo: directoryIcon.trailingAnchor, constant: 7),
             directoryLabel.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -12),
-            scrollView.topAnchor.constraint(equalTo: directoryLabel.bottomAnchor, constant: 7),
+
+            headerRule.topAnchor.constraint(equalTo: directoryLabel.bottomAnchor, constant: 11),
+            headerRule.leadingAnchor.constraint(equalTo: background.leadingAnchor),
+            headerRule.trailingAnchor.constraint(equalTo: background.trailingAnchor),
+            headerRule.heightAnchor.constraint(equalToConstant: 1),
+
+            scrollView.topAnchor.constraint(equalTo: headerRule.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: background.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: background.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: background.bottomAnchor),
@@ -208,6 +231,9 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
         cell.textField?.stringValue = node.name
         cell.textField?.toolTip = node.url.path
         cell.imageView?.image = icon(for: node)
+        cell.imageView?.contentTintColor = node.isDirectory
+            ? .secondaryLabelColor
+            : (node.isMarkdown ? NSColor.controlAccentColor.withAlphaComponent(0.82) : .tertiaryLabelColor)
         cell.setAccessibilityLabel(node.name)
         cell.setAccessibilityHelp(node.isDirectory ? "Folder" : "File")
         return cell
@@ -318,7 +344,7 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
         imageView.setAccessibilityElement(false)
 
         let textField = NSTextField(labelWithString: "")
-        textField.font = .systemFont(ofSize: 12.5)
+        textField.font = .systemFont(ofSize: 12.5, weight: .regular)
         textField.lineBreakMode = .byTruncatingMiddle
         textField.translatesAutoresizingMaskIntoConstraints = false
 

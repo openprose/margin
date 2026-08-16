@@ -126,7 +126,7 @@ make package           # signed local app/CLI zip plus SHA-256 checksum
 
 The real-agent benchmark lives in `Benchmarks/agent_benchmark`. It gives a fresh agent only the task and `margin --help`, then scores discovery, bounded reading, comment creation, nested replies, ambiguity recovery, resolution, validation, and byte-exact source preservation. See its README for the privacy and cost controls.
 
-Measured launch results, the agent benchmark, and the complete v0.1.1 verification record are in `Docs/PERFORMANCE.md`, `Docs/AGENT_BENCHMARK.md`, and `Docs/RELEASE_NOTES.md`.
+Measured launch results, the agent benchmark, and the complete verification record are in `Docs/PERFORMANCE.md`, `Docs/AGENT_BENCHMARK.md`, and `Docs/RELEASE_NOTES.md`.
 
 ## Scope
 

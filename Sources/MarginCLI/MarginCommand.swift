@@ -3,7 +3,7 @@ import Foundation
 import MarginCore
 
 enum MarginCommand {
-    static let version = "0.1.1"
+    static let version = "0.1.2"
     static let service = CommentService()
     static let codec = EmbeddedCommentCodec()
 

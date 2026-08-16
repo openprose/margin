@@ -2,21 +2,25 @@
 
 Margin's interface is quiet, exact, and tactile. It is a native work surface for close reading and precise exchange, not an IDE or an office dashboard.
 
+Its visual character is an **editorial instrument**: the measured geometry and microtype of a drafting tool, paired with the warmth and cadence of a well-set proof. Artistic choices live in proportion, typography, and material—not decoration.
+
 ## Structure
 
 - The center editor is always primary.
 - A leading navigator appears for directory workspaces and stays collapsed for standalone files.
 - A trailing comment inspector holds the conversation without covering the source.
 - The unified toolbar contains only navigator, reader, new-comment, and comments controls.
-- Reader mode keeps a centered measure no wider than 720 points.
+- Reader mode keeps a centered measure no wider than 690 points.
 
 All panes use standard AppKit split-view behavior, system materials, native focus rings, and familiar keyboard navigation. The layout has no decorative cards or persistent onboarding chrome.
 
 ## Typography and color
 
-Source editing uses the system monospaced design with semantic weight and restrained color to expose Markdown structure while leaving every delimiter visible. Reader mode uses native text styles, increased leading, and a bounded line length.
+Source editing uses a legible system face with a serif heading register, generous leading, and restrained syntax color. Every delimiter remains visible. The editing measure centers only when space permits, preserving a direct full-width canvas in compact windows. Reader mode uses a native serif design, increased leading, and a narrower book-like measure.
 
-Colors come from semantic AppKit values such as label, secondary label, text background, separator, link, and control accent. The app therefore follows light mode, dark mode, increased contrast, and accent changes without a parallel theme engine. Comment selection combines background with an underline so meaning never relies on color alone.
+The document rests on a low-chroma, warm proofing surface; the navigator and comment inspector use slightly cooler technical surrounds. Monospaced microtype is reserved for paths, counts, dates, and navigation instructions. The user's macOS accent color is the only chromatic voice and links source anchors, Markdown cues, files, and active review state.
+
+Colors remain adaptive AppKit values, so the app follows light mode, dark mode, increased contrast, and accent changes without a user-facing theme engine. Comment selection combines a quiet accent wash, underline, and geometric reply rail so meaning never relies on color alone.
 
 ## Interaction
 

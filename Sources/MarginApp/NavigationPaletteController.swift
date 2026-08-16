@@ -50,7 +50,7 @@ final class NavigationPaletteController: NSWindowController,
         self.emptyMessage = emptyMessage
 
         let panel = NavigationPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 390),
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 410),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: true
@@ -164,9 +164,7 @@ final class NavigationPaletteController: NSWindowController,
     }
 
     private func configureContent(in panel: NSPanel, placeholder: String) {
-        let root = NSView()
-        root.wantsLayer = true
-        root.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        let root = MarginSurfaceView(fillColor: MarginTheme.paletteBackground)
         panel.contentView = root
 
         searchField.placeholderString = placeholder
@@ -179,15 +177,14 @@ final class NavigationPaletteController: NSWindowController,
         searchField.onChoose = { [weak self] in self?.chooseSelection() }
         searchField.onCancel = { [weak self] in self?.close() }
 
-        let separator = NSBox()
-        separator.boxType = .separator
+        let separator = MarginHairlineView()
         separator.translatesAutoresizingMaskIntoConstraints = false
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("NavigationPaletteColumn"))
         column.resizingMask = .autoresizingMask
         tableView.addTableColumn(column)
         tableView.headerView = nil
-        tableView.rowHeight = 46
+        tableView.rowHeight = 50
         tableView.intercellSpacing = NSSize(width: 0, height: 1)
         tableView.selectionHighlightStyle = .regular
         tableView.dataSource = self
@@ -201,11 +198,14 @@ final class NavigationPaletteController: NSWindowController,
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        scrollView.drawsBackground = false
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = MarginTheme.paletteBackground
+        scrollView.contentView.drawsBackground = true
+        scrollView.contentView.backgroundColor = MarginTheme.paletteBackground
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        statusLabel.font = .systemFont(ofSize: 10.5)
-        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.font = .monospacedSystemFont(ofSize: 9.5, weight: .regular)
+        statusLabel.textColor = .tertiaryLabelColor
         statusLabel.lineBreakMode = .byTruncatingMiddle
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.setAccessibilityLabel("Navigation status")
@@ -222,6 +222,7 @@ final class NavigationPaletteController: NSWindowController,
             separator.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 14),
             separator.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 1),
 
             scrollView.topAnchor.constraint(equalTo: separator.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
@@ -230,7 +231,7 @@ final class NavigationPaletteController: NSWindowController,
 
             statusLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 18),
             statusLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -18),
-            statusLabel.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -10),
+            statusLabel.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -11),
             statusLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 14),
         ])
     }
@@ -264,7 +265,7 @@ final class NavigationPaletteController: NSWindowController,
             statusLabel.stringValue = emptyMessage
         } else {
             let noun = visibleItems.count == 1 ? "result" : "results"
-            statusLabel.stringValue = "\(visibleItems.count) \(noun)  ·  ↑↓ navigate  ↩ open  esc close"
+            statusLabel.stringValue = "\(visibleItems.count) \(noun)  ·  ↑↓ navigate  ·  ↩ open  ·  Esc close"
         }
     }
 
@@ -420,12 +421,12 @@ private final class NavigationPaletteCell: NSTableCellView {
         symbolView.translatesAutoresizingMaskIntoConstraints = false
         symbolView.setAccessibilityElement(false)
 
-        titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        titleLabel.font = .systemFont(ofSize: 13.5, weight: .semibold)
         titleLabel.lineBreakMode = .byTruncatingMiddle
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        subtitleLabel.font = .systemFont(ofSize: 10.5)
-        subtitleLabel.textColor = .secondaryLabelColor
+        subtitleLabel.font = .monospacedSystemFont(ofSize: 9.75, weight: .regular)
+        subtitleLabel.textColor = .tertiaryLabelColor
         subtitleLabel.lineBreakMode = .byTruncatingMiddle
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -455,6 +456,9 @@ private final class NavigationPaletteCell: NSTableCellView {
         subtitleLabel.stringValue = item.subtitle
         subtitleLabel.isHidden = item.subtitle.isEmpty
         symbolView.image = NSImage(systemSymbolName: item.symbolName, accessibilityDescription: nil)
+        symbolView.contentTintColor = item.symbolName == "doc.richtext"
+            ? NSColor.controlAccentColor.withAlphaComponent(0.82)
+            : .secondaryLabelColor
         setAccessibilityLabel(item.subtitle.isEmpty ? item.title : "\(item.title), \(item.subtitle)")
     }
 }

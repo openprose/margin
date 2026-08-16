@@ -22,7 +22,7 @@ struct MarkdownReaderRenderer {
         var codeParagraphStyle: NSParagraphStyle
 
         static func system(bodyFontSize: CGFloat = 18) -> Theme {
-            let body = serifFont(ofSize: bodyFontSize, weight: .regular)
+            let body = MarginTheme.serifFont(ofSize: bodyFontSize, weight: .regular)
             let headingSizes: [CGFloat] = [31, 25, 21, 18.5, 17, 16]
                 .map { $0 * (bodyFontSize / 18) }
 
@@ -50,7 +50,7 @@ struct MarkdownReaderRenderer {
             return Theme(
                 bodyFont: body,
                 headingFonts: headingSizes.enumerated().map { index, size in
-                    serifFont(
+                    MarginTheme.serifFont(
                         ofSize: size,
                         weight: index < 2 ? .bold : .semibold
                     )
@@ -60,28 +60,17 @@ struct MarkdownReaderRenderer {
                     weight: .regular
                 ),
                 textColor: .labelColor,
-                secondaryTextColor: .secondaryLabelColor,
-                linkColor: .linkColor,
+                secondaryTextColor: MarginTheme.secondaryInk,
+                linkColor: .controlAccentColor,
                 accentColor: .controlAccentColor,
-                codeBackgroundColor: .controlBackgroundColor,
-                separatorColor: .separatorColor,
+                codeBackgroundColor: MarginTheme.codeBackground,
+                separatorColor: MarginTheme.rule,
                 bodyParagraphStyle: bodyParagraph,
                 quoteParagraphStyle: quoteParagraph,
                 codeParagraphStyle: codeParagraph
             )
         }
 
-        private static func serifFont(
-            ofSize size: CGFloat,
-            weight: NSFont.Weight
-        ) -> NSFont {
-            let fallback = NSFont.systemFont(ofSize: size, weight: weight)
-            guard
-                let descriptor = fallback.fontDescriptor.withDesign(.serif),
-                let font = NSFont(descriptor: descriptor, size: size)
-            else { return fallback }
-            return font
-        }
     }
 
     enum MappingKind: String {
@@ -323,8 +312,8 @@ struct MarkdownReaderRenderer {
         textView.isRichText = true
         textView.importsGraphics = false
         textView.drawsBackground = true
-        textView.backgroundColor = .textBackgroundColor
-        textView.textContainerInset = NSSize(width: 48, height: 52)
+        textView.backgroundColor = MarginTheme.documentBackground
+        textView.textContainerInset = NSSize(width: 48, height: 64)
         textView.textContainer?.lineFragmentPadding = 0
         textView.usesFindPanel = true
         textView.isIncrementalSearchingEnabled = true

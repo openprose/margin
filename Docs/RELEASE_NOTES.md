@@ -1,5 +1,22 @@
 # Margin release notes
 
+## 0.1.2 — editorial instrument
+
+Release date: 2026-08-16
+
+- Established a restrained visual system that pairs warm document surfaces with cooler technical navigator and review surfaces.
+- Added a serif heading register and centered wide-window editing measure while keeping every Markdown delimiter literal and editable.
+- Refined reader typography to a calmer 690-point measure with more generous page rhythm and proof-like code treatment.
+- Rebuilt comment presentation around clear actor hierarchy, monospaced metadata, literary quote treatment, accent rails, and quieter selection states.
+- Refined the directory navigator and Quick Open palette with more precise spacing, file hierarchy, metadata, and adaptive surfaces.
+- Made standard window zoom use the full visible screen while retaining native macOS full-screen behavior.
+
+The redesign remains pure AppKit/TextKit and adds no dependency, asset load, network request, or launch-time directory work. The comment protocol and Markdown bytes are unchanged.
+
+On the current M1 Max Mac, the exact signed candidate reached a visible window in 223.750 ms median / 232.907 ms p95 across fifteen warm launches, with 80.734 MiB median RSS. This is within—and slightly faster than—the v0.1.1 launch distribution.
+
+Release artifact: `Margin-0.1.2-macOS-arm64.zip` (1,223,244 bytes), SHA-256 `3a10d390db101041fd4f2a2eb39dabc22daf3ec14922dac08a5942c2ac2ed631`.
+
 ## 0.1.1 — usability pass
 
 Release date: 2026-08-16

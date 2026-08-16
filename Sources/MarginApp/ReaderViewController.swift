@@ -30,13 +30,13 @@ final class ReaderViewController: NSViewController {
     }
 
     private final class CenteredReaderTextView: NSTextView {
-        var maximumTextWidth: CGFloat = 720 {
+        var maximumTextWidth: CGFloat = 690 {
             didSet { updateCenteredInset() }
         }
         var minimumHorizontalInset: CGFloat = 44 {
             didSet { updateCenteredInset() }
         }
-        var verticalInset: CGFloat = 52 {
+        var verticalInset: CGFloat = 64 {
             didSet { updateCenteredInset() }
         }
 
@@ -87,7 +87,7 @@ final class ReaderViewController: NSViewController {
         let layoutManager = NSLayoutManager()
         let textContainer = NSTextContainer(
             containerSize: NSSize(
-                width: 720,
+                width: 690,
                 height: CGFloat.greatestFiniteMagnitude
             )
         )
@@ -96,11 +96,11 @@ final class ReaderViewController: NSViewController {
         textContainer.widthTracksTextView = true
 
         readerTextView = CenteredReaderTextView(
-            frame: NSRect(x: 0, y: 0, width: 720, height: 640),
+            frame: NSRect(x: 0, y: 0, width: 690, height: 640),
             textContainer: textContainer
         )
         readerScrollView = NSScrollView(
-            frame: NSRect(x: 0, y: 0, width: 720, height: 640)
+            frame: NSRect(x: 0, y: 0, width: 690, height: 640)
         )
         super.init(nibName: nil, bundle: nil)
     }
@@ -112,7 +112,7 @@ final class ReaderViewController: NSViewController {
         let layoutManager = NSLayoutManager()
         let textContainer = NSTextContainer(
             containerSize: NSSize(
-                width: 720,
+                width: 690,
                 height: CGFloat.greatestFiniteMagnitude
             )
         )
@@ -121,11 +121,11 @@ final class ReaderViewController: NSViewController {
         textContainer.widthTracksTextView = true
 
         readerTextView = CenteredReaderTextView(
-            frame: NSRect(x: 0, y: 0, width: 720, height: 640),
+            frame: NSRect(x: 0, y: 0, width: 690, height: 640),
             textContainer: textContainer
         )
         readerScrollView = NSScrollView(
-            frame: NSRect(x: 0, y: 0, width: 720, height: 640)
+            frame: NSRect(x: 0, y: 0, width: 690, height: 640)
         )
         super.init(coder: coder)
     }
@@ -236,7 +236,7 @@ final class ReaderViewController: NSViewController {
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.heightTracksTextView = false
         textView.textContainer?.containerSize = NSSize(
-            width: 720,
+            width: 690,
             height: CGFloat.greatestFiniteMagnitude
         )
         textView.updateCenteredInset()
@@ -247,9 +247,9 @@ final class ReaderViewController: NSViewController {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = .textBackgroundColor
+        scrollView.backgroundColor = MarginTheme.documentBackground
         scrollView.contentView.drawsBackground = true
-        scrollView.contentView.backgroundColor = .textBackgroundColor
+        scrollView.contentView.backgroundColor = MarginTheme.documentBackground
     }
 
     private func sizeDocumentViewToContent() {
@@ -438,9 +438,9 @@ final class ReaderViewController: NSViewController {
         switch state {
         case .normal:
             return [
-                .backgroundColor: NSColor.systemYellow.withAlphaComponent(0.14),
+                .backgroundColor: NSColor.controlAccentColor.withAlphaComponent(0.075),
                 .underlineStyle: NSUnderlineStyle.single.rawValue,
-                .underlineColor: NSColor.systemYellow.withAlphaComponent(0.82),
+                .underlineColor: NSColor.controlAccentColor.withAlphaComponent(0.48),
             ]
         case .active:
             return [

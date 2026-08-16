@@ -20,21 +20,16 @@ final class MarkdownHighlighter: NSObject {
         var checkedColor: NSColor
 
         static func system(baseFontSize: CGFloat = 15.5) -> Theme {
-            let body = NSFont.systemFont(ofSize: baseFontSize, weight: .regular)
+            let body = MarginTheme.sourceBodyFont(size: baseFontSize)
             let strong = NSFont.systemFont(ofSize: baseFontSize, weight: .semibold)
             let emphasis = font(byAdding: .italicFontMask, to: body)
             let strongEmphasis = font(byAdding: .italicFontMask, to: strong)
 
             return Theme(
                 bodyFont: body,
-                headingFonts: [
-                    NSFont.systemFont(ofSize: baseFontSize, weight: .bold),
-                    NSFont.systemFont(ofSize: baseFontSize, weight: .semibold),
-                    NSFont.systemFont(ofSize: baseFontSize, weight: .semibold),
-                    NSFont.systemFont(ofSize: baseFontSize, weight: .medium),
-                    NSFont.systemFont(ofSize: baseFontSize, weight: .medium),
-                    NSFont.systemFont(ofSize: baseFontSize, weight: .medium),
-                ],
+                headingFonts: (1...6).map {
+                    MarginTheme.sourceHeadingFont(level: $0, baseSize: baseFontSize)
+                },
                 strongFont: strong,
                 emphasisFont: emphasis,
                 strongEmphasisFont: strongEmphasis,
@@ -43,9 +38,9 @@ final class MarkdownHighlighter: NSObject {
                     weight: .regular
                 ),
                 textColor: .labelColor,
-                syntaxColor: .secondaryLabelColor,
-                activeSyntaxColor: .labelColor,
-                linkColor: .linkColor,
+                syntaxColor: MarginTheme.syntax,
+                activeSyntaxColor: MarginTheme.activeSyntax,
+                linkColor: .controlAccentColor,
                 checkedColor: .controlAccentColor
             )
         }
@@ -154,16 +149,13 @@ final class MarkdownHighlighter: NSObject {
         textView.textColor = theme.textColor
         textView.insertionPointColor = .controlAccentColor
         textView.drawsBackground = true
-        textView.backgroundColor = .textBackgroundColor
-        textView.textContainerInset = NSSize(width: 42, height: 34)
+        textView.backgroundColor = MarginTheme.documentBackground
+        textView.textContainerInset = NSSize(width: 46, height: 44)
         textView.textContainer?.lineFragmentPadding = 0
         textView.usesFindPanel = true
         textView.isIncrementalSearchingEnabled = true
 
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 5
-        paragraph.paragraphSpacing = 2
-        paragraph.lineBreakMode = .byWordWrapping
+        let paragraph = MarginTheme.sourceParagraphStyle()
         textView.defaultParagraphStyle = paragraph
         textView.typingAttributes = [
             .font: theme.bodyFont,

@@ -15,7 +15,7 @@ fi
 
 /usr/bin/plutil -lint "$APP_BUNDLE/Contents/Info.plist" >/dev/null
 /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
-[[ "$($CLI --version)" == "Margin 0.1.1" ]]
+[[ "$($CLI --version)" == "Margin 0.1.2" ]]
 "$CLI" inspect --json "$FIXTURE" >/dev/null
 "$CLI" outline --json "$FIXTURE" >/dev/null
 

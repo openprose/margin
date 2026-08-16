@@ -265,6 +265,10 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         onClose?()
     }
 
+    func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame newFrame: NSRect) -> NSRect {
+        window.screen?.visibleFrame ?? newFrame
+    }
+
     private func configureWindow(_ window: NSWindow) {
         window.delegate = self
         window.contentViewController = splitViewController
@@ -273,6 +277,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
         window.toolbarStyle = .unified
+        window.backgroundColor = MarginTheme.documentBackground
         window.isRestorable = false
         window.minSize = NSSize(width: 760, height: 500)
         window.maxSize = NSSize(width: 100_000, height: 100_000)

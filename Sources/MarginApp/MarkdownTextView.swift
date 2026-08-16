@@ -27,11 +27,20 @@ final class MarkdownTextView: NSTextView {
         usesFindBar = true
         isIncrementalSearchingEnabled = true
         usesInspectorBar = false
-        textContainerInset = NSSize(width: 42, height: 52)
+        textContainerInset = NSSize(width: 46, height: 44)
         drawsBackground = true
-        backgroundColor = .textBackgroundColor
+        backgroundColor = MarginTheme.documentBackground
         insertionPointColor = .controlAccentColor
         setAccessibilityLabel("Markdown editor")
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        let preferredMeasure: CGFloat = 820
+        let inset = max(46, (newSize.width - preferredMeasure) / 2)
+        if abs(textContainerInset.width - inset) > 0.5 {
+            textContainerInset.width = inset
+        }
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
