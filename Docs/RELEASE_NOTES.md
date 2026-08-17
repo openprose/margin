@@ -1,5 +1,35 @@
 # Margin release notes
 
+## 0.3.0 — document and directory collaboration
+
+Release date: 2026-08-17
+
+- Added explicit file and directory collaboration roots, optional `.margin/workspace.json` manifests, deterministic `mcur1:` state cursors, and bounded context/inbox/collaborator views for agents.
+- Added portable typed contributions—questions, issues, decisions, tasks, approvals, suggestions, and handoffs—without changing the W3C-compatible comment/thread foundation or the logical Markdown body.
+- Added suggestion acceptance and rejection with authored-base verification, live Unicode-anchor checks, provenance, source-selector refresh, and atomic source-plus-annotation updates.
+- Added immutable staging and journaled all-or-none transactions spanning multiple Markdown files. Workspace-consistent reads share a root lock, each file is atomically valid, ordinary failures roll back exact backups, interrupted submissions recover deterministically, and identical request retries are idempotent.
+- Added safe immutable stage refresh for metadata drift. It preserves exact hidden operation payloads, retains the prior stage, records durable lineage, revalidates semantic/direct preconditions before storage, and makes exact refresh retries idempotent.
+- Made stage review honestly bounded and useful: list results have count and aggregate-byte budgets, while explicit detail exposes bounded semantic previews and digests without ever dumping file images or raw cursors.
+- Added durable, factual collaborator activity: actor identity, first/last observed work, files and contribution kinds, unresolved authored work, and open assignments. Margin deliberately does not infer online presence.
+- Added fail-closed envelope reconciliation for source changed outside Margin and three-way semantic annotation merge with stable IDs, explicit conflict choices, independent-addition preservation, and anchor re-resolution.
+- Added a self-describing CLI capability catalog, 7–20 KB workflow projections, and command-local help so agents can discover only the grammar they need without reading source. Bounded structured output, stable error codes, idempotency keys, cursors, and truncation metadata are first-class parts of the contract.
+- Added a lazy native Collaboration Overview, bounded typed stage previews, safe stale-stage refresh, separately confirmed discard, typed review labels, suggestion diffs, and Accept/Reject controls. Directory context, stages, collaborators, and activity are loaded only when explicitly opened and add no launch-path scan or service.
+- Added a secret-seeded twelve-environment collaboration eval suite covering relays, handoffs, concurrent directory writers, staged multi-file atomicity, drift/reanchor, semantic merge, suggestion disposition, prompt injection, bounded context, activity, retry deduplication, and crash recovery.
+
+### Verification
+
+- 161 Swift tests pass, covering Unicode anchors, typed contribution replay, concurrent CAS, cross-file rollback/recovery, shared locking, direct-file metadata preservation, stage refresh/lineage, bounded hostile inputs, reconciliation, semantic merge, native stage review, accessibility, and launch-path isolation.
+- All 22 original CLI-eval harness tests and six single-document oracles pass at 100. The new collaboration harness passes 46/46 tests; its strict release gate runs all 12 directory/relay environments with zero skips and a weighted score of 100.
+- A bounded trusted Luna/Terra pilot ran four isolated Prime Agent processes over stale multi-file staging and suggestion disposition. It averaged 91.5237, preserved safety and policy in every process, had no timeout or direct filesystem/credential access, and cost $0.22879114. Its two missed checks directly produced stage refresh, bounded stage previews, smaller capability projections, and corrected non-vacuous eval scoring; no unapproved follow-up model run was made.
+- The signed bundle smoke passes application launch, CLI versioning, document inspection, and window visibility. Static help is 5.422 ms cold / 6.311 ms warm p95; the full capability contract is 8.746 ms p95 and workflow projections are 6.9–20.1 KB.
+- Live testing of the exact signed candidate covers Collaboration Overview, durable actor activity, bounded decision/task previews, stale-stage refresh, retained parent lineage, and the separately confirmed discard path. Direct staged file images remain concealed.
+
+### Performance
+
+In a paired five-warm-up/thirty-run comparison on this M1 Max Mac, the exact v0.3 candidate reaches a visible real editor window in **299.551 ms median / 316.099 ms p95**, versus **302.981 / 315.554 ms** for the installed v0.2 control. Median RSS is **160.000 MiB** versus **159.493 MiB**. The change is effectively neutral: median launch improves 1.1%, p95 differs by 0.2%, and median RSS by 0.3%. See `Docs/PERFORMANCE.md`.
+
+Release artifact: `Margin-0.3.0-macOS-arm64.zip` (3,474,772 bytes), SHA-256 `4128ef73738bdb90b8befec65e7a631e39e7fca5c9e89e6f73d9bcf55b5b664c`.
+
 ## 0.2.0 — focused human-agent review
 
 Release date: 2026-08-16

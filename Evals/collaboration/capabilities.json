@@ -1,0 +1,65 @@
+{
+  "capabilities": {
+    "bounded_context": {
+      "allHelpPatterns": ["margin context", "--json"],
+      "description": "Bounded file/directory context with cursors and structured actions."
+    },
+    "collaborator_activity": {
+      "allHelpPatterns": ["margin context", "collaborator"],
+      "description": "Durable factual collaborator activity aggregation."
+    },
+    "comments": {
+      "allHelpPatterns": ["comments add", "comments reply", "comments list"],
+      "description": "Embedded W3C comment roots and reply trees."
+    },
+    "compare_and_swap": {
+      "allHelpPatterns": ["--if-revision", "--if-content-sha"],
+      "description": "Revision and logical-content compare-and-swap."
+    },
+    "idempotency": {
+      "allHelpPatterns": ["--id"],
+      "description": "Caller-provided mutation identity and replay safety."
+    },
+    "reanchor": {
+      "allHelpPatterns": ["comments reanchor"],
+      "description": "Explicit comment reanchoring after source drift."
+    },
+    "reconcile": {
+      "allHelpPatterns": ["margin reconcile"],
+      "description": "Recovery after out-of-band Markdown edits."
+    },
+    "review": {
+      "allHelpPatterns": ["margin review", "--since-revision"],
+      "description": "Legacy bounded single-file review projection."
+    },
+    "semantic_merge": {
+      "allHelpPatterns": ["margin merge", "three-way"],
+      "description": "Three-way semantic annotation merge."
+    },
+    "staged_transactions": {
+      "allHelpPatterns": ["margin stage", "margin transact", "base cursor"],
+      "description": "Immutable, cursor-bound, multi-file change sets."
+    },
+    "stage_refresh": {
+      "allHelpPatterns": ["stage refresh", "new immutable stage"],
+      "description": "Derive a distinct immutable stage against current metadata while preserving the prior stage and exact operation payload."
+    },
+    "suggestions": {
+      "allHelpPatterns": ["margin suggest", "accept", "reject"],
+      "description": "Typed suggestions with source-safe accept/reject."
+    },
+    "typed_contributions": {
+      "allHelpPatterns": ["margin handoff", "--kind", "approval"],
+      "description": "Namespaced contribution kinds and handoffs."
+    },
+    "watch": {
+      "allHelpPatterns": ["comments watch", "--jsonl"],
+      "description": "Incremental comment change stream."
+    },
+    "workspace": {
+      "allHelpPatterns": ["margin workspace", "workspace init"],
+      "description": "Explicit portable workspace roots."
+    }
+  },
+  "schema": "urn:margin:collaboration-eval-capabilities:v1"
+}

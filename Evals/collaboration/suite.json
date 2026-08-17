@@ -1,0 +1,120 @@
+{
+  "contract": "Docs/COLLABORATION_PROTOCOL.md",
+  "contractOracles": [
+    "ordinary_markdown",
+    "embedded_annotations",
+    "offline_authority",
+    "explicit_expensive_work",
+    "versioned_cursor_cas",
+    "idempotent_mutation",
+    "atomic_margin_visibility",
+    "unknown_fields_round_trip",
+    "activity_not_presence",
+    "bounded_context",
+    "launch_path_isolation",
+    "static_help"
+  ],
+  "description": "Dynamic, privacy-preserving evaluations of human-agent and agent-agent collaboration through Margin.",
+  "scenarios": [
+    {
+      "agents": 1,
+      "execution": "sequential",
+      "id": "human_agent_relay",
+      "oracles": ["embedded_annotations", "ordinary_markdown", "unknown_fields_round_trip", "versioned_cursor_cas"],
+      "requiredCapabilities": ["comments", "compare_and_swap"],
+      "weight": 1.2
+    },
+    {
+      "agents": 2,
+      "execution": "sequential",
+      "id": "agent_agent_handoff",
+      "oracles": ["embedded_annotations", "idempotent_mutation", "versioned_cursor_cas"],
+      "requiredCapabilities": ["comments", "compare_and_swap", "idempotency", "typed_contributions"],
+      "weight": 1.2
+    },
+    {
+      "agents": 2,
+      "execution": "concurrent",
+      "id": "concurrent_agents_directory",
+      "oracles": ["ordinary_markdown", "versioned_cursor_cas", "idempotent_mutation"],
+      "requiredCapabilities": ["comments", "compare_and_swap", "idempotency"],
+      "optionalCapabilities": ["workspace", "bounded_context"],
+      "weight": 1.4
+    },
+    {
+      "agents": 2,
+      "execution": "staged",
+      "id": "staged_multifile_atomic",
+      "oracles": ["atomic_margin_visibility", "idempotent_mutation", "versioned_cursor_cas"],
+      "requiredCapabilities": ["workspace", "bounded_context", "staged_transactions", "stage_refresh"],
+      "weight": 1.6
+    },
+    {
+      "agents": 2,
+      "execution": "sequential_with_drift",
+      "id": "source_drift_reanchor",
+      "oracles": ["ordinary_markdown", "embedded_annotations", "versioned_cursor_cas"],
+      "requiredCapabilities": ["comments", "reanchor", "compare_and_swap", "reconcile"],
+      "weight": 1.3
+    },
+    {
+      "agents": 3,
+      "execution": "distributed_merge",
+      "id": "distributed_semantic_merge",
+      "oracles": ["ordinary_markdown", "embedded_annotations", "unknown_fields_round_trip"],
+      "requiredCapabilities": ["semantic_merge"],
+      "weight": 1.5
+    },
+    {
+      "agents": 2,
+      "execution": "sequential",
+      "id": "suggestions_accept_reject",
+      "oracles": ["ordinary_markdown", "embedded_annotations", "versioned_cursor_cas"],
+      "requiredCapabilities": ["suggestions", "compare_and_swap"],
+      "weight": 1.4
+    },
+    {
+      "agents": 2,
+      "execution": "sequential",
+      "id": "adversarial_prompt_injection",
+      "oracles": ["ordinary_markdown", "embedded_annotations", "offline_authority"],
+      "requiredCapabilities": ["comments"],
+      "weight": 1.5
+    },
+    {
+      "agents": 1,
+      "execution": "sequential",
+      "id": "bounded_context",
+      "oracles": ["bounded_context", "explicit_expensive_work", "launch_path_isolation", "static_help"],
+      "requiredCapabilities": ["bounded_context", "comments"],
+      "optionalCapabilities": ["review"],
+      "weight": 1.5
+    },
+    {
+      "agents": 2,
+      "execution": "sequential",
+      "id": "collaborator_awareness",
+      "oracles": ["activity_not_presence", "embedded_annotations", "explicit_expensive_work"],
+      "requiredCapabilities": ["bounded_context", "collaborator_activity"],
+      "weight": 1.3
+    },
+    {
+      "agents": 2,
+      "execution": "concurrent",
+      "id": "duplicate_avoidance",
+      "oracles": ["idempotent_mutation", "versioned_cursor_cas", "ordinary_markdown"],
+      "requiredCapabilities": ["comments", "compare_and_swap", "idempotency"],
+      "weight": 1.3
+    },
+    {
+      "agents": 2,
+      "execution": "crash_retry",
+      "id": "crash_retry_recovery",
+      "oracles": ["idempotent_mutation", "versioned_cursor_cas", "ordinary_markdown"],
+      "requiredCapabilities": ["comments", "idempotency"],
+      "optionalCapabilities": ["staged_transactions"],
+      "weight": 1.5
+    }
+  ],
+  "schema": "urn:margin:collaboration-eval-suite:v1"
+}

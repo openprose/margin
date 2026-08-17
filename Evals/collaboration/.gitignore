@@ -1,0 +1,11 @@
+runs/
+keys/
+transcripts/
+raw-prompts/
+tmp/
+fixtures/generated/
+__pycache__/
+.ruff_cache/
+*.pyc
+*.key
+*.key.*

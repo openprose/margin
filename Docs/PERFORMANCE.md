@@ -76,3 +76,33 @@ The exact signed v0.2.0 candidate completed an extended five-warm-up/thirty-run 
 To control for macOS framework-residency variation, commit `591b172` (v0.1.3) was rebuilt immediately beside the final candidate with the same toolchain, fixture, warm-ups, run count, and probe. That paired thirty-run baseline measured **315.452 ms median / 382.316 ms p95** with **164.868 MiB median RSS** (166.313 MiB p95). The complete review-loop release therefore improves median launch by **8.125 ms (2.6%)**, p95 by **45.899 ms (12.0%)**, and sampled median RSS by **6.251 MiB (3.8%)**. It retains a real, immediately editable source view and adds no startup or footprint regression under the paired gate.
 
 The added selection affordance, reader markers, comment presentation index, Markdown comment renderer, unread badge, command palette, recursive filename index, and recent-workspace reads are all created only when their interaction requires them. Reader parsing remains off the source launch path. Document decoding is asynchronous; file-watch descriptors, recent writes, and session serialization use utility queues. Explicit CLI targets bypass session loading, and no new dependency, network request, database, daemon, WebView, or placeholder editor was introduced.
+
+## Final v0.3.0 release gate
+
+The exact signed v0.3.0 candidate and the installed v0.2.0 release were measured
+back-to-back on the same machine, document, and session with five warm-ups,
+thirty measured launches, and the same 250 ms RSS settle interval.
+
+| Exact build | Launch median | Launch p95 | RSS median | RSS p95 |
+|---|---:|---:|---:|---:|
+| Installed v0.2.0 control | 302.981 ms | 315.554 ms | 159.493 MiB | 162.063 MiB |
+| Signed v0.3.0 candidate | 299.551 ms | 316.099 ms | 160.000 MiB | 162.641 MiB |
+
+The candidate median is **3.430 ms (1.1%) faster**; p95 differs by **0.545
+ms (0.2%)**, and median RSS by **0.507 MiB (0.3%)**. Those distributions
+show no meaningful launch or sampled-memory regression. The real source editor
+is visible at the measurement boundary—there is no placeholder window.
+
+The v0.3 app bundle is 5,682,493 logical bytes and its main executable is
+2,790,528 bytes; the standalone release CLI is 2,556,424 bytes. The larger
+artifact contains the shared collaboration, transaction, recovery,
+reconciliation, and merge engine, but none of that work executes before the
+first window. Directory contexts, actor aggregation, stage loading, semantic
+previews, filename indexing, and reader construction remain explicitly
+on-demand.
+
+The exact CLI release candidate also completed the strict collaboration
+preflight with static help at 5.422 ms cold / 6.311 ms warm p95 and the full
+68,881-byte capability contract at 8.746 ms p95. Workflow projections are
+6.9–20.1 KB and stay filesystem-free. These CLI timings are separate from the
+AppKit window-visible probe above.

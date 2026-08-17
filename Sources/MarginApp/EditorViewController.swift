@@ -173,6 +173,12 @@ final class EditorViewController: NSViewController,
         controller.onDeleteComment = { [weak self] id, subtree in
             self?.deleteComment(id: id, subtree: subtree)
         }
+        controller.onAcceptSuggestion = { [weak self] id in
+            self?.setSuggestionDisposition(.accept, id: id)
+        }
+        controller.onRejectSuggestion = { [weak self] id in
+            self?.setSuggestionDisposition(.reject, id: id)
+        }
         controller.onComposerDismiss = { [weak self] in
             guard let self else { return }
             self.restoreComposerSelectionAndFocus()
@@ -998,6 +1004,68 @@ final class EditorViewController: NSViewController,
         }
     }
 
+    private func setSuggestionDisposition(
+        _ disposition: CollaborationSuggestionDisposition,
+        id: String
+    ) {
+        guard let url = documentURL else { return }
+        guard prepareToClose() else { return }
+        let actor = currentActor
+        let created = Self.timestamp()
+        let requestID = "urn:uuid:\(UUID().uuidString.lowercased())"
+        let generation = loadGeneration
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result { () -> CollaborationTransactionReceipt in
+                let root = try CollaborationRootResolver().resolve(target: url)
+                let path = try Self.collaborationPath(for: url, root: root)
+                let cursor = try CollaborationCursorService().capture(
+                    root: root,
+                    paths: [path],
+                    limits: CollaborationDiscoveryLimits(maxFiles: 1, maxBytes: 128 * 1_024 * 1_024, maxDepth: 64)
+                )
+                let changeSet = try CollaborationChangeSet(
+                    root: root,
+                    baseCursor: cursor,
+                    actor: CollaborationActor(actor),
+                    requestID: requestID,
+                    stageID: "urn:margin:stage:immediate:\(requestID)",
+                    created: created,
+                    operations: [
+                        .suggestionDisposition(
+                            id: "urn:margin:operation:\(requestID)",
+                            CollaborationSuggestionDispositionOperation(
+                                path: path,
+                                contributionID: id,
+                                disposition: disposition
+                            )
+                        )
+                    ]
+                )
+                let mutations = try CollaborationChangeSetEvaluator().evaluate(changeSet)
+                return try CollaborationTransactionEngine().submit(
+                    changeSet,
+                    evaluatedMutations: mutations
+                )
+            }
+            DispatchQueue.main.async {
+                guard let self, self.loadGeneration == generation,
+                      self.documentURL?.standardizedFileURL == url.standardizedFileURL else { return }
+                switch result {
+                case .success:
+                    self.selectedThreadID = id
+                    self.refreshFromDisk(
+                        metadataOnly: disposition == .reject,
+                        origin: .localMutation
+                    )
+                    self.showBanner(disposition == .accept ? "Suggestion accepted." : "Suggestion rejected.")
+                case .failure(let error):
+                    self.showBanner("Could not \(disposition.rawValue) suggestion: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
     private func undoCommentDeletion(_ undo: CommentDeleteUndo, rootID: String) {
         guard let url = documentURL else { return }
         guard prepareToClose() else { return }
@@ -1434,6 +1502,17 @@ final class EditorViewController: NSViewController,
         let displayName = name.isEmpty ? NSUserName() : name
         let slug = displayName.lowercased().replacingOccurrences(of: " ", with: "-")
         return MarginActor(id: "urn:margin:person:\(slug)", type: .person, name: displayName)
+    }
+
+    private static func collaborationPath(for file: URL, root: CollaborationRoot) throws -> String {
+        guard root.kind == .directory else { return "." }
+        let rootPath = URL(fileURLWithPath: root.path, isDirectory: true).standardizedFileURL.path
+        let filePath = file.standardizedFileURL.path
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        guard filePath.hasPrefix(prefix) else {
+            throw CollaborationError.pathEscapesRoot(filePath)
+        }
+        return String(filePath.dropFirst(prefix.count))
     }
 
     private static func timestamp() -> String {

@@ -6,6 +6,7 @@ enum CLIExit: Int32 {
     case usage = 64
     case data = 65
     case notFound = 66
+    case unavailable = 69
     case cannotCreate = 73
     case io = 74
     case temporaryFailure = 75
@@ -55,12 +56,24 @@ struct CLIErrorPayload: Encodable {
 }
 
 enum CLIOutput {
-    static func json<T: Encodable>(_ value: T, pretty: Bool = false, to handle: FileHandle = .standardOutput) throws {
+    static func json<T: Encodable>(
+        _ value: T,
+        pretty: Bool = false,
+        maximumBytes: Int? = nil,
+        to handle: FileHandle = .standardOutput
+    ) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = pretty ? [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes] : [.sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
         var data = try encoder.encode(value)
         data.append(0x0A)
+        if let maximumBytes, data.count > maximumBytes {
+            throw CLIError(
+                "STATIC_OUTPUT_TOO_LARGE",
+                "Static output exceeded its declared bound of \(maximumBytes) bytes.",
+                exit: .software
+            )
+        }
         try handle.write(contentsOf: data)
     }
 
@@ -111,6 +124,12 @@ struct ArgumentCursor {
         return true
     }
 
+    mutating func takeFlag(_ names: [String]) -> Bool {
+        guard let index = values.firstIndex(where: names.contains) else { return false }
+        values.remove(at: index)
+        return true
+    }
+
     mutating func takeValue(_ name: String) throws -> String? {
         guard let index = values.firstIndex(of: name) else { return nil }
         let valueIndex = values.index(after: index)
@@ -122,12 +141,23 @@ struct ArgumentCursor {
         return value
     }
 
+    mutating func takeValues(_ name: String) throws -> [String] {
+        var result: [String] = []
+        while let value = try takeValue(name) { result.append(value) }
+        return result
+    }
+
     mutating func takeInt(_ name: String) throws -> Int? {
         guard let raw = try takeValue(name) else { return nil }
         guard let value = Int(raw) else {
             throw CLIError.usage("Option \(name) expects an integer, received '\(raw)'.")
         }
         return value
+    }
+
+    mutating func takeRemaining() -> [String] {
+        defer { values.removeAll() }
+        return values
     }
 
     func rejectRemaining() throws {

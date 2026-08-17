@@ -6,7 +6,7 @@ BUILD_SCRATCH_PATH ?= $(SCRATCH_ROOT)/command-line-tools
 TEST_SCRATCH_PATH ?= $(SCRATCH_ROOT)/xcode-15.4
 OUTPUT_DIR ?= $(PROJECT_DIR)/build
 
-.PHONY: debug test release package install smoke benchmark eval eval-preflight clean
+.PHONY: debug test release package install smoke benchmark eval eval-preflight eval-collaboration clean
 
 debug:
 	DEVELOPER_DIR="$(BUILD_DEVELOPER_DIR)" \
@@ -50,10 +50,22 @@ eval: release
 		python3 -m unittest discover -s "$(PROJECT_DIR)/Evals/cli/tests" -p 'test_*.py'
 	PYTHONDONTWRITEBYTECODE=1 \
 		"$(PROJECT_DIR)/Evals/cli/self_test.py" --margin-bin "$(OUTPUT_DIR)/margin"
+	PYTHONDONTWRITEBYTECODE=1 \
+		python3 -m unittest discover -s "$(PROJECT_DIR)/Evals/collaboration/tests" -p 'test_*.py'
+	PYTHONDONTWRITEBYTECODE=1 \
+		"$(PROJECT_DIR)/Evals/collaboration/self_test.py" --margin-bin "$(OUTPUT_DIR)/margin"
 
 eval-preflight: release
 	PYTHONDONTWRITEBYTECODE=1 \
 		"$(PROJECT_DIR)/Evals/cli/run.py" --margin-bin "$(OUTPUT_DIR)/margin"
+	PYTHONDONTWRITEBYTECODE=1 \
+		"$(PROJECT_DIR)/Evals/collaboration/run.py" --margin-bin "$(OUTPUT_DIR)/margin"
+
+eval-collaboration: release
+	PYTHONDONTWRITEBYTECODE=1 \
+		python3 -m unittest discover -s "$(PROJECT_DIR)/Evals/collaboration/tests" -p 'test_*.py'
+	PYTHONDONTWRITEBYTECODE=1 \
+		"$(PROJECT_DIR)/Evals/collaboration/self_test.py" --margin-bin "$(OUTPUT_DIR)/margin" --require-all-capabilities
 
 clean:
 	"$(PROJECT_DIR)/Scripts/clean.sh"

@@ -30,6 +30,8 @@ final class CommentsViewController: NSViewController {
     var onEditComment: ((String, String, Int) -> Void)?
     /// The Boolean is true for a whole-thread subtree and false for one reply.
     var onDeleteComment: ((String, Bool) -> Void)?
+    var onAcceptSuggestion: ((String) -> Void)?
+    var onRejectSuggestion: ((String) -> Void)?
 
     private(set) var orderedVisibleRootIDs: [String] = []
     private(set) var reviewProgressDescription = ""
@@ -41,7 +43,7 @@ final class CommentsViewController: NSViewController {
         return inspectorIndex.rootID(containing: selectedCommentID)
     }
 
-    private let headerLabel = NSTextField(labelWithString: "Comments")
+    private let headerLabel = NSTextField(labelWithString: "Review")
     private let countLabel = NSTextField(labelWithString: "")
     private let filterControl = NSSegmentedControl(frame: .zero)
     private let scrollView = NSScrollView()
@@ -66,7 +68,7 @@ final class CommentsViewController: NSViewController {
     override func loadView() {
         view = MarginSurfaceView(fillColor: MarginTheme.inspectorBackground)
         view.translatesAutoresizingMaskIntoConstraints = false
-        view.setAccessibilityLabel("Document comments")
+        view.setAccessibilityLabel("Document review")
 
         let header = MarginSurfaceView(fillColor: MarginTheme.inspectorBackground)
         header.translatesAutoresizingMaskIntoConstraints = false
@@ -426,10 +428,11 @@ final class CommentsViewController: NSViewController {
         container.setAccessibilityElement(true)
         container.setAccessibilityRole(.button)
         let state = resolved ? "resolved" : "open"
+        let contribution = root.reviewContributionKind.title.lowercased()
         let unread = thread.unreadIDs(in: unreadCommentIDs)
         let unreadPrefix = unread.isEmpty ? "" : "Unread, "
         let selectedSuffix = isActive ? ", selected" : ""
-        container.setAccessibilityLabel("\(unreadPrefix)\(state) comment thread by \(root.creator.name)\(selectedSuffix)")
+        container.setAccessibilityLabel("\(unreadPrefix)\(state) \(contribution) thread by \(root.creator.name)\(selectedSuffix)")
         container.setAccessibilityValue(root.body.value)
         container.setAccessibilityHelp("Press Return to select. Use Up and Down Arrow to move between threads.")
 
@@ -456,10 +459,23 @@ final class CommentsViewController: NSViewController {
                 resolution.state == .ambiguous ? "Needs reattachment" : "Passage no longer found"
             ))
         }
+        if root.reviewContributionKind != .comment {
+            rootContent.addArrangedSubview(contributionKindLabel(root.reviewContributionKind))
+        }
         rootContent.addArrangedSubview(commentHeader(root, unread: unread.contains(root.id)))
         let rootBody = commentBody(root, compact: !isActive, resolved: resolved && !isActive)
         rootContent.addArrangedSubview(rootBody)
         rootBody.widthAnchor.constraint(equalTo: rootContent.widthAnchor).isActive = true
+        if let suggestion = root.reviewSuggestion {
+            let comparison = suggestionComparison(suggestion)
+            rootContent.addArrangedSubview(comparison)
+            comparison.widthAnchor.constraint(equalTo: rootContent.widthAnchor).isActive = true
+        }
+        if let handoff = root.reviewHandoff {
+            let summary = handoffSummary(handoff)
+            rootContent.addArrangedSubview(summary)
+            summary.widthAnchor.constraint(equalTo: rootContent.widthAnchor).isActive = true
+        }
 
         if !isActive {
             let summary = threadSummary(thread, unreadCount: unread.count)
@@ -619,6 +635,33 @@ final class CommentsViewController: NSViewController {
         primaryActions.orientation = .horizontal
         primaryActions.spacing = 10
 
+        if root.reviewSuggestion?.status == .open,
+           onAcceptSuggestion != nil || onRejectSuggestion != nil {
+            let suggestionActions = NSStackView()
+            suggestionActions.orientation = .horizontal
+            suggestionActions.spacing = 10
+            if onAcceptSuggestion != nil {
+                let accept = ClosureButton(title: "Accept") { [weak self] in
+                    self?.onAcceptSuggestion?(root.id)
+                }
+                accept.controlSize = .small
+                accept.bezelStyle = .inline
+                accept.setAccessibilityLabel("Accept suggestion by \(root.creator.name)")
+                suggestionActions.addArrangedSubview(accept)
+            }
+            if onRejectSuggestion != nil {
+                let reject = ClosureButton(title: "Reject") { [weak self] in
+                    self?.onRejectSuggestion?(root.id)
+                }
+                reject.controlSize = .small
+                reject.bezelStyle = .inline
+                reject.contentTintColor = .secondaryLabelColor
+                reject.setAccessibilityLabel("Reject suggestion by \(root.creator.name)")
+                suggestionActions.addArrangedSubview(reject)
+            }
+            actions.addArrangedSubview(suggestionActions)
+        }
+
         let reply = ClosureButton(title: "Reply") { [weak self] in
             self?.showComposer(quote: nil, parentID: root.id)
         }
@@ -768,7 +811,7 @@ final class CommentsViewController: NSViewController {
         label.allowsEditingTextAttributes = true
         label.maximumNumberOfLines = compact ? 3 : 0
         label.lineBreakMode = compact ? .byTruncatingTail : .byWordWrapping
-        label.setAccessibilityLabel("Comment by \(comment.creator.name)")
+        label.setAccessibilityLabel("\(comment.reviewContributionKind.title) by \(comment.creator.name)")
         label.setAccessibilityValue(comment.body.value)
         return label
     }
@@ -832,8 +875,8 @@ final class CommentsViewController: NSViewController {
             titleText = "No resolved threads"
             detailText = "Resolved conversations remain available here."
         case .all:
-            titleText = "No comments here"
-            detailText = "Select a passage and press ⌘⌥M to begin."
+            titleText = "No review here"
+            detailText = "Comments, questions, suggestions, and handoffs will appear here."
         }
         let title = NSTextField(labelWithString: titleText)
         title.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -863,6 +906,91 @@ final class CommentsViewController: NSViewController {
         label.font = .systemFont(ofSize: 10.5, weight: .medium)
         label.textColor = .systemOrange
         label.setAccessibilityLabel(title)
+        return label
+    }
+
+    private func contributionKindLabel(_ kind: ReviewContributionKind) -> NSTextField {
+        let label = NSTextField(labelWithString: kind.title.uppercased())
+        label.attributedStringValue = MarginTheme.microLabel(kind.title.uppercased())
+        label.textColor = .secondaryLabelColor
+        label.setAccessibilityLabel(kind.title)
+        return label
+    }
+
+    private func suggestionComparison(_ suggestion: ReviewSuggestionPresentation) -> NSView {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 4
+        stack.edgeInsets = NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
+        stack.wantsLayer = true
+        stack.layer?.cornerRadius = 6
+        stack.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.54).cgColor
+
+        let expectedLine = suggestionLine(
+            prefix: "−",
+            text: suggestion.expected,
+            color: .secondaryLabelColor
+        )
+        let replacementLine = suggestionLine(
+            prefix: "+",
+            text: suggestion.replacement,
+            color: .systemGreen
+        )
+        stack.addArrangedSubview(expectedLine)
+        stack.addArrangedSubview(replacementLine)
+        NSLayoutConstraint.activate([
+            expectedLine.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -20),
+            replacementLine.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -20),
+        ])
+        stack.setAccessibilityElement(true)
+        stack.setAccessibilityLabel("Suggested source replacement")
+        stack.setAccessibilityValue("Replace \(suggestion.expected) with \(suggestion.replacement)")
+        return stack
+    }
+
+    private func suggestionLine(prefix: String, text: String, color: NSColor) -> NSTextField {
+        let flattened = text.replacingOccurrences(of: "\n", with: " ↩ ")
+        let label = NSTextField(wrappingLabelWithString: "\(prefix) \(flattened)")
+        label.font = .monospacedSystemFont(ofSize: 10.5, weight: .regular)
+        label.textColor = color
+        label.maximumNumberOfLines = 5
+        label.lineBreakMode = .byWordWrapping
+        label.cell?.wraps = true
+        label.cell?.isScrollable = false
+        label.cell?.truncatesLastVisibleLine = true
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label.identifier = NSUserInterfaceItemIdentifier(
+            prefix == "−" ? "suggestion-expected" : "suggestion-replacement"
+        )
+        return label
+    }
+
+    private func handoffSummary(_ handoff: ReviewHandoffPresentation) -> NSTextField {
+        var parts: [String] = []
+        if !handoff.audience.isEmpty {
+            parts.append("For \(handoff.audience.joined(separator: ", "))")
+        }
+        if !handoff.unresolvedIDs.isEmpty {
+            let noun = handoff.unresolvedIDs.count == 1 ? "item" : "items"
+            parts.append("\(handoff.unresolvedIDs.count) unresolved \(noun)")
+        }
+        if !handoff.touchedIDs.isEmpty {
+            let noun = handoff.touchedIDs.count == 1 ? "change" : "changes"
+            parts.append("\(handoff.touchedIDs.count) linked \(noun)")
+        }
+        let value = parts.isEmpty ? "Handoff context" : parts.joined(separator: "  ·  ")
+        let label = NSTextField(wrappingLabelWithString: value)
+        label.font = .systemFont(ofSize: 10.5, weight: .medium)
+        label.textColor = .secondaryLabelColor
+        label.maximumNumberOfLines = 4
+        label.lineBreakMode = .byWordWrapping
+        label.cell?.wraps = true
+        label.cell?.isScrollable = false
+        label.cell?.truncatesLastVisibleLine = true
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label.identifier = NSUserInterfaceItemIdentifier("handoff-summary")
+        label.setAccessibilityLabel("Handoff: \(value)")
         return label
     }
 

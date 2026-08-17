@@ -3,6 +3,7 @@ import AppKit
 struct NavigationPaletteItem {
     let title: String
     let subtitle: String
+    let detail: String
     let symbolName: String
     let searchText: String
     let action: () -> Void
@@ -10,14 +11,16 @@ struct NavigationPaletteItem {
     init(
         title: String,
         subtitle: String = "",
+        detail: String = "",
         symbolName: String,
         searchText: String? = nil,
         action: @escaping () -> Void
     ) {
         self.title = title
         self.subtitle = subtitle
+        self.detail = detail
         self.symbolName = symbolName
-        self.searchText = searchText ?? "\(title) \(subtitle)"
+        self.searchText = searchText ?? "\(title) \(subtitle) \(detail)"
         self.action = action
     }
 }
@@ -154,6 +157,11 @@ final class NavigationPaletteController: NSWindowController,
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         updateStatus()
+    }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        guard visibleItems.indices.contains(row) else { return 50 }
+        return visibleItems[row].detail.isEmpty ? 50 : 86
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -411,6 +419,7 @@ private final class NavigationPaletteCell: NSTableCellView {
     private let symbolView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
+    private let detailLabel = NSTextField(wrappingLabelWithString: "")
 
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
@@ -430,9 +439,21 @@ private final class NavigationPaletteCell: NSTableCellView {
         subtitleLabel.lineBreakMode = .byTruncatingMiddle
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        detailLabel.font = .systemFont(ofSize: 11.25, weight: .regular)
+        detailLabel.textColor = .secondaryLabelColor
+        detailLabel.maximumNumberOfLines = 3
+        detailLabel.lineBreakMode = .byWordWrapping
+        detailLabel.cell?.wraps = true
+        detailLabel.cell?.isScrollable = false
+        detailLabel.cell?.truncatesLastVisibleLine = true
+        detailLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        detailLabel.translatesAutoresizingMaskIntoConstraints = false
+        detailLabel.identifier = NSUserInterfaceItemIdentifier("NavigationPaletteDetail")
+
         addSubview(symbolView)
         addSubview(titleLabel)
         addSubview(subtitleLabel)
+        addSubview(detailLabel)
         NSLayoutConstraint.activate([
             symbolView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             symbolView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -446,6 +467,11 @@ private final class NavigationPaletteCell: NSTableCellView {
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 1),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+
+            detailLabel.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 2),
+            detailLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            detailLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+            detailLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -5),
         ])
     }
 
@@ -455,10 +481,13 @@ private final class NavigationPaletteCell: NSTableCellView {
         titleLabel.stringValue = item.title
         subtitleLabel.stringValue = item.subtitle
         subtitleLabel.isHidden = item.subtitle.isEmpty
+        detailLabel.stringValue = item.detail
+        detailLabel.isHidden = item.detail.isEmpty
         symbolView.image = NSImage(systemSymbolName: item.symbolName, accessibilityDescription: nil)
         symbolView.contentTintColor = item.symbolName == "doc.richtext"
             ? NSColor.controlAccentColor.withAlphaComponent(0.82)
             : .secondaryLabelColor
-        setAccessibilityLabel(item.subtitle.isEmpty ? item.title : "\(item.title), \(item.subtitle)")
+        let accessibilityParts = [item.title, item.subtitle, item.detail].filter { !$0.isEmpty }
+        setAccessibilityLabel(accessibilityParts.joined(separator: ", "))
     }
 }

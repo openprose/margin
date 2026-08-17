@@ -1,4 +1,5 @@
 import AppKit
+import MarginCore
 
 protocol WorkspaceDocumentPresenting: AnyObject {
     func presentDocument(at url: URL)
@@ -58,6 +59,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     private let commentsItem: NSSplitViewItem
     private var navigationPaletteController: NavigationPaletteController?
     private var fileScanGeneration = UUID()
+    private var collaborationLoadGeneration = UUID()
     private var indexedFileURLs: [URL] = []
     private var commentsVisibilityChoice: CommentsVisibilityChoice = .automatic
     private var pendingInitialWindowFrame: NSRect?
@@ -360,6 +362,15 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
             }
             items.append(contentsOf: commentItems)
         }
+        if workspaceURL != nil {
+            items.append(
+                NavigationPaletteItem(
+                    title: "Collaboration Overview",
+                    symbolName: "person.2",
+                    searchText: "collaboration people agents activity suggestions handoffs staged review"
+                ) { [weak self] in self?.showCollaborationOverview(nil) }
+            )
+        }
         if canShowNavigator {
             items.append(
                 NavigationPaletteItem(
@@ -498,6 +509,82 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
             self.navigationPaletteController = nil
         }
         palette.show(relativeTo: window)
+    }
+
+    /// Loads directory-wide collaboration state only after an explicit request.
+    /// Nothing on the document launch path constructs a context, scans actors, or
+    /// reads stages.
+    @objc func showCollaborationOverview(_ sender: Any?) {
+        guard let target = workspaceURL, let window else { return }
+        navigationPaletteController?.close()
+
+        let palette = NavigationPaletteController(
+            title: "Collaboration Overview",
+            placeholder: "Search people, work, or files",
+            items: [],
+            emptyMessage: "No collaboration activity yet"
+        )
+        navigationPaletteController = palette
+        palette.onClose = { [weak self, weak palette] in
+            guard let self, self.navigationPaletteController === palette else { return }
+            self.navigationPaletteController = nil
+        }
+        palette.setStatus("Reading collaboration context…")
+        palette.show(relativeTo: window)
+
+        collaborationLoadGeneration = UUID()
+        let generation = collaborationLoadGeneration
+        DispatchQueue.global(qos: .userInitiated).async { [weak self, weak palette] in
+            let result = Result { () -> (CollaborationContextSnapshot, CollaborationStageListing) in
+                let root = try CollaborationRootResolver().resolve(target: target)
+                let limits = CollaborationContextLimits(
+                    discovery: CollaborationDiscoveryLimits(
+                        maxFiles: 128,
+                        maxBytes: 16 * 1_024 * 1_024,
+                        maxDepth: 24
+                    ),
+                    maxHeadingsPerFile: 0,
+                    maxContributionsPerFile: 64,
+                    maxBodyPreviewBytes: 240
+                )
+                let snapshot = try CollaborationContextService().context(root: root, limits: limits)
+                let stages = try CollaborationStageStore().list(
+                    root: root,
+                    limit: 64,
+                    maximumAggregateBytes: CollaborationStageInspectorPresentation
+                        .stageListingAggregateByteBudget
+                )
+                return (snapshot, stages)
+            }
+            DispatchQueue.main.async {
+                guard let self, let palette,
+                      generation == self.collaborationLoadGeneration,
+                      self.navigationPaletteController === palette else { return }
+                switch result {
+                case .success(let value):
+                    let items = self.makeCollaborationPaletteItems(
+                        snapshot: value.0,
+                        stageListing: value.1
+                    )
+                    let rootName = URL(fileURLWithPath: value.0.root.path).lastPathComponent
+                    var status = CollaborationStageInspectorPresentation.overviewStatus(
+                        rootName: rootName,
+                        fileCount: value.0.files.count,
+                        actorCount: value.0.actors.count,
+                        stageListing: value.1
+                    )
+                    if value.0.truncation.isTruncated {
+                        status += "  ·  collaboration context bounded"
+                    }
+                    palette.update(
+                        items: items,
+                        status: status
+                    )
+                case .failure(let error):
+                    palette.update(items: [], status: "Could not read collaboration context: \(error.localizedDescription)")
+                }
+            }
+        }
     }
 
     @objc func previousFile(_ sender: Any?) {
@@ -933,6 +1020,399 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
                     self.open(url)
                 }
             }
+        }
+    }
+
+    private func makeCollaborationPaletteItems(
+        snapshot: CollaborationContextSnapshot,
+        stageListing: CollaborationStageListing
+    ) -> [NavigationPaletteItem] {
+        var items: [NavigationPaletteItem] = []
+
+        items.append(contentsOf: stageListing.stages.map { stage in
+            let paths = Array(Set(stage.operations.map(\.path))).sorted()
+            let noun = stage.operations.count == 1 ? "change" : "changes"
+            return NavigationPaletteItem(
+                title: "Staged · \(stage.operations.count) \(noun)",
+                subtitle: CollaborationStageInspectorPresentation.stageListSubtitle(stage),
+                symbolName: "tray.full",
+                searchText: CollaborationStageInspectorPresentation.preview(
+                    "stage pending submit \(stage.stageID) \(paths.joined(separator: " "))",
+                    maximumUTF8Bytes: 1_024
+                )
+            ) { [weak self] in
+                self?.showStageDetails(stage)
+            }
+        })
+
+        let contributions = snapshot.files.flatMap(\.contributions)
+            .filter { $0.threadStatus == .open }
+            .prefix(400)
+        items.append(contentsOf: contributions.map { contribution in
+            let title = contribution.bodyPreview
+                .replacingOccurrences(of: "\n", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let attention = contribution.anchorState == .ambiguous || contribution.anchorState == .orphaned
+            let subtitle = "\(contribution.kind.rawValue.capitalized)  ·  \(contribution.actorName)  ·  \(contribution.path)  ·  \(contribution.reference)"
+            return NavigationPaletteItem(
+                title: title.isEmpty ? contribution.kind.rawValue.capitalized : title,
+                subtitle: subtitle,
+                symbolName: attention ? "exclamationmark.bubble" : collaborationSymbol(contribution.kind),
+                searchText: "\(title) \(subtitle) \(contribution.id) \(contribution.rootID)"
+            ) { [weak self] in
+                self?.openCollaborationDestination(
+                    root: snapshot.root,
+                    path: contribution.path,
+                    commentID: contribution.rootID
+                )
+            }
+        })
+
+        let actorByID = Dictionary(uniqueKeysWithValues: snapshot.actors.map { ($0.id, $0) })
+        items.append(contentsOf: snapshot.activity.prefix(100).map { activity in
+            let actor = actorByID[activity.actorID]
+            let name = actor?.name ?? activity.actorID
+            let count = activity.contributionCounts.values.reduce(0, +)
+            let noun = count == 1 ? "contribution" : "contributions"
+            let fileNoun = activity.filesTouched.count == 1 ? "file" : "files"
+            var facts = ["\(count) \(noun)", "\(activity.filesTouched.count) \(fileNoun)"]
+            if !activity.openAuthoredContributionIDs.isEmpty {
+                facts.append("\(activity.openAuthoredContributionIDs.count) open")
+            }
+            if !activity.assignedOpenContributionIDs.isEmpty {
+                facts.append("\(activity.assignedOpenContributionIDs.count) assigned")
+            }
+            if activity.lastObservedAt.isEmpty {
+                facts.append("no recorded activity")
+            } else {
+                facts.append("last activity \(shortCollaborationDate(activity.lastObservedAt))")
+            }
+            let subtitle = facts.joined(separator: "  ·  ")
+            let symbol = actor?.type == .software ? "cpu" : "person"
+            return NavigationPaletteItem(
+                title: name,
+                subtitle: subtitle,
+                symbolName: symbol,
+                searchText: "collaborator actor agent human \(name) \(activity.actorID) \(activity.filesTouched.joined(separator: " "))"
+            ) { [weak self] in
+                guard let path = activity.filesTouched.first else { return }
+                self?.openCollaborationDestination(root: snapshot.root, path: path, commentID: nil)
+            }
+        })
+        return items
+    }
+
+    private func showStageDetails(_ stage: CollaborationChangeSet) {
+        guard let window else { return }
+        navigationPaletteController?.close()
+        let items = makeStageDetailItems(stage)
+        let palette = NavigationPaletteController(
+            title: "Staged Change Set",
+            placeholder: "Inspect staged changes",
+            items: items,
+            emptyMessage: "This stage has no changes"
+        )
+        navigationPaletteController = palette
+        palette.onClose = { [weak self, weak palette] in
+            guard let self, self.navigationPaletteController === palette else { return }
+            self.navigationPaletteController = nil
+        }
+        palette.setStatus(CollaborationStageInspectorPresentation.stageStatus(stage))
+        palette.show(relativeTo: window)
+    }
+
+    func makeStageDetailItems(_ stage: CollaborationChangeSet) -> [NavigationPaletteItem] {
+        let noun = stage.operations.count == 1 ? "change" : "changes"
+        var items: [NavigationPaletteItem] = [
+            NavigationPaletteItem(
+                title: "Submit All \(stage.operations.count) \(noun.capitalized)",
+                subtitle: "Applied together or not at all",
+                symbolName: "checkmark.seal",
+                searchText: "submit apply commit atomic all"
+            ) { [weak self] in self?.confirmStageSubmission(stage) },
+            NavigationPaletteItem(
+                title: "Refresh Against Current Files",
+                subtitle: "Create a new immutable stage; keep this one",
+                symbolName: "arrow.clockwise",
+                searchText: "refresh rebase current files new immutable stage retain old"
+            ) { [weak self] in self?.refreshStage(stage) },
+            NavigationPaletteItem(
+                title: "Discard This Stage…",
+                subtitle: "Remove the staged plan only; documents stay unchanged",
+                symbolName: "trash",
+                searchText: "discard delete remove stage plan keep files"
+            ) { [weak self] in self?.confirmDiscardStage(stage) },
+        ]
+
+        items.append(contentsOf: stage.operations
+            .prefix(CollaborationStageInspectorPresentation.maximumPresentedOperations)
+            .map { operation in
+                let presentation = CollaborationStageInspectorPresentation.operation(operation)
+                return NavigationPaletteItem(
+                    title: presentation.title,
+                    subtitle: presentation.subtitle,
+                    detail: presentation.detail,
+                    symbolName: presentation.symbolName,
+                    searchText: presentation.searchText
+                ) { [weak self] in
+                    self?.openCollaborationDestination(
+                        root: stage.root,
+                        path: operation.path,
+                        commentID: nil
+                    )
+                }
+            })
+        return items
+    }
+
+    private func confirmStageSubmission(_ stage: CollaborationChangeSet) {
+        guard let window else { return }
+        if let editor = editorViewController as? EditorViewController,
+           !editor.prepareToClose() { return }
+        let paths = Array(Set(stage.operations.map(\.path))).sorted()
+        let alert = NSAlert()
+        alert.messageText = "Submit staged changes?"
+        alert.informativeText = Self.stageSubmissionConfirmationText(
+            changeCount: stage.operations.count,
+            fileCount: paths.count
+        )
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Submit All")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.submitStage(stage)
+        }
+    }
+
+    static func stageSubmissionConfirmationText(changeCount: Int, fileCount: Int) -> String {
+        let changeNoun = changeCount == 1 ? "change" : "changes"
+        let fileNoun = fileCount == 1 ? "file" : "files"
+        return "\(changeCount) \(changeNoun) across \(fileCount) \(fileNoun) will be applied together. If any file changed since staging, nothing will be submitted."
+    }
+
+    private func refreshStage(_ stage: CollaborationChangeSet) {
+        guard window != nil else { return }
+        if let editor = editorViewController as? EditorViewController,
+           !editor.prepareToClose() { return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result { () -> (CollaborationStageRefreshReceipt, CollaborationChangeSet) in
+                let store = CollaborationStageStore()
+                let receipt = try CollaborationStageRefreshService(stageStore: store).refresh(
+                    stageID: stage.stageID,
+                    root: stage.root
+                )
+                let refreshed = try store.load(stageID: receipt.refreshedStageID, root: stage.root)
+                return (receipt, refreshed)
+            }
+            DispatchQueue.main.async {
+                guard let self, let window = self.window else { return }
+                switch result {
+                case .success(let value):
+                    let (receipt, refreshed) = value
+                    let alert = NSAlert()
+                    alert.messageText = receipt.disposition == .alreadyPresent
+                        ? "Refreshed stage already exists"
+                        : "Refreshed stage created"
+                    alert.informativeText = CollaborationStageInspectorPresentation
+                        .refreshResultDescription(receipt)
+                    alert.alertStyle = .informational
+                    alert.addButton(withTitle: "Review Refreshed Stage")
+                    alert.addButton(withTitle: "Discard Earlier Stage…")
+                    alert.addButton(withTitle: "Done")
+                    alert.beginSheetModal(for: window) { [weak self] response in
+                        guard let self else { return }
+                        switch response {
+                        case .alertFirstButtonReturn:
+                            self.showStageDetails(refreshed)
+                        case .alertSecondButtonReturn:
+                            self.confirmDiscardStage(stage, nextStage: refreshed)
+                        default:
+                            break
+                        }
+                    }
+                case .failure(let error):
+                    let alert = NSAlert()
+                    alert.messageText = "Stage could not be refreshed"
+                    alert.informativeText = "No stage or document was changed. Margin refreshes only when every staged semantic target still refers to the same logical Markdown. \(error.localizedDescription)"
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "Keep Earlier Stage")
+                    alert.beginSheetModal(for: window)
+                }
+            }
+        }
+    }
+
+    private func confirmDiscardStage(
+        _ stage: CollaborationChangeSet,
+        nextStage: CollaborationChangeSet? = nil
+    ) {
+        guard let window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Discard this staged plan?"
+        alert.informativeText = "Stage \(CollaborationStageInspectorPresentation.shortReference(stage.stageID)) will be removed. Markdown files, comments, and submitted changes stay unchanged."
+        alert.alertStyle = .warning
+        let discardButton = alert.addButton(withTitle: "Discard Stage")
+        discardButton.hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.discardStage(stage, nextStage: nextStage)
+        }
+    }
+
+    private func discardStage(
+        _ stage: CollaborationChangeSet,
+        nextStage: CollaborationChangeSet?
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result {
+                try CollaborationStageStore().remove(stageID: stage.stageID, root: stage.root)
+            }
+            DispatchQueue.main.async {
+                guard let self, let window = self.window else { return }
+                let alert = NSAlert()
+                switch result {
+                case .success:
+                    alert.messageText = "Stage discarded"
+                    alert.informativeText = "The staged plan was removed. No Markdown file or submitted change was altered."
+                    alert.alertStyle = .informational
+                    if nextStage != nil {
+                        alert.addButton(withTitle: "Review Refreshed Stage")
+                        alert.addButton(withTitle: "Done")
+                    } else {
+                        alert.addButton(withTitle: "Done")
+                    }
+                    alert.beginSheetModal(for: window) { [weak self] response in
+                        guard response == .alertFirstButtonReturn, let nextStage else { return }
+                        self?.showStageDetails(nextStage)
+                    }
+                case .failure(let error):
+                    alert.messageText = "Stage was not discarded"
+                    alert.informativeText = "The staged plan remains available. \(error.localizedDescription)"
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "Done")
+                    alert.beginSheetModal(for: window)
+                }
+            }
+        }
+    }
+
+    private func submitStage(_ stage: CollaborationChangeSet) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result { () -> (CollaborationTransactionReceipt, String?) in
+                let mutations = try CollaborationChangeSetEvaluator().evaluate(stage)
+                let receipt = try CollaborationTransactionEngine().submit(
+                    stage,
+                    evaluatedMutations: mutations
+                )
+                do {
+                    try CollaborationStageStore().remove(stageID: stage.stageID, root: stage.root)
+                    return (receipt, nil)
+                } catch {
+                    // Submission is already durable. Preserve that fact and let
+                    // an idempotent retry or explicit discard clean the stage.
+                    return (receipt, error.localizedDescription)
+                }
+            }
+            DispatchQueue.main.async {
+                guard let self, let window = self.window else { return }
+                switch result {
+                case .success(let value):
+                    let (receipt, cleanupWarning) = value
+                    (self.editorViewController as? EditorViewController)?.refreshCommentsFromDisk()
+                    let alert = NSAlert()
+                    let fileNoun = receipt.files.count == 1 ? "file" : "files"
+                    let fileVerb = receipt.files.count == 1 ? "is" : "are"
+                    alert.messageText = receipt.disposition == .alreadyApplied
+                        ? "Changes were already submitted"
+                        : "Staged changes submitted"
+                    if let cleanupWarning {
+                        alert.informativeText = "\(receipt.files.count) \(fileNoun) \(fileVerb) committed. The staged copy could not be removed; retrying submission is safe. \(cleanupWarning)"
+                    } else {
+                        alert.informativeText = "\(receipt.files.count) \(fileNoun) \(fileVerb) now at one consistent collaboration state."
+                    }
+                    alert.addButton(withTitle: "Done")
+                    alert.beginSheetModal(for: window)
+                case .failure(let error):
+                    if CollaborationStageInspectorPresentation.submissionFailureOffersRefresh(error) {
+                        let alert = NSAlert()
+                        alert.messageText = "Stage is out of date"
+                        alert.informativeText = "Nothing was submitted. Margin can check the staged semantic targets against current files and, when safe, create a new immutable stage. This stage will be retained. \(error.localizedDescription)"
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "Refresh Against Current Files")
+                        alert.addButton(withTitle: "Keep Stage")
+                        alert.beginSheetModal(for: window) { [weak self] response in
+                            guard response == .alertFirstButtonReturn else { return }
+                            self?.refreshStage(stage)
+                        }
+                    } else {
+                        let alert = NSAlert(error: error)
+                        alert.messageText = "Submission needs attention"
+                        alert.informativeText = "The staged set remains available. Margin will roll back an incomplete transaction or recognize one that already committed. \(error.localizedDescription)"
+                        alert.beginSheetModal(for: window)
+                    }
+                }
+            }
+        }
+    }
+
+    private func collaborationSymbol(_ kind: CollaborationContributionKind) -> String {
+        switch kind {
+        case .comment: return "text.bubble"
+        case .question: return "questionmark.bubble"
+        case .issue: return "exclamationmark.triangle"
+        case .decision: return "signpost.right"
+        case .task: return "checklist"
+        case .suggestion: return "arrow.left.arrow.right"
+        case .handoff: return "person.line.dotted.person"
+        case .approval: return "checkmark.seal"
+        }
+    }
+
+    private func shortCollaborationDate(_ raw: String) -> String {
+        guard let date = Self.collaborationFractionalDateFormatter.date(from: raw)
+                ?? Self.collaborationDateFormatter.date(from: raw) else { return raw }
+        let relative = RelativeDateTimeFormatter()
+        relative.unitsStyle = .abbreviated
+        return relative.localizedString(for: date, relativeTo: Date())
+    }
+
+    private static let collaborationFractionalDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let collaborationDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private func openCollaborationDestination(
+        root: CollaborationRoot,
+        path: String,
+        commentID: String?
+    ) {
+        let url: URL
+        if root.kind == .document {
+            url = URL(fileURLWithPath: root.path)
+        } else {
+            url = URL(fileURLWithPath: root.path, isDirectory: true).appendingPathComponent(path)
+        }
+        if case .directory(let directory) = workspaceKind,
+           url.standardizedFileURL.path.hasPrefix(directory.standardizedFileURL.path + "/") {
+            fileTreeViewController.revealAndSelect(url, openFile: false)
+            openFileFromDirectory(url)
+        } else if documentURL?.standardizedFileURL != url.standardizedFileURL {
+            guard let editor = editorViewController as? EditorViewController,
+                  editor.prepareToClose() else { return }
+            open(url)
+        }
+        guard let commentID else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+            (self?.editorViewController as? EditorViewController)?.revealComment(id: commentID)
         }
     }
 

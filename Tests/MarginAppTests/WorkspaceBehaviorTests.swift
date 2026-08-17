@@ -10,6 +10,17 @@ final class WorkspaceBehaviorTests: XCTestCase {
         WorkspacePaneFactory.makeComments = { CommentsViewController() }
     }
 
+    func testStageSubmissionConfirmationUsesCountAwareNouns() {
+        XCTAssertEqual(
+            WorkspaceWindowController.stageSubmissionConfirmationText(changeCount: 1, fileCount: 1),
+            "1 change across 1 file will be applied together. If any file changed since staging, nothing will be submitted."
+        )
+        XCTAssertEqual(
+            WorkspaceWindowController.stageSubmissionConfirmationText(changeCount: 2, fileCount: 3),
+            "2 changes across 3 files will be applied together. If any file changed since staging, nothing will be submitted."
+        )
+    }
+
     func testWorkspaceUsesNativeResizableWindowAndQuietEmptyPanes() {
         let controller = WorkspaceWindowController(workspaceURL: nil)
         defer { controller.close() }
@@ -283,6 +294,41 @@ final class WorkspaceBehaviorTests: XCTestCase {
         store.record(first, limit: 2)
 
         XCTAssertEqual(store.urls(limit: 10), [first, second])
+    }
+
+    func testCollaborationOverviewIsLazyAndLoadsDurableActorActivityOnDemand() throws {
+        let fixture = try makeDocument("# Collaboration\n\nA shared boundary.\n")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        _ = try CommentService().add(
+            at: fixture.file,
+            message: "Check the shared boundary.",
+            creator: MarginActor(
+                id: "urn:agent:context-test",
+                type: .software,
+                name: "Context Agent"
+            ),
+            anchor: .quote(exact: "shared boundary")
+        )
+        let sourceBefore = try Data(contentsOf: fixture.file)
+        let controller = WorkspaceWindowController(workspaceURL: fixture.file)
+        defer { controller.close() }
+        controller.showWindow(nil)
+
+        controller.showCommandPalette(nil)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.directory.appendingPathComponent(".margin").path
+        ))
+
+        controller.showCollaborationOverview(nil)
+        waitUntil(timeout: 4) {
+            controller.window?.childWindows?.contains(where: {
+                self.descendantText(in: $0.contentView).contains("Context Agent")
+            }) == true
+        }
+        XCTAssertEqual(try Data(contentsOf: fixture.file), sourceBefore)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.directory.appendingPathComponent(".margin").path
+        ))
     }
 
     private func waitUntil(

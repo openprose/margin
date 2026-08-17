@@ -3,14 +3,15 @@ import Foundation
 import MarginCore
 
 enum MarginCommand {
-    static let version = "0.2.0"
+    static let version = "0.3.0"
     static let service = CommentService()
     static let reviewService = ReviewService()
     static let codec = EmbeddedCommentCodec()
 
     static func run(arguments: [String]) -> Int32 {
+        let firstCommand = arguments.first.map(CLICommandCatalog.canonicalTopLevel)
         let wantsJSON = arguments.contains("--json") || arguments.contains("--jsonl") ||
-            arguments.first == "comments" || arguments.first == "comment"
+            firstCommand == "comments" || firstCommand.map(CollaborationCLICommand.names.contains) == true
         do {
             try dispatch(arguments)
             return CLIExit.success.rawValue
@@ -19,6 +20,14 @@ enum MarginCommand {
             return error.exit.rawValue
         } catch let error as CommentProtocolError {
             let mapped = mapProtocolError(error)
+            CLIOutput.error(mapped, asJSON: wantsJSON)
+            return mapped.exit.rawValue
+        } catch let error as CollaborationError {
+            let mapped = mapCollaborationError(error)
+            CLIOutput.error(mapped, asJSON: wantsJSON)
+            return mapped.exit.rawValue
+        } catch let error as ReconciliationError {
+            let mapped = CLIError(error.code, error.localizedDescription, exit: .data)
             CLIOutput.error(mapped, asJSON: wantsJSON)
             return mapped.exit.rawValue
         } catch {
@@ -35,15 +44,31 @@ enum MarginCommand {
         }
 
         var cursor = ArgumentCursor(arguments)
-        let command = try cursor.require("command or path")
+        let rawCommand = try cursor.require("command or path")
+        let command = CLICommandCatalog.canonicalTopLevel(rawCommand)
+
+        if command != "comments", cursor.takeFlag(["--help", "-h"]) {
+            var helpPath = [command]
+            if let subcommand = cursor.first,
+               CLICommandCatalog.command(path: [command, subcommand]) != nil {
+                helpPath.append(subcommand)
+            }
+            guard let localHelp = help(path: helpPath, fallBackToMain: false) else {
+                throw CLIError.usage("Unknown command '\(rawCommand)'. Run 'margin --help'.")
+            }
+            try CLIOutput.text(localHelp)
+            return
+        }
+
         switch command {
-        case "-h", "--help", "help":
-            let topic = cursor.pop()
-            try cursor.rejectRemaining()
-            try CLIOutput.text(help(topic: topic))
-        case "-v", "--version", "version":
+        case "help":
+            let path = cursor.takeRemaining()
+            try CLIOutput.text(help(path: path, fallBackToMain: true) ?? mainHelp)
+        case "version":
             try cursor.rejectRemaining()
             try CLIOutput.text("Margin \(version)")
+        case "capabilities":
+            try runCapabilities(&cursor)
         case "open":
             try runOpen(&cursor)
         case "inspect":
@@ -58,6 +83,8 @@ enum MarginCommand {
             try runReview(&cursor)
         case "comments", "comment":
             try runComments(&cursor)
+        case let collaboration where CollaborationCLICommand.names.contains(collaboration):
+            try CollaborationCLI.run(command: collaboration, cursor: &cursor)
         case "--wait":
             let appOverride = try cursor.takeValue("--app")
             let paths = try takeOpenPaths(&cursor, requiringOne: true)
@@ -72,6 +99,32 @@ enum MarginCommand {
             let paths = [command] + (try takeOpenPaths(&cursor, requiringOne: false))
             let items = try paths.map(PathResolver.openableItem)
             try AppLauncher.open(items, wait: wait, appOverride: appOverride)
+        }
+    }
+
+    private static func runCapabilities(_ cursor: inout ArgumentCursor) throws {
+        let pretty = cursor.takeFlag("--pretty")
+        let rawWorkflow = try cursor.takeValue("--for")
+        guard cursor.takeFlag("--json") else {
+            throw CLIError.usage("capabilities requires --json. Run 'margin capabilities --help'.")
+        }
+        try cursor.rejectRemaining()
+        if let rawWorkflow {
+            guard let workflow = CLICapabilityWorkflow(rawValue: rawWorkflow.lowercased()) else {
+                let choices = CLICapabilityWorkflow.allCases.map(\.rawValue).joined(separator: ", ")
+                throw CLIError.usage("--for must be one of: \(choices).")
+            }
+            try CLIOutput.json(
+                CLICommandCatalog.capabilitiesProjection(cliVersion: version, workflow: workflow),
+                pretty: pretty,
+                maximumBytes: CLICapabilitiesProjectionEnvelope.maximumEncodedBytes
+            )
+        } else {
+            try CLIOutput.json(
+                CLICommandCatalog.capabilities(cliVersion: version),
+                pretty: pretty,
+                maximumBytes: CLICapabilitiesEnvelope.maximumEncodedBytes
+            )
         }
     }
 
@@ -234,7 +287,31 @@ enum MarginCommand {
     }
 
     private static func runComments(_ cursor: inout ArgumentCursor) throws {
+        if let first = cursor.first, ["--help", "-h"].contains(first) {
+            _ = cursor.pop()
+            try cursor.rejectRemaining()
+            try CLIOutput.text(commentsHelp)
+            return
+        }
         let subcommand = try cursor.require("comments subcommand")
+        if subcommand == "help" {
+            let topic = cursor.pop()
+            try cursor.rejectRemaining()
+            if let topic,
+               let localHelp = help(path: ["comments", topic], fallBackToMain: false) {
+                try CLIOutput.text(localHelp)
+            } else {
+                try CLIOutput.text(commentsHelp)
+            }
+            return
+        }
+        if cursor.takeFlag(["--help", "-h"]) {
+            guard let localHelp = help(path: ["comments", subcommand], fallBackToMain: false) else {
+                throw CLIError.usage("Unknown comments subcommand '\(subcommand)'. Run 'margin help comments'.")
+            }
+            try CLIOutput.text(localHelp)
+            return
+        }
         switch subcommand {
         case "add": try commentsAdd(&cursor)
         case "list": try commentsList(&cursor)
@@ -248,9 +325,6 @@ enum MarginCommand {
         case "validate": try commentsValidate(&cursor)
         case "export": try commentsExport(&cursor)
         case "watch": try commentsWatch(&cursor)
-        case "help", "--help", "-h":
-            try cursor.rejectRemaining()
-            try CLIOutput.text(help(topic: "comments"))
         default:
             throw CLIError.usage("Unknown comments subcommand '\(subcommand)'. Run 'margin help comments'.")
         }
@@ -259,14 +333,68 @@ enum MarginCommand {
     private static func commentsAdd(_ cursor: inout ArgumentCursor) throws {
         let pretty = cursor.takeFlag("--pretty")
         _ = cursor.takeFlag("--json")
-        let file = try PathResolver.existingFile(cursor.require("Markdown file"))
-        let document = try loadDocument(file)
+        let rawKind = (try cursor.takeValue("--kind") ?? "comment").lowercased()
+        guard let kind = CollaborationContributionKind(rawValue: rawKind),
+              [.comment, .question, .issue, .decision, .task, .approval].contains(kind) else {
+            throw CLIError.usage("--kind must be comment, question, issue, decision, task, or approval; use suggest or handoff for those dedicated kinds.")
+        }
+        let assignee = try cursor.takeValue("--assignee")
+        let rawPriority = try cursor.takeValue("--priority")
+        let audience = try cursor.takeValues("--audience")
+        let requestID = try cursor.takeValue("--request-id")
+        let stageID = try cursor.takeValue("--stage-id")
+        if kind != .task, assignee != nil || rawPriority != nil {
+            throw CLIError.usage("--assignee and --priority apply only to --kind task.")
+        }
+        let priority: CollaborationPriority
+        if let rawPriority {
+            guard let value = CollaborationPriority(rawValue: rawPriority.lowercased()) else {
+                throw CLIError.usage("--priority must be low, normal, high, or urgent.")
+            }
+            priority = value
+        } else {
+            priority = .normal
+        }
         let message = try takeMessage(cursor: &cursor)
         let creator = try takeActor(cursor: &cursor)
         let annotationID = try cursor.takeValue("--id")
         let preconditions = try takePreconditions(cursor: &cursor)
-        let anchor = try takeAnchor(cursor: &cursor, body: document.body)
+        let anchorArguments = try takeAnchorArguments(cursor: &cursor)
+        let file = try PathResolver.existingFile(cursor.require("Markdown file"))
         try cursor.rejectRemaining()
+        let document = try loadDocument(file)
+        let anchor = try anchorArguments.resolve(in: document.body)
+        let useTypedTransaction = kind != .comment || !audience.isEmpty || requestID != nil || stageID != nil
+        if useTypedTransaction {
+            let range: UnicodeScalarRange?
+            switch try AnchorResolver().target(
+                for: anchor,
+                documentID: document.envelope?.document.id ?? MarginID.document(),
+                in: document.body
+            ) {
+            case .resource:
+                range = nil
+            case .selection(let target):
+                range = try AnchorResolver().resolve(target, in: document.body).range
+            }
+            try CollaborationCLI.addTypedContribution(
+                file: file,
+                message: message,
+                creator: creator,
+                kind: kind,
+                range: range,
+                assignee: assignee,
+                priority: priority,
+                audience: audience,
+                annotationID: annotationID,
+                requestID: requestID,
+                stageID: stageID,
+                expectedBaseContentSha256: DocumentRevision(data: document.bodyData).sha256,
+                preconditions: preconditions,
+                pretty: pretty
+            )
+            return
+        }
         let receipt = try service.add(
             at: file,
             message: message,
@@ -341,12 +469,12 @@ enum MarginCommand {
         let pretty = cursor.takeFlag("--pretty")
         _ = cursor.takeFlag("--json")
         let reopen = cursor.takeFlag("--reopen")
-        let file = try PathResolver.existingFile(cursor.require("Markdown file"))
-        let parentID = try cursor.require("parent comment id")
         let message = try takeMessage(cursor: &cursor)
         let creator = try takeActor(cursor: &cursor)
         let annotationID = try cursor.takeValue("--id")
         let preconditions = try takePreconditions(cursor: &cursor)
+        let file = try PathResolver.existingFile(cursor.require("Markdown file"))
+        let parentID = try cursor.require("parent comment id")
         try cursor.rejectRemaining()
         let receipt = try service.reply(
             at: file,
@@ -363,11 +491,11 @@ enum MarginCommand {
     private static func commentsEdit(_ cursor: inout ArgumentCursor) throws {
         let pretty = cursor.takeFlag("--pretty")
         _ = cursor.takeFlag("--json")
-        let file = try PathResolver.existingFile(cursor.require("Markdown file"))
-        let id = try cursor.require("comment id")
         let message = try takeMessage(cursor: &cursor)
         let editor = try takeActor(cursor: &cursor)
         let preconditions = try takePreconditions(cursor: &cursor)
+        let file = try PathResolver.existingFile(cursor.require("Markdown file"))
+        let id = try cursor.require("comment id")
         try cursor.rejectRemaining()
         let receipt = try service.edit(
             at: file,
@@ -391,9 +519,9 @@ enum MarginCommand {
         let pretty = cursor.takeFlag("--pretty")
         _ = cursor.takeFlag("--json")
         let subtree = cursor.takeFlag("--subtree")
+        let preconditions = try takePreconditions(cursor: &cursor)
         let file = try PathResolver.existingFile(cursor.require("Markdown file"))
         let id = try cursor.require("comment id")
-        let preconditions = try takePreconditions(cursor: &cursor)
         try cursor.rejectRemaining()
         let receipt = try service.delete(
             at: file,
@@ -415,10 +543,10 @@ enum MarginCommand {
     private static func commentsSetStatus(_ cursor: inout ArgumentCursor, resolved: Bool) throws {
         let pretty = cursor.takeFlag("--pretty")
         _ = cursor.takeFlag("--json")
-        let file = try PathResolver.existingFile(cursor.require("Markdown file"))
-        let id = try cursor.require("comment id")
         let actor = try takeActor(cursor: &cursor)
         let preconditions = try takePreconditions(cursor: &cursor)
+        let file = try PathResolver.existingFile(cursor.require("Markdown file"))
+        let id = try cursor.require("comment id")
         try cursor.rejectRemaining()
         let receipt = resolved
             ? try service.resolve(at: file, id: id, actor: actor, preconditions: preconditions)
@@ -429,12 +557,13 @@ enum MarginCommand {
     private static func commentsReanchor(_ cursor: inout ArgumentCursor) throws {
         let pretty = cursor.takeFlag("--pretty")
         _ = cursor.takeFlag("--json")
+        let preconditions = try takePreconditions(cursor: &cursor)
+        let anchorArguments = try takeAnchorArguments(cursor: &cursor, allowDocument: false)
         let file = try PathResolver.existingFile(cursor.require("Markdown file"))
         let id = try cursor.require("comment id")
-        let document = try loadDocument(file)
-        let preconditions = try takePreconditions(cursor: &cursor)
-        let anchor = try takeAnchor(cursor: &cursor, body: document.body, allowDocument: false)
         try cursor.rejectRemaining()
+        let document = try loadDocument(file)
+        let anchor = try anchorArguments.resolve(in: document.body)
         let receipt = try service.reanchor(at: file, id: id, anchor: anchor, preconditions: preconditions)
         try writeCommentSuccess(command: "comments.reanchor", file: file, receipt: receipt, pretty: pretty)
     }
@@ -595,11 +724,10 @@ enum MarginCommand {
         )
     }
 
-    private static func takeAnchor(
+    private static func takeAnchorArguments(
         cursor: inout ArgumentCursor,
-        body: String,
         allowDocument: Bool = true
-    ) throws -> CommentAnchorInput {
+    ) throws -> AnchorArguments {
         let document = cursor.takeFlag("--document")
         let quote = try cursor.takeValue("--quote")
         let scalarRange = try cursor.takeValue("--range")
@@ -635,14 +763,7 @@ enum MarginCommand {
         guard let from, let to else {
             throw CLIError.usage("--from and --to must be provided together as LINE:COLUMN.")
         }
-        let projection = AnchorResolver.normalizedProjection(body)
-        let startPoint = try TextSpan(parsing: "\(from)-\(from)").start
-        let endPoint = try TextSpan(parsing: "\(to)-\(to)").start
-        let startIndex = try TextCoordinates.index(for: startPoint, in: projection)
-        let endIndex = try TextCoordinates.index(for: endPoint, in: projection)
-        let startOffset = TextCoordinates.unicodeScalarOffset(of: startIndex, in: projection)
-        let endOffset = TextCoordinates.unicodeScalarOffset(of: endIndex, in: projection)
-        return .range(start: startOffset, end: endOffset, expectedExact: expected)
+        return .coordinates(from: from, to: to, expectedExact: expected)
     }
 
     private static func loadDocument(_ url: URL) throws -> EmbeddedCommentDocument {
@@ -680,6 +801,21 @@ enum MarginCommand {
         return CLIError(error.code, error.localizedDescription, exit: exit, details: details)
     }
 
+    private static func mapCollaborationError(_ error: CollaborationError) -> CLIError {
+        let exit: CLIExit
+        switch error {
+        case .preconditionFailed, .lockTimeout:
+            exit = .temporaryFailure
+        case .io, .transactionFailed, .rollbackFailed, .recoveryFailed:
+            exit = .io
+        case .pathEscapesRoot, .symlinkNotAllowed:
+            exit = .permission
+        default:
+            exit = .data
+        }
+        return CLIError(error.code, error.localizedDescription, exit: exit)
+    }
+
     private static func humanInspection(_ result: InspectionResult) -> String {
         let document = result.document
         return """
@@ -692,10 +828,15 @@ enum MarginCommand {
         """
     }
 
-    private static func help(topic: String?) -> String {
-        if topic == "comments" || topic == "comment" { return commentsHelp }
-        if topic == "agents" { return agentHelp }
-        return mainHelp
+    private static func help(path: [String], fallBackToMain: Bool) -> String? {
+        guard !path.isEmpty else { return mainHelp }
+        let normalized = path.enumerated().map { index, component in
+            index == 0 ? CLICommandCatalog.canonicalTopLevel(component) : component
+        }
+        if normalized == ["comments"] { return commentsHelp }
+        if normalized == ["agents"] { return agentHelp }
+        if let local = CLICommandCatalog.localHelp(path: normalized) { return local }
+        return fallBackToMain ? mainHelp : nil
     }
 }
 
@@ -735,6 +876,33 @@ private struct ReadResult: Encodable {
     let comments: CommentDocumentSnapshot?
 }
 
+private enum AnchorArguments {
+    case document
+    case quote(exact: String, prefix: String?, suffix: String?, occurrence: Int?)
+    case range(start: Int, end: Int, expectedExact: String?)
+    case coordinates(from: String, to: String, expectedExact: String?)
+
+    func resolve(in body: String) throws -> CommentAnchorInput {
+        switch self {
+        case .document:
+            return .document
+        case .quote(let exact, let prefix, let suffix, let occurrence):
+            return .quote(exact: exact, prefix: prefix, suffix: suffix, occurrence: occurrence)
+        case .range(let start, let end, let expectedExact):
+            return .range(start: start, end: end, expectedExact: expectedExact)
+        case .coordinates(let from, let to, let expectedExact):
+            let projection = AnchorResolver.normalizedProjection(body)
+            let startPoint = try TextSpan(parsing: "\(from)-\(from)").start
+            let endPoint = try TextSpan(parsing: "\(to)-\(to)").start
+            let startIndex = try TextCoordinates.index(for: startPoint, in: projection)
+            let endIndex = try TextCoordinates.index(for: endPoint, in: projection)
+            let startOffset = TextCoordinates.unicodeScalarOffset(of: startIndex, in: projection)
+            let endOffset = TextCoordinates.unicodeScalarOffset(of: endIndex, in: projection)
+            return .range(start: startOffset, end: endOffset, expectedExact: expectedExact)
+        }
+    }
+}
+
 private extension MarginCommand {
     static let mainHelp = """
     Margin \(version), a fast native Markdown editor and human-agent review protocol.
@@ -748,6 +916,16 @@ private extension MarginCommand {
       margin slice FILE (--lines RANGE | --heading NAME | --comment ID) [--context N] [--json] [--pretty]
       margin review FILE --json [--since-revision N] [--pretty]
       margin comments COMMAND ...
+      margin context FILE_OR_DIRECTORY --json [BOUNDS]
+      margin workspace init|show ...
+      margin collaborators|inbox FILE_OR_DIRECTORY ...
+      margin stage create|list|show|refresh|discard|submit ...
+      margin suggest add|list|accept|reject ...
+      margin handoff add|list ...
+      margin reconcile CURRENT --from PREVIOUS ...
+      margin merge BASE OURS THEIRS ...
+      margin capabilities --json [--for review|staging|suggestions|handoff|merge] [--pretty]
+      margin help [COMMAND [SUBCOMMAND]]
 
     AGENT READING
       inspect   Revision, size, outline, thread counts, and anchor health.
@@ -755,6 +933,17 @@ private extension MarginCommand {
       read      Literal Markdown body with Margin metadata removed.
       slice     A bounded passage by 1-based line/column range, heading, or comment.
       review    Bounded outline, thread groups, excerpts, anchor health, and revision.
+
+    DISCOVERY
+      capabilities  Versioned, bounded machine-readable command contract.
+      COMMAND --help and COMMAND SUBCOMMAND --help show command-local grammar.
+      context is the canonical bounded agent entry and emits an mcur1 cursor.
+      All collaboration commands are local and emit one JSON object.
+
+    ALIASES
+      comment = comments
+      -h = --help
+      -v = --version
 
     EXAMPLES
       margin architecture.md
@@ -765,6 +954,13 @@ private extension MarginCommand {
       margin review architecture.md --json --since-revision 12
       margin slice architecture.md --heading "Failure modes" --context 2
       margin slice architecture.md --lines 20:1-45:1 --json
+      margin slice --help
+      margin comments add --help
+      margin context architecture.md --json --max-files 1
+      margin stage create . --operations-file plan.json
+      margin suggest add architecture.md --quote "# Design" \
+        --replacement "# Architecture" -m "Use the established term"
+      margin capabilities --json
       margin help comments
       margin help agents
 
@@ -775,16 +971,19 @@ private extension MarginCommand {
     static let commentsHelp = """
     MARGIN COMMENTS
 
-      margin comments add FILE (-m TEXT | --message-file PATH | --stdin)
+      margin comments add FILE (-m TEXT | --message TEXT | --body TEXT | --message-file PATH | --stdin)
         (--quote EXACT [--prefix P --suffix S] [--occurrence N]
          | --range START:END [--expect EXACT]
          | --from LINE:COL --to LINE:COL [--expect EXACT]
          | --document)
+        [--kind comment|question|issue|decision|task|approval]
+        [--assignee ACTOR_ID] [--priority low|normal|high|urgent]
+        [--audience ACTOR_ID ...]
 
       margin comments list FILE [--status open|resolved|all] [--thread ID]
       margin comments get FILE ID
-      margin comments reply FILE PARENT (-m TEXT | --message-file PATH | --stdin) [--reopen]
-      margin comments edit FILE ID (-m TEXT | --message-file PATH | --stdin)
+      margin comments reply FILE PARENT (-m TEXT | --message TEXT | --body TEXT | --message-file PATH | --stdin) [--reopen]
+      margin comments edit FILE ID (-m TEXT | --message TEXT | --body TEXT | --message-file PATH | --stdin)
       margin comments delete FILE ID [--subtree]
       margin comments resolve FILE ID
       margin comments reopen FILE ID
@@ -792,6 +991,12 @@ private extension MarginCommand {
       margin comments validate FILE
       margin comments export FILE --format jsonld
       margin comments watch FILE --jsonl [--since-revision N]
+
+    DISCOVERY AND ORDERING
+      Run margin comments COMMAND --help for the complete local contract.
+      Named options may appear before, between, or after positionals. Positional
+      arguments keep their documented relative order. comment is an alias for
+      comments; -m, --message, and --body are message-option aliases.
 
     MUTATION OPTIONS
       --id UUID                 Idempotency key; becomes urn:uuid:UUID.
@@ -801,6 +1006,12 @@ private extension MarginCommand {
       --actor-name NAME        Display name.
       --actor-type TYPE        person, software, or organization.
       --pretty                 Pretty-print JSON.
+
+    TYPED CONTRIBUTIONS
+      add defaults to the existing comment behavior. question, issue, decision,
+      task, and approval use the shared collaboration transaction evaluator;
+      task accepts --assignee and --priority. --audience is repeatable. Use the
+      dedicated suggest and handoff commands for those provenance-rich kinds.
 
     EDIT AND DELETE
       edit preserves the comment id, creator, creation time, anchor, and tree
@@ -832,18 +1043,28 @@ private extension MarginCommand {
     static let agentHelp = """
     AGENT QUICKSTART
 
-      1. margin review FILE --json
-      2. margin slice FILE --heading HEADING --context 2
-      3. margin comments watch FILE --jsonl --since-revision REVISION
+      1. margin capabilities --json --for review
+      2. margin context TARGET --json --max-files 16
+      3. margin inbox TARGET --status open --max-contributions 64
       4. margin comments add FILE --quote "exact passage" -m "Finding" \\
            --actor-type software --actor-name "reviewer" --id UUID
-      5. margin comments list FILE --status all --pretty
+      5. margin stage create ROOT --operations-file plan.json
+         margin stage show ROOT STAGE_ID
+         margin stage submit ROOT STAGE_ID
+      6. margin suggest add FILE --quote "old text" --replacement "new text" -m "Proposed edit" --id UUID
+      7. margin handoff add FILE -m "Ready for validation" --next-actor ACTOR_ID
 
-    Copy result.rootID from add into reply/resolve, and result.annotation.id into
-    edit/delete. Both full urn:uuid values and bare UUIDs are accepted. Prefer
-    --quote for resilient anchors, --id for retries, and compare-and-swap flags
-    when several agents may write concurrently. Use document-level comments for
-    synthesis that is not tied to one passage. The Markdown file is the only
-    authority; no service or sidecar database is required.
+    capabilities is the versioned command contract; context is the canonical
+    bounded entry and returns an mcur1 cursor. Inbox filters matching work before
+    applying its output bound. Use an intent-plan stage for typed, atomic cross-file
+    work, and inspect it before submit. Prefer --quote for resilient passages and
+    stable --id values for safe retries. A stale submit retains its stage; use
+    stage refresh to create a new immutable stage against current metadata.
+
+    Comments and typed contributions are embedded in each Markdown document's
+    terminal metadata envelope; the logical Markdown body remains portable text.
+    An initialized workspace may also keep optional local manifests, stages,
+    activity, and transaction state under ROOT/.margin. No network service is
+    required.
     """
 }

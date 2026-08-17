@@ -299,6 +299,55 @@ final class EditorReviewIntegrationTests: XCTestCase {
         XCTAssertEqual(editor.selectedCommentThreadID, second)
     }
 
+    func testInspectorAcceptsAndRejectsTypedSuggestionsThroughAtomicTransactions() throws {
+        let accepted = try makeSuggestedDocument(
+            source: "# Copy\n\nUse the teh precise term.\n",
+            expected: "teh",
+            replacement: "most"
+        )
+        let rejected = try makeSuggestedDocument(
+            source: "# Copy\n\nKeep this phrase.\n",
+            expected: "this",
+            replacement: "that"
+        )
+        defer {
+            try? FileManager.default.removeItem(at: accepted.fixture.directory)
+            try? FileManager.default.removeItem(at: rejected.fixture.directory)
+        }
+
+        let acceptingEditor = EditorViewController()
+        let acceptingInspector = CommentsViewController()
+        acceptingEditor.connectComments(acceptingInspector)
+        acceptingEditor.presentDocument(at: accepted.fixture.file)
+        waitUntil { acceptingEditor.rootCommentIDsInSourceOrder == [accepted.id] }
+        acceptingEditor.revealComment(id: accepted.id)
+        try XCTUnwrap(button(titled: "Accept", in: acceptingInspector.view)).performClick(nil)
+        waitUntil(timeout: 4) {
+            (try? EmbeddedCommentCodec().decode(Data(contentsOf: accepted.fixture.file)).body)
+                == "# Copy\n\nUse the most precise term.\n"
+        }
+        let acceptedComment = try CommentService().get(accepted.id, at: accepted.fixture.file).annotation
+        XCTAssertEqual(acceptedComment.reviewSuggestion?.status, .accepted)
+        acceptingEditor.clearDocument()
+
+        let rejectingEditor = EditorViewController()
+        let rejectingInspector = CommentsViewController()
+        rejectingEditor.connectComments(rejectingInspector)
+        rejectingEditor.presentDocument(at: rejected.fixture.file)
+        waitUntil { rejectingEditor.rootCommentIDsInSourceOrder == [rejected.id] }
+        rejectingEditor.revealComment(id: rejected.id)
+        try XCTUnwrap(button(titled: "Reject", in: rejectingInspector.view)).performClick(nil)
+        waitUntil(timeout: 4) {
+            (try? CommentService().get(rejected.id, at: rejected.fixture.file).annotation
+                .reviewSuggestion?.status) == .rejected
+        }
+        XCTAssertEqual(
+            try EmbeddedCommentCodec().decode(Data(contentsOf: rejected.fixture.file)).body,
+            "# Copy\n\nKeep this phrase.\n"
+        )
+        rejectingEditor.clearDocument()
+    }
+
     private func waitUntil(
         timeout: TimeInterval = 2,
         predicate: @escaping () -> Bool
@@ -346,5 +395,52 @@ final class EditorReviewIntegrationTests: XCTestCase {
         let file = directory.appendingPathComponent("note.md")
         try Data(source.utf8).write(to: file)
         return (directory, file)
+    }
+
+    private func makeSuggestedDocument(
+        source: String,
+        expected: String,
+        replacement: String
+    ) throws -> (fixture: (directory: URL, file: URL), id: String) {
+        let fixture = try makeDocument(source)
+        let root = try CollaborationRootResolver().document(at: fixture.file)
+        let cursor = try CollaborationCursorService().capture(root: root, paths: ["."])
+        let target = try AnchorResolver().target(
+            for: .quote(exact: expected),
+            documentID: "urn:margin:temporary",
+            in: source
+        )
+        guard case .selection(let selection) = target,
+              let range = selection.positionSelector else {
+            throw CommentProtocolError.invalidAnchor("Expected a suggestion range.")
+        }
+        let collaborationActor = try CollaborationActor(actor)
+        let contribution = try CollaborationContributionFactory.suggestion(
+            actor: collaborationActor,
+            path: ".",
+            range: UnicodeScalarRange(start: range.start, end: range.end),
+            message: "Replace the imprecise wording.",
+            expectedText: expected,
+            replacementText: replacement,
+            baseCursor: cursor
+        )
+        let request = "urn:uuid:\(UUID().uuidString.lowercased())"
+        let changeSet = try CollaborationChangeSet(
+            root: root,
+            baseCursor: cursor,
+            actor: collaborationActor,
+            requestID: request,
+            stageID: "urn:margin:stage:\(request)",
+            created: CollaborationTimestamp.string(),
+            operations: [
+                .contribution(
+                    id: "urn:margin:operation:\(request)",
+                    CollaborationContributionOperation(contribution: contribution)
+                )
+            ]
+        )
+        let mutations = try CollaborationChangeSetEvaluator().evaluate(changeSet)
+        _ = try CollaborationTransactionEngine().submit(changeSet, evaluatedMutations: mutations)
+        return (fixture, contribution.id)
     }
 }
