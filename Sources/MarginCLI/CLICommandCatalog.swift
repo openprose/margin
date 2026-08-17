@@ -321,6 +321,14 @@ enum CLICommandCatalog {
                 output: text
             ),
             command(
+                "man",
+                summary: "Teach Margin's safe human-agent workflows through concise progressive manual pages.",
+                usage: ["margin man [TOPIC]", "margin man --list"],
+                arguments: [argument("TOPIC", kind: "manual-topic", required: false, description: "One of review, comments, suggestions, staging, handoff, merge, or safety.")],
+                options: [option("--list", description: "List canonical manual topics without loading a page.")],
+                output: text
+            ),
+            command(
                 "version",
                 aliases: [["-v"], ["--version"]],
                 summary: "Print the Margin CLI version.",

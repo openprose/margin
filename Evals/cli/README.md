@@ -68,7 +68,7 @@ It does not retain raw model output, raw stderr/stdout, comment-message argument
 ## Hill-climbing workflow
 
 1. Run a baseline with at least three repetitions per model/scenario.
-2. Change one CLI surface: help, command grammar, JSON shape, error wording, or recovery affordance.
+2. Change one CLI surface: progressive manual, help, command grammar, JSON shape, error wording, or recovery affordance.
 3. Run the identical fixed suite against the candidate binary with the same models, thinking level, budgets, and repetitions.
 4. Compare both sets:
 

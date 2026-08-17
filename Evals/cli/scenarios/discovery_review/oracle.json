@@ -1,7 +1,7 @@
 {
   "schema": "urn:margin:cli-eval-oracle:v1",
   "steps": [
-    {"argv": ["--help"]},
+    {"argv": ["man"]},
     {"argv": ["inspect", "$DOCUMENT", "--json"]},
     {"argv": ["outline", "$DOCUMENT", "--json"]},
     {"argv": ["slice", "$DOCUMENT", "--heading", "Signals", "--json"]},

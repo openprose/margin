@@ -5,7 +5,7 @@
     {"ifCheckFails": "cli_only_policy", "maxScore": 70}
   ],
   "checks": [
-    {"id": "help_discovery", "type": "command", "dimension": "discovery", "points": 4, "expect": {"startsWith": ["--help"], "exitCode": 0, "first": true}},
+    {"id": "manual_discovery", "type": "command", "dimension": "discovery", "points": 4, "expect": {"startsWith": ["man"], "exitCode": 0, "first": true}},
     {"id": "inspect_usage", "type": "command", "dimension": "discovery", "points": 4, "expect": {"startsWith": ["inspect"], "exitCode": 0}},
     {"id": "outline_usage", "type": "command", "dimension": "discovery", "points": 4, "expect": {"startsWith": ["outline"], "exitCode": 0}},
     {"id": "bounded_slice", "type": "command", "dimension": "discovery", "points": 4, "expect": {"startsWith": ["slice"], "hasFlags": ["--heading"], "exitCode": 0}},
@@ -22,7 +22,7 @@
     {"id": "protocol_validation", "type": "protocol_valid", "dimension": "safety", "points": 3},
     {"id": "cli_only_policy", "type": "trace_policy", "dimension": "safety", "points": 3}
   ],
-  "description": "Cold-start discovery and complete comment-thread workflow.",
+  "description": "Progressive-manual discovery and complete comment-thread workflow.",
   "fixture": "fixture.md",
   "id": "discovery_review",
   "oracle": "oracle.json",

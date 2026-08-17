@@ -32,6 +32,21 @@ make install
 
 This installs `Margin.app` in `~/Applications` and `margin` in `~/.local/bin`. If that directory is not already on `PATH`, add it once in your shell configuration.
 
+To create one macOS installer containing both the app and command-line tool:
+
+```sh
+make installer
+open build/Margin-0.3.1-macOS-arm64.pkg
+```
+
+The installer places `Margin.app` in `/Applications` and `margin` in
+`/usr/local/bin`. The local build is unsigned at the installer level. A public
+release can set `MARGIN_APP_SIGNING_IDENTITY` and
+`MARGIN_INSTALLER_SIGNING_IDENTITY` to the corresponding Apple Developer ID
+certificates. Setting `MARGIN_NOTARY_PROFILE` to an existing `notarytool`
+keychain profile submits, staples, and validates that signed installer as part of
+the same build.
+
 To build without installing:
 
 ```sh
@@ -77,11 +92,19 @@ Formatting shortcuts write ordinary Markdown characters: `⌘B` for bold, `⌘I`
 Start with the self-describing contract and a bounded context instead of reading files or the embedded envelope indiscriminately:
 
 ```sh
-margin help agents
+margin man
+margin man review
 margin capabilities --json --for review
 margin context ~/code/my-project --json --max-files 64 --pretty
 margin inbox ~/code/my-project --status open --pretty
 ```
+
+`margin man` is the stable teaching entry point for humans and agents. Its
+focused pages—`review`, `comments`, `suggestions`, `staging`, `handoff`, `merge`,
+and `safety`—explain judgment and safe defaults. The capability projections
+remain the exact machine-readable command contract, while `COMMAND --help`
+provides leaf-level syntax. The older `margin help agents` entry remains an alias
+for the manual overview.
 
 Workflow projections are also available for `staging`, `suggestions`, `handoff`,
 and `merge`. They retain the versioned machine contract while avoiding the cost
@@ -229,7 +252,8 @@ make eval              # deterministic CLI-agent eval oracles and harness tests
 make eval-collaboration # strict twelve-scenario directory-collaboration gate
 make smoke             # packaged CLI and application smoke tests
 make benchmark         # local launch and footprint measurements
-make package           # signed local app/CLI zip plus SHA-256 checksum
+make installer         # one local macOS package installing the app and CLI
+make package           # portable zip and one-file installer, each with checksum
 ```
 
 The original real-agent benchmark lives in `Benchmarks/agent_benchmark`. The hill-climbing suite in `Evals/cli` expands it into six single-document task families. `Evals/collaboration` adds twelve secret-seeded relay environments for human-to-agent, agent-to-agent, concurrent, staged multi-file, suggestion, recovery, and merge workflows. Both systems grade final protocol state rather than model prose and keep paid execution behind explicit caps and confirmation.

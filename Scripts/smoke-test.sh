@@ -15,7 +15,10 @@ fi
 
 /usr/bin/plutil -lint "$APP_BUNDLE/Contents/Info.plist" >/dev/null
 /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
-[[ "$($CLI --version)" == "Margin 0.3.0" ]]
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_BUNDLE/Contents/Info.plist")"
+[[ "$($CLI --version)" == "Margin $VERSION" ]]
+"$CLI" man >/dev/null
+"$CLI" man staging >/dev/null
 "$CLI" inspect --json "$FIXTURE" >/dev/null
 "$CLI" outline --json "$FIXTURE" >/dev/null
 

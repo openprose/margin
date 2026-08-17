@@ -17,7 +17,7 @@ from eval_lib import CommandResult, append_jsonl, command_evidence, sha256_text,
 
 AGENT_COMMANDS = frozenset({
     "capabilities", "collaborators", "comment", "comments", "context", "handoff",
-    "help", "inbox", "inspect", "merge", "outline", "read", "reconcile", "review",
+    "help", "inbox", "inspect", "man", "merge", "outline", "read", "reconcile", "review",
     "slice", "stage", "submit", "suggest", "suggestions", "transact", "version",
     "workspace",
 })

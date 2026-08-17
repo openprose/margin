@@ -1,6 +1,6 @@
 You are evaluating a command-line interface named `margin`. Work only on `review.md` in the current directory.
 
-You have not been given its grammar. Begin with `margin --help`, follow its nested help, and use only Margin commands to inspect or annotate the document. Never read, edit, append to, or replace `review.md` with Python, shell file APIs, a text editor, or any program other than `margin`. The Markdown prose must remain byte-for-byte unchanged; only Margin's comment envelope may change.
+You have not been given its grammar. Begin with `margin man`, follow its progressive topic guidance and exact command help, and use only Margin commands to inspect or annotate the document. Never read, edit, append to, or replace `review.md` with Python, shell file APIs, a text editor, or any program other than `margin`. The Markdown prose must remain byte-for-byte unchanged; only Margin's comment envelope may change.
 
 Complete every operation:
 

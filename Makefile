@@ -6,7 +6,7 @@ BUILD_SCRATCH_PATH ?= $(SCRATCH_ROOT)/command-line-tools
 TEST_SCRATCH_PATH ?= $(SCRATCH_ROOT)/xcode-15.4
 OUTPUT_DIR ?= $(PROJECT_DIR)/build
 
-.PHONY: debug test release package install smoke benchmark eval eval-preflight eval-collaboration clean
+.PHONY: debug test release package installer install smoke benchmark eval eval-preflight eval-collaboration clean
 
 debug:
 	DEVELOPER_DIR="$(BUILD_DEVELOPER_DIR)" \
@@ -28,6 +28,12 @@ release:
 package: release
 	MARGIN_BUILD_OUTPUT_DIR="$(OUTPUT_DIR)" \
 		"$(PROJECT_DIR)/Scripts/package-release.sh"
+	MARGIN_BUILD_OUTPUT_DIR="$(OUTPUT_DIR)" \
+		"$(PROJECT_DIR)/Scripts/package-installer.sh"
+
+installer: release
+	MARGIN_BUILD_OUTPUT_DIR="$(OUTPUT_DIR)" \
+		"$(PROJECT_DIR)/Scripts/package-installer.sh"
 
 install: release
 	MARGIN_BUILD_OUTPUT_DIR="$(OUTPUT_DIR)" \

@@ -1,4 +1,4 @@
-Margin 0.3.0
+Margin 0.3.1
 
 Double-click Margin.app, or move it to ~/Applications or /Applications.
 
@@ -11,3 +11,6 @@ your PATH, such as ~/.local/bin, then open a file or folder with:
 
 The command finds Margin.app in ~/Applications or /Applications. You can
 also set MARGIN_APP_PATH to an app bundle stored elsewhere.
+
+The companion Margin .pkg is the one-step installation option. It places the
+app in /Applications and the command in /usr/local/bin.

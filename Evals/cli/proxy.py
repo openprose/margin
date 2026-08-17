@@ -21,7 +21,7 @@ SENSITIVE_VALUE_FLAGS = {
 }
 SENSITIVE_INLINE_PREFIXES = tuple(f"{flag}=" for flag in SENSITIVE_VALUE_FLAGS if flag.startswith("--"))
 HEADLESS_COMMANDS = {
-    "-h", "--help", "help", "-v", "--version", "version", "inspect", "outline",
+    "-h", "--help", "help", "man", "-v", "--version", "version", "inspect", "outline",
     "read", "slice", "review", "comments", "comment",
 }
 

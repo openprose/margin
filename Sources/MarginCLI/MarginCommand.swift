@@ -3,7 +3,7 @@ import Foundation
 import MarginCore
 
 enum MarginCommand {
-    static let version = "0.3.0"
+    static let version = "0.3.1"
     static let service = CommentService()
     static let reviewService = ReviewService()
     static let codec = EmbeddedCommentCodec()
@@ -64,6 +64,8 @@ enum MarginCommand {
         case "help":
             let path = cursor.takeRemaining()
             try CLIOutput.text(help(path: path, fallBackToMain: true) ?? mainHelp)
+        case "man":
+            try runManual(&cursor)
         case "version":
             try cursor.rejectRemaining()
             try CLIOutput.text("Margin \(version)")
@@ -126,6 +128,25 @@ enum MarginCommand {
                 maximumBytes: CLICapabilitiesEnvelope.maximumEncodedBytes
             )
         }
+    }
+
+    private static func runManual(_ cursor: inout ArgumentCursor) throws {
+        let listOnly = cursor.takeFlag("--list")
+        if listOnly {
+            try cursor.rejectRemaining()
+            try CLIOutput.text(MarginManual.topicList)
+            return
+        }
+
+        let topic = cursor.pop()
+        try cursor.rejectRemaining()
+        guard let page = MarginManual.page(for: topic) else {
+            let choices = MarginManual.canonicalTopics.joined(separator: ", ")
+            throw CLIError.usage(
+                "Unknown manual topic '\(topic ?? "")'. Choose one of: \(choices). Run 'margin man --list'."
+            )
+        }
+        try CLIOutput.text(page)
     }
 
     private static func runOpen(_ cursor: inout ArgumentCursor) throws {
@@ -834,7 +855,7 @@ enum MarginCommand {
             index == 0 ? CLICommandCatalog.canonicalTopLevel(component) : component
         }
         if normalized == ["comments"] { return commentsHelp }
-        if normalized == ["agents"] { return agentHelp }
+        if normalized == ["agents"] { return MarginManual.overview }
         if let local = CLICommandCatalog.localHelp(path: normalized) { return local }
         return fallBackToMain ? mainHelp : nil
     }
@@ -925,7 +946,13 @@ private extension MarginCommand {
       margin reconcile CURRENT --from PREVIOUS ...
       margin merge BASE OURS THEIRS ...
       margin capabilities --json [--for review|staging|suggestions|handoff|merge] [--pretty]
+      margin man [review|comments|suggestions|staging|handoff|merge|safety]
       margin help [COMMAND [SUBCOMMAND]]
+
+    LEARN MARGIN
+      margin man teaches the safe workflow in small, task-specific pages.
+      margin capabilities is the exact machine-readable contract.
+      margin COMMAND --help is the exact local grammar.
 
     AGENT READING
       inspect   Revision, size, outline, thread counts, and anchor health.
@@ -961,6 +988,8 @@ private extension MarginCommand {
       margin suggest add architecture.md --quote "# Design" \
         --replacement "# Architecture" -m "Use the established term"
       margin capabilities --json
+      margin man
+      margin man staging
       margin help comments
       margin help agents
 
@@ -1040,31 +1069,4 @@ private extension MarginCommand {
     may target any annotation, so trees can be arbitrarily deep.
     """
 
-    static let agentHelp = """
-    AGENT QUICKSTART
-
-      1. margin capabilities --json --for review
-      2. margin context TARGET --json --max-files 16
-      3. margin inbox TARGET --status open --max-contributions 64
-      4. margin comments add FILE --quote "exact passage" -m "Finding" \\
-           --actor-type software --actor-name "reviewer" --id UUID
-      5. margin stage create ROOT --operations-file plan.json
-         margin stage show ROOT STAGE_ID
-         margin stage submit ROOT STAGE_ID
-      6. margin suggest add FILE --quote "old text" --replacement "new text" -m "Proposed edit" --id UUID
-      7. margin handoff add FILE -m "Ready for validation" --next-actor ACTOR_ID
-
-    capabilities is the versioned command contract; context is the canonical
-    bounded entry and returns an mcur1 cursor. Inbox filters matching work before
-    applying its output bound. Use an intent-plan stage for typed, atomic cross-file
-    work, and inspect it before submit. Prefer --quote for resilient passages and
-    stable --id values for safe retries. A stale submit retains its stage; use
-    stage refresh to create a new immutable stage against current metadata.
-
-    Comments and typed contributions are embedded in each Markdown document's
-    terminal metadata envelope; the logical Markdown body remains portable text.
-    An initialized workspace may also keep optional local manifests, stages,
-    activity, and transaction state under ROOT/.margin. No network service is
-    required.
-    """
 }

@@ -6,6 +6,7 @@ CONFIGURATION="${1:-release}"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Library/Developer/CommandLineTools}"
 SCRATCH_PATH="${MARGIN_SWIFT_SCRATCH_PATH:-$PROJECT_DIR/.build/toolchains/command-line-tools}"
 OUTPUT_DIR="${MARGIN_BUILD_OUTPUT_DIR:-$PROJECT_DIR/build}"
+APP_SIGNING_IDENTITY="${MARGIN_APP_SIGNING_IDENTITY:--}"
 
 if [[ "$CONFIGURATION" != "debug" && "$CONFIGURATION" != "release" ]]; then
     print -u2 "usage: $0 [debug|release]"
@@ -63,10 +64,16 @@ if [[ "$CONFIGURATION" == "release" ]]; then
 fi
 
 /usr/bin/plutil -lint "$STAGED_APP/Contents/Info.plist" >/dev/null
-/usr/bin/codesign --force --sign - "$STAGED_APP/Contents/Helpers/margin" >/dev/null
-/usr/bin/codesign --force --sign - "$STAGED_APP/Contents/MacOS/Margin" >/dev/null
-/usr/bin/codesign --force --sign - "$STAGED_APP" >/dev/null
+CODESIGN_ARGUMENTS=(--force --sign "$APP_SIGNING_IDENTITY")
+if [[ "$APP_SIGNING_IDENTITY" != "-" ]]; then
+    CODESIGN_ARGUMENTS+=(--options runtime --timestamp)
+fi
+/usr/bin/codesign "${CODESIGN_ARGUMENTS[@]}" "$STAGED_APP/Contents/Helpers/margin" >/dev/null
+/usr/bin/codesign "${CODESIGN_ARGUMENTS[@]}" "$STAGED_APP/Contents/MacOS/Margin" >/dev/null
+/usr/bin/codesign "${CODESIGN_ARGUMENTS[@]}" "$STAGED_APP" >/dev/null
+/usr/bin/codesign "${CODESIGN_ARGUMENTS[@]}" "$STAGED_CLI" >/dev/null
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$STAGED_APP"
+/usr/bin/codesign --verify --strict --verbose=2 "$STAGED_CLI"
 
 rm -rf "$APP_DIR"
 rm -f "$OUTPUT_CLI"

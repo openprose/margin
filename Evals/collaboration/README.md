@@ -54,7 +54,7 @@ Evals/collaboration/run.py \
 
 Roles are assigned to team models in order and wrap for larger teams. Sequential roles receive no transcript from earlier agents; they see only the shared Markdown collaboration state. Concurrent phases launch separate Prime Agent processes against the same ephemeral directory. `--tool-mode shell` is reserved for opt-in adversarial research and additionally requires `--confirm-shell-research ALLOW_UNRESTRICTED_SHELL_RESEARCH`; it is not an isolated default or a pilot configuration.
 
-Before each live task, the harness injects the smallest applicable static `capabilities --json --for WORKFLOW` projection and only the command-local help missing from it. The reference is byte-bounded and contains no fixture state; the agent can request the full catalog only when focused discovery is insufficient.
+Before each live task, the harness injects the smallest applicable static `capabilities --json --for WORKFLOW` projection and only the command-local help missing from it. The reference is byte-bounded and contains no fixture state. Agents can use `margin man TOPIC` for human-readable workflow guidance, focused command help for exact spelling, and the full catalog only when smaller discovery surfaces are insufficient.
 
 The completed Luna + Terra pilot and its harness findings are documented in [Docs/COLLABORATION_EVALS.md](../../Docs/COLLABORATION_EVALS.md). `--token-budget` limits generated/output tokens per Prime subprocess; it is not a cap on input or cache-read tokens. Future reports preserve the legacy token fields while labeling that meaning and separately reporting actual input, generated output, cache read/write, and cost. A prior pilot does not authorize another model run.
 

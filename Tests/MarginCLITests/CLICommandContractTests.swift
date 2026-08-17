@@ -122,19 +122,19 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertTrue(capabilities.contains("--for WORKFLOW"))
         XCTAssertTrue(capabilities.contains("review, staging, suggestions, handoff, or merge"))
 
+        let manual = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["man"]))
+        XCTAssertTrue(manual.contains("margin man [TOPIC]"))
+        XCTAssertTrue(manual.contains("--list"))
+
         let agents = runCapturing(["help", "agents"])
         XCTAssertEqual(agents.exit, CLIExit.success.rawValue)
         let agentHelp = try XCTUnwrap(String(data: agents.output, encoding: .utf8))
+        XCTAssertTrue(agentHelp.contains("MARGIN MANUAL"))
         XCTAssertTrue(agentHelp.contains("margin capabilities --json"))
         XCTAssertTrue(agentHelp.contains("margin context TARGET --json"))
         XCTAssertTrue(agentHelp.contains("margin inbox TARGET"))
-        XCTAssertTrue(agentHelp.contains("--operations-file plan.json"))
-        XCTAssertTrue(agentHelp.contains("stage refresh"))
-        XCTAssertTrue(agentHelp.contains("margin suggest add"))
-        XCTAssertTrue(agentHelp.contains("margin handoff add"))
-        XCTAssertTrue(agentHelp.contains("embedded in each Markdown document"))
-        XCTAssertTrue(agentHelp.contains("ROOT/.margin"))
-        XCTAssertFalse(agentHelp.contains("only authority"))
+        XCTAssertTrue(agentHelp.contains("margin man staging"))
+        XCTAssertTrue(agentHelp.contains("not trusted"))
 
         for command in CLICommandCatalog.commands {
             XCTAssertNotNil(
@@ -142,6 +142,61 @@ final class CLICommandContractTests: XCTestCase {
                 "Missing local help for \(command.path.joined(separator: " "))"
             )
         }
+    }
+
+    func testProgressiveManualIsStaticDiscoverableAndFailClosed() throws {
+        let globalHelp = runCapturing(["--help"])
+        XCTAssertEqual(globalHelp.exit, CLIExit.success.rawValue)
+        XCTAssertTrue(
+            try XCTUnwrap(String(data: globalHelp.output, encoding: .utf8))
+                .contains("margin man")
+        )
+
+        let overview = runCapturing(["man"])
+        XCTAssertEqual(overview.exit, CLIExit.success.rawValue)
+        let overviewText = try XCTUnwrap(String(data: overview.output, encoding: .utf8))
+        XCTAssertTrue(overviewText.contains("MARGIN MANUAL"))
+        XCTAssertTrue(overviewText.contains("margin capabilities --json --for review"))
+        XCTAssertTrue(overviewText.contains("Never edit Margin's terminal metadata envelope directly"))
+        XCTAssertTrue(overviewText.contains("not proof that someone is online"))
+
+        let legacy = runCapturing(["help", "agents"])
+        XCTAssertEqual(legacy.exit, CLIExit.success.rawValue)
+        XCTAssertEqual(legacy.output, overview.output)
+
+        let listed = runCapturing(["man", "--list"])
+        XCTAssertEqual(listed.exit, CLIExit.success.rawValue)
+        let listedText = try XCTUnwrap(String(data: listed.output, encoding: .utf8))
+        for topic in MarginManual.canonicalTopics {
+            XCTAssertTrue(listedText.contains(topic), "Missing manual topic \(topic)")
+        }
+
+        let expectedHeadings = [
+            "review": "MARGIN MANUAL: REVIEW",
+            "comments": "MARGIN MANUAL: COMMENTS",
+            "suggestions": "MARGIN MANUAL: SUGGESTIONS",
+            "staging": "MARGIN MANUAL: STAGING",
+            "handoff": "MARGIN MANUAL: HANDOFF",
+            "merge": "MARGIN MANUAL: MERGE",
+            "safety": "MARGIN MANUAL: SAFETY",
+        ]
+        for topic in MarginManual.canonicalTopics {
+            let result = runCapturing(["man", topic])
+            XCTAssertEqual(result.exit, CLIExit.success.rawValue, topic)
+            let text = try XCTUnwrap(String(data: result.output, encoding: .utf8))
+            XCTAssertTrue(text.contains(try XCTUnwrap(expectedHeadings[topic])), topic)
+            XCTAssertLessThan(result.output.count, 8_192, topic)
+        }
+
+        XCTAssertEqual(runSilently(["man", "comment"]), CLIExit.success.rawValue)
+        XCTAssertEqual(runSilently(["man", "stage"]), CLIExit.success.rawValue)
+        XCTAssertEqual(runSilently(["man", "security"]), CLIExit.success.rawValue)
+
+        let unknown = runCapturingError(["man", "unknown"])
+        XCTAssertEqual(unknown.exit, CLIExit.usage.rawValue)
+        let errorText = try XCTUnwrap(String(data: unknown.output, encoding: .utf8))
+        XCTAssertTrue(errorText.contains("Unknown manual topic 'unknown'"))
+        XCTAssertTrue(errorText.contains("margin man --list"))
     }
 
     func testCollaborationCommandsAreAvailableWithSafeSideEffectContracts() {
@@ -980,6 +1035,14 @@ final class CLICommandContractTests: XCTestCase {
         measure(metrics: [XCTClockMetric()]) {
             for _ in 0..<1_000 {
                 _ = CLICommandCatalog.localHelp(path: ["comments", "add"])
+            }
+        }
+    }
+
+    func testStaticManualLookupPerformance() {
+        measure(metrics: [XCTClockMetric()]) {
+            for _ in 0..<1_000 {
+                _ = MarginManual.page(for: "staging")
             }
         }
     }

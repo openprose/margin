@@ -181,7 +181,7 @@ export default function marginCollaborationExtension(pi: ExtensionAPI) {
 		promptGuidelines: [
 			"Use margin_cli for every document read, context lookup, collaboration mutation, validation, and merge in this evaluation.",
 			"Pass paths relative to the fixed workspace and request machine-readable output when the command offers it.",
-			"Prefer margin_cli argv [\"help\", COMMAND, SUBCOMMAND] or a task-specific capability slice for discovery; request the full capabilities catalog only when focused help is insufficient.",
+			"Use margin_cli argv [\"man\", TOPIC] for workflow guidance, then focused command help or a task-specific capability slice for exact grammar; request the full catalog only when those are insufficient.",
 			"For a staged intent plan, call margin_cli with --operations-file - and provide the versioned plan JSON in stdin.",
 		],
 		parameters: MarginCLIParameters,

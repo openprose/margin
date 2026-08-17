@@ -1,5 +1,34 @@
 # Margin release notes
 
+## 0.3.1 — self-teaching CLI and unified installer
+
+Release date: 2026-08-17
+
+- Added `margin man` as the stable human-and-agent teaching entry point. Its
+  concise overview leads into focused `review`, `comments`, `suggestions`,
+  `staging`, `handoff`, `merge`, and `safety` pages, then into the existing
+  machine-readable capability projections and command-local help.
+- Kept `margin help agents` backward compatible by routing it to the same manual
+  source, eliminating duplicated behavioral instructions and version drift.
+- Added an optional single macOS installer package that places `Margin.app` in
+  `/Applications` and the `margin` command in `/usr/local/bin`. `make package`
+  continues to emit the portable zip and now emits the installer as well.
+- Added optional Developer ID signing inputs for the app and installer while
+  preserving ad-hoc/unsigned local development defaults.
+
+### Verification
+
+- All 163 Swift tests pass. The CLI eval harness passes 22/22 tests and all six
+  deterministic workflows score 100; the collaboration harness passes 46/46
+  tests and its strict twelve-environment gate scores 100 with zero skips.
+- The final zip and installer checksums pass. Both extracted app bundles pass
+  strict code-signature verification, and the CLI installed by the package is
+  byte-identical to both the bundled helper and the standalone release CLI.
+- `Margin-0.3.1-macOS-arm64.zip`: 3,484,907 bytes, SHA-256
+  `dd0ff617fe1df75dd84bcf09e8896836cd93c81f4d22f3a0b9a1921a49095337`.
+- `Margin-0.3.1-macOS-arm64.pkg`: 3,485,523 bytes, SHA-256
+  `ce9da235606d7745bfe4883efbbd10beafc78469aece752f02d1299dbb8afa82`.
+
 ## 0.3.0 — document and directory collaboration
 
 Release date: 2026-08-17
