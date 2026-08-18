@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 07:10 ET
+Last updated: 2026-08-18 07:27 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -715,7 +715,7 @@ The phase is successful if the repository contains:
   before authentication, output creation, or spend, rather than receiving an
   unfair shared ceiling. No model call was made.
 
-- 2026-08-18 07:30 ET — Expanded complete 24-case, two-candidate schedules for
+- 2026-08-18 07:25 ET — Expanded complete 24-case, two-candidate schedules for
   both implemented profiles without inference. Each schedule contains 88
   logical role runs. The role-separated profile schedules 88 model processes;
   the continuing profile schedules 48, while summing the same logical compute
@@ -725,6 +725,12 @@ The phase is successful if the repository contains:
   disclosed $96.662016 worst case for either schedule. This demonstrates that
   topology changes process count without silently changing work or admission
   cost. No model call was made.
+
+- 2026-08-18 07:27 ET — Re-ran the launch gate after the benchmark and control
+  work. Fifteen warm app launches measured 286.610 ms median and 289.237 ms p95;
+  100 direct CLI help launches measured 5.191 ms median and 5.938 ms p95. All
+  benchmark/provider code remains outside the Mac app launch path, and the
+  measurements show no responsiveness regression.
 
 ## Next statistically useful paid run
 

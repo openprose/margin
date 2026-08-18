@@ -1,6 +1,6 @@
 # MarginBench build-phase handoff
 
-Status at 2026-08-18 07:10 ET: the primary benchmark track and its
+Status at 2026-08-18 07:27 ET: the primary benchmark track and its
 compute-matched continuing-agent control are implemented, portable, tested,
 packaged, and ready for further no-model development. No
 additional paid run is justified before the next comparison profile passes its
@@ -37,7 +37,7 @@ local release gates.
 | Deterministic reference quality | 6/6 scenarios scored 100 with safety passing |
 | Hosted-boundary rehearsal | Both the role-separated and continuing-agent profiles passed 6/6 in process and 6/6 through the environment server; the continuing profile also passed a freshly keyed private served run; 59 requests per run, zero rejects, zero provider-bound violations, no paid inference |
 | Clean distributable | Extracted source discovered 59 tests and passed every available test with eight expected Prime-only skips; installed Intel Linux wheel passed self-test; package and CI reject sensitive/generated archive paths |
-| macOS responsiveness | App warm launch median 288.431 ms, p95 326.421 ms; CLI help median 5.132 ms, p95 5.800 ms |
+| macOS responsiveness | Final app warm launch median 286.610 ms, p95 289.237 ms; CLI help median 5.191 ms, p95 5.938 ms |
 | Paid calibration | 17 attempts, 16 completed runs, 193 model calls, $0.0374 observed debit; $199.9487 remains |
 
 Run the local release gates from the repository root:
