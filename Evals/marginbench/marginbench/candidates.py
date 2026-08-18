@@ -181,12 +181,37 @@ def load_results(path: Path) -> list[EpisodeResult]:
         "urn:marginbench:result:v1",
         "urn:marginbench:result-set:v1",
         "urn:marginbench:reference-run:v1",
+        "urn:marginbench:prime-run-summary:v1",
+        "urn:marginbench:run:v1",
     }
     if not receipt["valid"] or receipt["artifactSchema"] not in allowed:
         error = receipt.get("error") or {"code": "UNSUPPORTED_RESULT_ARTIFACT", "message": ""}
         details = "; ".join(receipt.get("errors", ())[:3]) or error.get("message", "")
         raise ValueError(f"Invalid MarginBench result artifact ({error['code']}): {details}")
     payload = json.loads(path.read_text(encoding="utf-8"))
+    schema = payload.get("schema") if isinstance(payload, dict) else None
+    if schema in {"urn:marginbench:prime-run-summary:v1", "urn:marginbench:run:v1"}:
+        candidate_id = (
+            payload["candidate"]
+            if isinstance(payload["candidate"], str)
+            else payload["candidate"]["id"]
+        )
+        results = []
+        for value in payload["episodes"]:
+            results.append(EpisodeResult(
+                episode_id=value.get("episodeID", value.get("id")),
+                candidate_id=candidate_id,
+                score=value["score"],
+                dimensions=value["dimensions"],
+                checks=value["checks"],
+                command_count=value["commandCount"],
+                invalid_command_count=value["invalidCommandCount"],
+                duration_ms=value["durationMs"],
+                safety_passed=value["safetyPassed"],
+                source_preserved=value.get("sourcePreserved"),
+                margin_sha256=value["marginSha256"],
+            ))
+        return results
     if isinstance(payload, list):
         values = payload
     elif payload.get("schema") == "urn:marginbench:result:v1":

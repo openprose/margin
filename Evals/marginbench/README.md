@@ -107,8 +107,10 @@ marginbench diagnose baseline-run.json candidate-run.json \
 marginbench validate diagnosis.json
 ```
 
-The report separates safety, incomplete durable work, missed recovery, invalid
-command forms, attribution, interaction count, and early agent stops. It breaks
+The report distinguishes actual document damage from a disallowed operation
+that the workspace boundary successfully blocked, then separates incomplete
+durable work, missed recovery, invalid command forms, attribution, interaction
+count, and early agent stops. It breaks
 the evidence down by candidate and scenario, recommends changing one interface
 surface at a time, and requires at least 20 matched private episodes before an
 ordinary promotion. When several candidates are present, an explicit focus is
@@ -223,17 +225,25 @@ turn, input, output, total-token, and rollout-time limits. Do not publish or
 commit the resulting raw trace directory.
 
 The repository's safer paid wrapper is dry-run by default, requires a literal
-confirmation, refuses estimates over its per-run cap, serializes starts behind
+confirmation, discloses the unproxied contract maximum separately from the
+enforced run cap, serializes starts behind
 a cooldown, records wallet deltas, aggregates multiple role traces into one
-episode result, and can emit a schema-validated public run manifest:
+episode result, and can emit a schema-validated public run manifest. Paid
+execution also routes every inference request through a loopback-only spend
+gate. The child receives only an ephemeral local capability; the actual Prime
+key remains in the parent. The gate pins the priced model and chat-completion
+route, rejects streaming, unbounded output, oversized requests, and cumulative
+reservations above the run cap before forwarding, and retains only counts and
+costs:
 
 ```sh
 Evals/marginbench/prime_pilot.py \
   --margin-bin build/margin --model qwen/qwen3.7-flash \
   --scenario agent_agent_handoff --max-tokens-per-call 2400 \
-  --input-token-ceiling-per-call 1048576 \
+  --input-token-ceiling-per-call 1000000 \
   --input-price-per-million 0.03 --output-price-per-million 0.13 \
-  --max-cost-usd 2.50 --candidate CANDIDATE_ID \
+  --max-cost-usd 2.50 --live-proxy-cost-cap-usd 0.05 \
+  --candidate CANDIDATE_ID \
   --summary-file SUMMARY.json --run-manifest-file RUN.json
 ```
 
@@ -250,15 +260,25 @@ is deliberately separate from Verifiers' `max-input-tokens`: Verifiers counts a
 deduplicated conversation graph and checks it between turns, while the provider
 bills the complete prompt on every call. The wrapper multiplies the asserted
 per-call ceiling by every permitted turn and by an SDK-retry allowance, then
-adds a per-call billing-rounding allowance. `--max-cost-usd` is a conservative
-admission gate, not a live wallet cutoff. Turn, response-token, and wall-time
-limits remain the live bounds. The example uses a one-million-token ceiling for
-illustration; replace it only with a provider-published bound for the chosen
-model.
+adds a per-call billing-rounding allowance. `--max-cost-usd` is both the
+conservative static admission cap and, by default, the cumulative reservation
+cap enforced by the local proxy. `--live-proxy-cost-cap-usd` may make the live
+cap smaller, while `--live-proxy-max-request-bytes` bounds the complete encoded
+request. The proxy records its independently checkable policy and counters in
+the redacted summary and run manifest. Alibaba's current model table documents
+the example model at one million tokens:
+https://help.aliyun.com/zh/model-studio/text-generation-model/ . Replace that
+number only with a provider-published bound for the chosen model.
 
 The printed plan must be reviewed before adding the separately documented paid
 execution flags. Raw traces remain under ignored `runs/`; only redacted summaries
 and run manifests are publication artifacts.
+
+The first real-provider proxy smoke is tracked as
+`results/prime-live-budget-proxy-smoke-v1-public-r0-{summary,run}.json`. It
+completed safely at 96.25: six requests forwarded, zero rejected, $0.008847
+reserved beneath a $0.02 live cap, and $0.001 observed wallet debit. The smoke
+is implementation evidence, not a statistically meaningful candidate result.
 
 For a complete paired study, use the source package's `paired_pilot.py` instead
 of launching forty independent jobs by hand. It is also dry-run by default:
@@ -274,13 +294,17 @@ Evals/marginbench/paired_pilot.py \
   --input-token-ceiling-source https://provider.example/model-contract \
   --input-price-per-million 0.03 --output-price-per-million 0.13 \
   --pricing-source https://provider.example/model-pricing \
-  --max-study-cost-usd 15 --minimum-wallet-reserve-usd 80
+  --live-proxy-cap-per-job-usd 0.05 \
+  --max-study-cost-usd 3 --minimum-wallet-reserve-usd 190
 ```
 
 The resulting `urn:marginbench:prime-study-plan:v1` artifact contains no secret
-or local path. It binds all forty candidate-ordered jobs, benchmark and candidate
-digests, every limit and price, the per-job worst cases, aggregate admission
-bound, and protected reserve. Paid execution additionally needs the literal
+or local path. It binds all 48 candidate-ordered jobs, benchmark and candidate
+digests, every limit and price, each job's unproxied contract bound and enforced
+proxy cap, both aggregate bounds, and the protected reserve. With the values
+above, the one-million-token contract maximum remains visible as $96.662016,
+while the enforceable 48-job maximum is $2.40 and the first matched pair is
+$0.10. Paid execution additionally needs the literal
 confirmation printed by `--help`. `--max-new-jobs 1` stops cleanly after one
 newly completed job; a later identical invocation resumes at the next job.
 Completed outputs are schema- and digest-checked before a receipt is written.
@@ -288,10 +312,14 @@ An incomplete or uncertain attempt leaves a durable marker and blocks automatic
 retry. After all jobs finish, the controller creates and independently verifies
 the same redacted leaderboard bundle as the no-model reference runner.
 
-Prime's current model record for `qwen/qwen3.7-flash` publishes its token prices
-but not its maximum input length. The full paid study therefore remains gated:
-do not replace `PROVIDER_DOCUMENTED_LIMIT` with a guess. Dry planning, fake-child
-resumption tests, and publication verification require no model call.
+Prime's current model record for `qwen/qwen3.7-flash` publishes its token prices,
+and Alibaba's official model table documents its one-million-token context.
+That verified number may replace `PROVIDER_DOCUMENTED_LIMIT`; however, the full
+default paired study's deliberately pessimistic static bound is still about
+$96.66. The live proxy is a second fail-closed boundary, not permission to
+silently replace that published static assumption with observed low usage. Dry
+planning, fake-child resumption tests, and publication verification require no
+model call.
 
 ### Prime-managed runtime probe
 
@@ -325,7 +353,9 @@ requires:
 4. confirmation on private rotating cases, not only public development cases.
 
 Use `marginbench compare BASE_RESULTS CANDIDATE_RESULTS` for the deterministic
-paired comparison. Promotion requires at least 20 matching episodes by default,
+paired comparison. Each side may be a result set, reference run, redacted Prime
+summary, or redacted run manifest, so paid evidence needs no conversion or raw
+trace access. Promotion requires at least 20 matching episodes by default,
 a positive paired-bootstrap lower bound, and a candidate that is safe and
 source-preserving on every case; a single
 development case can diagnose a failure but can never be labeled promotable.

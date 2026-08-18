@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 03:23 ET
+Last updated: 2026-08-18 05:10 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -26,13 +26,13 @@ This document is the live checklist for the build phase ending at 08:00 ET on
 ## Credit ledger and spending gates
 
 Opening Prime Intellect credit: **$199.9861**. Latest observed balance:
-**$199.9594**. Total debit so far: **$0.0267**.
+**$199.9487**. Total debit so far: **$0.0374**.
 
 | Gate | Maximum cumulative spend | Purpose | Status |
 | --- | ---: | --- | --- |
 | 0 | $0 | Install, login, local tests, container builds, dry runs | Complete |
 | 1 | $2 | One tiny end-to-end hosted smoke test | Complete; $0.0017 first valid smoke |
-| 2 | $15 | Cheap-model calibration on a small public-development slice | Complete; cumulative debit $0.0267 |
+| 2 | $15 | Cheap-model calibration on a small public-development slice | Complete; cumulative debit $0.0374 |
 | 3 | $50 | Paired comparisons of promising CLI/manual variants | Not started |
 | 4 | $120 | Broader model/team matrix only after stable signal | Not started |
 | Reserve | $80 | Held for follow-up, failures, and a meaningful final run | Untouched |
@@ -42,8 +42,9 @@ Rules:
 1. No paid run before all local oracles pass and the exact proposed run is
    emitted by a no-model preflight.
 2. Every paid command has hard process, turn, response-token, and timeout caps,
-   plus a conservative pre-run dollar admission gate. Prime does not provide a
-   live per-run wallet cutoff, so the distinction is explicit.
+   plus a conservative pre-run dollar admission gate. A local, loopback-only
+   proxy now also rejects requests after the cumulative reservation cap before
+   they reach Prime; it is not a provider-side wallet cutoff.
 3. A new phase runs only if the previous phase produced useful signal.
 4. Never spend the final $80 during this build phase without a written proposal
    explaining the expected information gained and estimated full-run cost.
@@ -462,28 +463,100 @@ The phase is successful if the repository contains:
   `7fee22a178685ec26bfab2b0e0d1cdbc60bec7100577502af2a4c1e0e48baf41`;
   the source archive is
   `8354f6dbe0cd4e7ed43e45ed58f5e57970002e85e54dbf7ad8c74165fea632cc`.
+- 2026-08-18 04:52 ET — Closed the last billing-bound uncertainty and ran the
+  first directory-wide human-agent-agent hill climb. Alibaba's current official
+  model table documents a 1M-token context for `qwen3.7-flash`, while Prime's
+  authenticated Models API reports $0.03/M input and $0.13/M output. The source
+  is https://help.aliyun.com/zh/model-studio/text-generation-model/ . Three
+  serial, temperature-zero public-development cells held the Qwen model, exact
+  generated episode, Margin build, role layout, turn/token limits, and provider
+  prices fixed. They cost $0.0026, $0.0032, and $0.0039 respectively—$0.0097
+  total against a deliberately pessimistic $1.82136 admission bound per cell.
+  The wallet moved from $199.9594 to $199.9497 and no automatic paid retry ran.
+
+  The initial `directory-context-handoff-v1` cell scored 25.0: source and
+  documents stayed intact, but the author mistook `--actor-id` for the handoff
+  recipient, the reviewer attempted `ls`, then consumed its budget on the full
+  69 KB capability catalog. The boundary blocked both unsafe forms. Exact
+  blocked-call recovery guidance and a smaller-workflow warning produced
+  `directory-handoff-guidance-v2`: 91.944444, exact durable state, correct
+  attribution, safe confinement, and one recovered stale revision. A further
+  single-read hint produced `single-read-handoff-guidance-v3`: 96.25, zero
+  invalid Margin commands, both agents completed, and every durable-state,
+  attribution, source, document, atomicity, and confinement check passed. The
+  agent still sometimes requested overlapping reads, so the final delta cannot
+  be attributed to that one sentence from a single sample; it remains a
+  calibration result, not a promotion claim. The direct v1→v3 comparison is
+  +71.25 points and -2 invalid commands, with `sampleSizeSufficient:false`.
+
+  This live trace also found an evaluation defect: the role did verify the
+  finished threads and bounded directory state, but the oracle required the
+  literal `comments validate` spelling. That command-specific requirement is
+  removed for future episodes; exact annotations, status, attribution, source
+  bytes, valid documents, and the core handoff workflow remain independently
+  scored. Recorded paid scores were not rewritten. Diagnostics now distinguish
+  actual document damage from a disallowed attempt that enforcement blocked,
+  redacted run manifests preserve bounded stop-condition counts, and
+  `marginbench compare` accepts redacted paid summaries/manifests directly.
+  The validated ledger now contains 16 attempts, 15 completed runs, 187 model
+  calls, and $0.0364 total wallet debit since the original $199.9861 opening
+  balance. No raw trace, prompt, document body, credential, or holdout key was
+  committed.
+
+- 2026-08-18 05:10 ET — Added a live, fail-closed inference spend boundary
+  without making another paid call. Every future paid `prime_pilot.py` run now
+  keeps the real Prime key in its parent process and gives Verifiers only a
+  random loopback capability. The proxy pins the priced model and exact
+  non-streaming chat-completion route; bounds encoded request, response, and
+  output size; serializes conservative per-request reservations under the run
+  cap; never releases a failed reservation; forwards only minimal headers; and
+  retains no request or response content. Redacted summaries and run manifests
+  carry schema-checked policy, forward/reject counts, reserved cost, and
+  provider-reported tokens. Unit tests cover authentication, route/model/output,
+  byte, and cumulative-cost rejection. Prime's complete six-scenario fake-model
+  rehearsal then passed through the proxy both in process and across its real
+  environment-server boundary: 6/6 rewards, 59/59 requests accounted for, zero
+  rejects, and `paidModelsInvoked:false`. The newly approved Prime login was
+  independently verified against account, wallet, team, environment, and eval
+  APIs without inference. Its credential file had been created mode 0644; it is
+  now mode 0600. No model credit was spent for any of this work.
+
+- 2026-08-18 05:18 ET — Ran one explicitly capped real-provider verification
+  of the new boundary after the unit, in-process, and environment-server gates
+  passed. The single Qwen Flash `human_agent_relay` job disclosed a $0.181824
+  unproxied contract maximum but could reserve at most $0.02. It completed in
+  25.3 seconds at 96.25 with exact durable state, safety, source preservation,
+  and one invalid Margin command. The proxy forwarded six requests, rejected
+  none, reserved a conservative $0.008847, and independently observed 26,070
+  prompt plus 2,168 completion tokens. The trace and wallet each reported
+  $0.001. Both redacted artifacts validate, agree on the complete live policy,
+  and bind candidate `live-budget-proxy-smoke-v1`; raw traces remain ignored.
+  The experiment ledger now records 17 attempts, 16 completions, 193 model
+  calls, and $0.0374 total wallet debit.
 
 ## Next statistically useful paid run
 
-The next useful experiment is not another one-off. It is a paired interface
-comparison over all six workflows with four private repetitions: 24 matched
-episodes per candidate, 44 role processes per candidate, and exactly balanced
-12/12 AB/BA ordering. That is the default study and exceeds the 20-episode
-promotion minimum.
+The next useful experiment is not another public one-off. It is a paired
+interface comparison over all six workflows with four private repetitions: 24
+matched episodes per candidate, 44 role processes per candidate, and exactly
+balanced 12/12 AB/BA ordering. That is the default study and exceeds the
+20-episode promotion minimum.
 
-At Qwen Flash's current API price of $0.03/M input tokens and $0.13/M output
-tokens, a **provisional** 65,536-input-token ceiling, 2,400 output tokens,
-12 turns, three possible upstream attempts per turn, and $0.0002 rounding
-allowance gives a conservative bound of $3.925284 per candidate or $7.850568
-for the pair. This is well inside Gate 3's $50 envelope and far above observed
-cost, which is intentional. It is not execution-ready until Prime or the model
-publisher documents that 65,536-token per-call ceiling. Prime's current Models
-API exposes price but not context length, and a fresh official-source search did
-not identify a specification for this exact served model, so substituting an
-assumed value would repeat the billing-bound error already caught here. The new
-paired controller is ready to calculate, reserve, serialize, pause, resume, and
-publish the study once that contract fact is verified; until then it remains in
-dry-run/fake-child mode.
+The official 1M-token context resolves the factual uncertainty, but it exposes
+an intentionally conservative budget problem. At Qwen Flash's current Prime
+price, 2,400 output tokens, 12 turns, three possible upstream attempts per turn,
+and $0.0002 rounding allowance, the worst-case bound is $48.331008 per candidate
+or $96.662016 for the pair. The observed three-cell calibration cost only
+$0.0097, but observed cost is not a safe admission limit. Before a broad private
+study, the new trusted request proxy now hard-rejects oversized prompts and
+enforces cumulative reservations before forwarding each model call. The paired
+planner now preserves the $96.662016 contract maximum separately while allowing
+an explicit $0.05 live cap on each of 48 jobs: the enforceable study maximum is
+$2.40 under a $3 admission cap, and the first matched pair is at most $0.10.
+That no-model plan preserves a $190 wallet reserve. The next paid step, if
+chosen, is only that first private matched pair; inspect it before allowing the
+remaining 46 jobs. The remaining $199.9487 balance is sufficient, so no
+additional credits are requested.
 
 ## Decisions still to earn with evidence
 

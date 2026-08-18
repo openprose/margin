@@ -1,0 +1,18 @@
+{
+  "id": "directory-handoff-guidance-v2",
+  "manual_sha256": "5739e8e4f6da78091d14589f6674fd2928216b1199ea9e523a7073a8cd34909f",
+  "margin_sha256": "c220c0d61de8d523a2d55e1226693acda7ee909e2d518cc25572737965d2c57e",
+  "schema": "urn:marginbench:candidate:v1",
+  "settings": {
+    "adapter": "prime-verifiers-v1",
+    "benchmarkVersion": "0.1.0",
+    "controlProfile": "role-separated-margin-only-v1",
+    "gatewayAdapterSha256": "7516071dee6dbd5007d9fac418a346c230897d3e425155428ccc0e98a9eec66a",
+    "gatewayPolicySha256": "06cdc57ae0d60bea5915465466f027ebe7c83e9df0fc0907354bcb72dc7a1293",
+    "scenarioProtocolSha256": "035b4ab7b0875f66aaeb5cfafab58b355cd280d65ab0d791993faf37efac857e",
+    "toolSurface": [
+      "margin"
+    ]
+  },
+  "settings_sha256": "9d353a63eba229dfde162c3a18ab4a1e06598dadaee1303f3dae4735561f6e03"
+}

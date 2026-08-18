@@ -185,6 +185,32 @@ class PairedPrimeControllerTests(unittest.TestCase):
             }
             before = 200.0
             observed = 0.0005
+            live_budget = {
+                "enabled": True,
+                "forwardedRequestCount": 1,
+                "rejectedRequestCount": 0,
+                "reservedCostUpperBoundUSD": plan["pricing"][
+                    "billingOverheadUSDPerCall"
+                ],
+                "reportedPromptTokens": 0,
+                "reportedCompletionTokens": 0,
+                "reportedTokenCostUSD": 0,
+                "policy": {
+                    "allowedModel": plan["model"],
+                    "maxRequestBytes": plan["limits"]["liveProxyMaxRequestBytes"],
+                    "templateTokenAllowance": plan["limits"][
+                        "liveProxyTemplateTokenAllowance"
+                    ],
+                    "inputTokenCeiling": plan["limits"]["inputTokenCeilingPerCall"],
+                    "maxOutputTokens": plan["limits"]["maxTokensPerCall"],
+                    "inputPricePerMillion": plan["pricing"]["inputPricePerMillion"],
+                    "outputPricePerMillion": plan["pricing"]["outputPricePerMillion"],
+                    "billingOverheadUSDPerCall": plan["pricing"][
+                        "billingOverheadUSDPerCall"
+                    ],
+                    "maxTotalCostUSD": job["liveProxyCapUSD"],
+                },
+            }
             summary = {
                 "schema": "urn:marginbench:prime-run-summary:v1",
                 "status": "completed",
@@ -202,6 +228,9 @@ class PairedPrimeControllerTests(unittest.TestCase):
                     "observedDebitUSD": observed,
                 },
                 "estimatedMaximumCostUSD": job["estimatedMaximumCostUSD"],
+                "contractMaximumCostUSD": job["contractMaximumCostUSD"],
+                "liveBudgetCapUSD": job["liveProxyCapUSD"],
+                "liveBudget": live_budget,
                 "infrastructureCodes": [],
                 "traceCount": len(role_runs),
                 "episodeCount": 1,
@@ -267,6 +296,12 @@ class PairedPrimeControllerTests(unittest.TestCase):
                         "maxTurns": plan["limits"]["maxTurns"],
                         "rolloutTimeoutSeconds": plan["limits"]["rolloutTimeoutSeconds"],
                         "temperature": plan["limits"]["temperature"],
+                        "liveProxyMaxRequestBytes": plan["limits"][
+                            "liveProxyMaxRequestBytes"
+                        ],
+                        "liveProxyTemplateTokenAllowance": plan["limits"][
+                            "liveProxyTemplateTokenAllowance"
+                        ],
                     },
                     "retryPolicy": "No automatic paid model retries.",
                     "priorInfrastructureAttempts": 0,
@@ -278,7 +313,10 @@ class PairedPrimeControllerTests(unittest.TestCase):
                     "observedWalletDebit": observed,
                     "unreconciled": observed,
                     "admissionBound": job["estimatedMaximumCostUSD"],
+                    "contractBound": job["contractMaximumCostUSD"],
+                    "liveBudgetCap": job["liveProxyCapUSD"],
                     "hardAdmissionCap": job["estimatedMaximumCostUSD"],
+                    "liveBudget": live_budget,
                     "boundBasis": {
                         "inputTokenCeilingPerCall": plan["limits"]["inputTokenCeilingPerCall"],
                         "outputTokenCeilingPerCall": plan["limits"]["maxTokensPerCall"],
@@ -303,6 +341,46 @@ class PairedPrimeControllerTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, b"", b"")
 
         return run
+
+    def test_live_proxy_cap_preserves_contract_bound_and_reduces_enforced_study_maximum(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="marginbench-paired-live-cap-") as temporary:
+            root = Path(temporary)
+            arguments, uncapped = self._fixture(root)
+            capped = build_prime_study_plan(
+                study_plan=arguments.study_plan,
+                execution_plan=arguments.execution_plan,
+                baseline_manifest=arguments.baseline_manifest,
+                baseline_binary=arguments.baseline_bin,
+                candidate_manifest=arguments.candidate_manifest,
+                candidate_binary=arguments.candidate_bin,
+                model=uncapped["model"],
+                limits=uncapped["limits"],
+                pricing=uncapped["pricing"],
+                hard_admission_cap_usd=0.001,
+                minimum_wallet_reserve_usd=80.0,
+                package_root=PACKAGE_ROOT,
+                live_proxy_cap_per_job_usd=0.0004,
+            )
+            self.assertEqual(capped["budget"]["estimatedMaximumCostUSD"], 0.0008)
+            self.assertEqual(
+                capped["budget"]["contractMaximumCostUSD"],
+                uncapped["budget"]["contractMaximumCostUSD"],
+            )
+            self.assertGreater(
+                capped["budget"]["contractMaximumCostUSD"],
+                capped["budget"]["estimatedMaximumCostUSD"],
+            )
+            self.assertEqual(
+                [job["liveProxyCapUSD"] for job in capped["jobs"]],
+                [0.0004, 0.0004],
+            )
+            self.assertTrue(validate_bytes(canonical_json(capped))["valid"])
+
+            tampered = json.loads(canonical_json(capped))
+            tampered["jobs"][0]["liveProxyCapUSD"] = 0.0005
+            receipt = validate_bytes(canonical_json(tampered))
+            self.assertFalse(receipt["valid"])
+            self.assertTrue(any("live proxy cap" in error for error in receipt["errors"]))
 
     def test_controller_pauses_resumes_verifies_and_never_replays_completed_jobs(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-paired-controller-") as temporary:
@@ -340,6 +418,15 @@ class PairedPrimeControllerTests(unittest.TestCase):
             self.assertTrue(completed["verified"])
             self.assertEqual(completed["jobCount"], 2)
             self.assertEqual(len(calls), 2)
+            for command, job in zip(calls, plan["jobs"], strict=True):
+                self.assertEqual(
+                    float(self._value(command, "--live-proxy-cost-cap-usd")),
+                    job["liveProxyCapUSD"],
+                )
+                self.assertEqual(
+                    int(self._value(command, "--live-proxy-max-request-bytes")),
+                    plan["limits"]["liveProxyMaxRequestBytes"],
+                )
             self.assertTrue(validate_bytes(canonical_json(completed))["valid"])
             self.assertTrue(verify_submission(arguments.publication_dir / "submission.json")["valid"])
             diagnostic_path = arguments.publication_dir / "diagnostic.json"

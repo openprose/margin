@@ -136,10 +136,16 @@ def build_prime_study_plan(
     hard_admission_cap_usd: float,
     minimum_wallet_reserve_usd: float,
     package_root: Path,
+    live_proxy_cap_per_job_usd: float | None = None,
     key_file: Path | None = None,
     track: str = "interface",
 ) -> dict[str, Any]:
     """Freeze the complete paid schedule and its worst-case budget without spending."""
+    limits = {
+        "liveProxyMaxRequestBytes": 1024 * 1024,
+        "liveProxyTemplateTokenAllowance": 8192,
+        **limits,
+    }
     if not model or len(model.encode("utf-8")) > 256:
         raise PrimeStudyError("Model ID must contain between 1 and 256 UTF-8 bytes.")
     if track != "interface":
@@ -153,6 +159,13 @@ def build_prime_study_plan(
         )
     if not math.isfinite(minimum_wallet_reserve_usd) or minimum_wallet_reserve_usd < 0:
         raise PrimeStudyError("Minimum wallet reserve cannot be negative.")
+    if live_proxy_cap_per_job_usd is not None and (
+        not math.isfinite(live_proxy_cap_per_job_usd)
+        or not 0 < live_proxy_cap_per_job_usd <= MAX_PRIME_JOB_CAP_USD
+    ):
+        raise PrimeStudyError(
+            f"Live proxy cap per job must be above zero and at most ${MAX_PRIME_JOB_CAP_USD:.2f}."
+        )
 
     study, _, study_sha256 = _snapshot(study_plan, "urn:marginbench:study-plan:v1")
     execution, _, execution_sha256 = _snapshot(
@@ -191,8 +204,18 @@ def build_prime_study_plan(
         "upstreamAttemptsPerTurn",
         "maxTokensPerCall",
         "maxConcurrent",
+        "liveProxyMaxRequestBytes",
     ):
         _positive_integer(limits, name)
+    live_template_allowance = limits.get("liveProxyTemplateTokenAllowance")
+    if (
+        not isinstance(live_template_allowance, int)
+        or isinstance(live_template_allowance, bool)
+        or not 0 <= live_template_allowance <= 1_000_000
+    ):
+        raise PrimeStudyError("liveProxyTemplateTokenAllowance must be between 0 and 1000000.")
+    if limits["liveProxyMaxRequestBytes"] > 16 * 1024 * 1024:
+        raise PrimeStudyError("liveProxyMaxRequestBytes cannot exceed 16777216.")
     ceiling_source = limits.get("inputTokenCeilingSource")
     if (
         not isinstance(ceiling_source, str)
@@ -247,7 +270,14 @@ def build_prime_study_plan(
         planned = expected_episodes[job["episodeID"]]
         if job["roles"] != planned["roles"]:
             raise PrimeStudyError("Execution job roles differ from the frozen study plan.")
-        estimated_job_cost = _job_cost(len(job["roles"]), limits, pricing)
+        contract_job_cost = _job_cost(len(job["roles"]), limits, pricing)
+        live_job_cap = round(min(
+            contract_job_cost,
+            live_proxy_cap_per_job_usd
+            if live_proxy_cap_per_job_usd is not None
+            else contract_job_cost,
+        ), 6)
+        estimated_job_cost = live_job_cap
         if estimated_job_cost > MAX_PRIME_JOB_CAP_USD:
             raise PrimeStudyError(
                 f"Job {job['ordinal']} exceeds the ${MAX_PRIME_JOB_CAP_USD:.2f} child-run cap."
@@ -263,8 +293,11 @@ def build_prime_study_plan(
             "candidatePosition": job["candidatePosition"],
             "roles": job["roles"],
             "estimatedMaximumCostUSD": estimated_job_cost,
+            "contractMaximumCostUSD": contract_job_cost,
+            "liveProxyCapUSD": live_job_cap,
         })
     estimated_maximum = round(sum(item["estimatedMaximumCostUSD"] for item in jobs), 6)
+    contract_maximum = round(sum(item["contractMaximumCostUSD"] for item in jobs), 6)
     if estimated_maximum > hard_admission_cap_usd:
         raise PrimeStudyError(
             f"Estimated maximum ${estimated_maximum:.6f} exceeds the "
@@ -289,6 +322,12 @@ def build_prime_study_plan(
         "budget": {
             "currency": "USD",
             "estimatedMaximumCostUSD": estimated_maximum,
+            "contractMaximumCostUSD": contract_maximum,
+            "requestedLiveProxyCapPerJobUSD": (
+                round(live_proxy_cap_per_job_usd, 6)
+                if live_proxy_cap_per_job_usd is not None
+                else None
+            ),
             "hardAdmissionCapUSD": round(float(hard_admission_cap_usd), 6),
             "minimumWalletReserveUSD": round(float(minimum_wallet_reserve_usd), 6),
         },
@@ -379,6 +418,10 @@ def validate_prime_job_outputs(
         "maxTurns": plan["limits"]["maxTurns"],
         "rolloutTimeoutSeconds": plan["limits"]["rolloutTimeoutSeconds"],
         "temperature": plan["limits"]["temperature"],
+        "liveProxyMaxRequestBytes": plan["limits"]["liveProxyMaxRequestBytes"],
+        "liveProxyTemplateTokenAllowance": plan["limits"][
+            "liveProxyTemplateTokenAllowance"
+        ],
     }
     if run["execution"].get("limits") != expected_limits:
         errors.append("run limits differ from the paired plan")
@@ -427,10 +470,18 @@ def validate_prime_job_outputs(
         ):
             if summary_episode.get(summary_name) != run_episode.get(run_name):
                 errors.append(f"summary and run disagree on {summary_name}")
-    if summary["estimatedMaximumCostUSD"] > job["estimatedMaximumCostUSD"] + 0.000001:
-        errors.append("child admission bound exceeds the scheduled job bound")
-    if run["cost"].get("admissionBound", 0) > job["estimatedMaximumCostUSD"] + 0.000001:
-        errors.append("run admission bound exceeds the scheduled job bound")
+    if not math.isclose(
+        summary["estimatedMaximumCostUSD"],
+        job["estimatedMaximumCostUSD"],
+        abs_tol=0.000001,
+    ):
+        errors.append("child admission bound differs from the scheduled job bound")
+    if not math.isclose(
+        run["cost"].get("admissionBound", -1),
+        job["estimatedMaximumCostUSD"],
+        abs_tol=0.000001,
+    ):
+        errors.append("run admission bound differs from the scheduled job bound")
     if summary["wallet"]["observedDebitUSD"] > job["estimatedMaximumCostUSD"] + 0.000001:
         errors.append("observed wallet debit exceeds the scheduled job bound")
     expected_basis = {
@@ -444,6 +495,29 @@ def validate_prime_job_outputs(
     }
     if run["cost"].get("boundBasis") != expected_basis:
         errors.append("run cost basis differs from the paired plan")
+    expected_live_policy = {
+        "allowedModel": plan["model"],
+        "maxRequestBytes": plan["limits"]["liveProxyMaxRequestBytes"],
+        "templateTokenAllowance": plan["limits"]["liveProxyTemplateTokenAllowance"],
+        "inputTokenCeiling": plan["limits"]["inputTokenCeilingPerCall"],
+        "maxOutputTokens": plan["limits"]["maxTokensPerCall"],
+        "inputPricePerMillion": plan["pricing"]["inputPricePerMillion"],
+        "outputPricePerMillion": plan["pricing"]["outputPricePerMillion"],
+        "billingOverheadUSDPerCall": plan["pricing"]["billingOverheadUSDPerCall"],
+        "maxTotalCostUSD": job["liveProxyCapUSD"],
+    }
+    if summary.get("contractMaximumCostUSD") != job["contractMaximumCostUSD"]:
+        errors.append("summary contract bound differs from the paired plan")
+    if summary.get("liveBudgetCapUSD") != job["liveProxyCapUSD"]:
+        errors.append("summary live proxy cap differs from the paired plan")
+    if run["cost"].get("contractBound") != job["contractMaximumCostUSD"]:
+        errors.append("run contract bound differs from the paired plan")
+    if run["cost"].get("liveBudgetCap") != job["liveProxyCapUSD"]:
+        errors.append("run live proxy cap differs from the paired plan")
+    if summary.get("liveBudget", {}).get("policy") != expected_live_policy:
+        errors.append("summary live proxy policy differs from the paired plan")
+    if run["cost"].get("liveBudget") != summary.get("liveBudget"):
+        errors.append("summary and run disagree on live proxy accounting")
     if run["cost"]["observedWalletDebit"] != summary["wallet"]["observedDebitUSD"]:
         errors.append("summary and run disagree on observed wallet debit")
     if (

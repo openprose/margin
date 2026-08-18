@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,6 +29,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from marginbench.candidates import CandidateManifest  # noqa: E402
+from marginbench.budget_proxy import InferenceBudgetPolicy, InferenceBudgetProxy  # noqa: E402
 from marginbench.controls import DEFAULT_CONTROL_PROFILE, require_implemented_profile  # noqa: E402
 from marginbench.provenance import implementation_sha256  # noqa: E402
 from marginbench.scenarios import SCENARIO_IDS, generate_episode  # noqa: E402
@@ -39,6 +41,9 @@ from marginbench.validation import MAX_ARTIFACT_BYTES, validate_bytes  # noqa: E
 CONFIRMATION = "RUN_PAID_MARGINBENCH"
 HARD_MAX_COST_USD = 15.0
 BENCHMARK_VERSION = "0.1.0"
+DEFAULT_PRIME_INFERENCE_URL = "https://api.pinference.ai/api/v1"
+PROXY_API_KEY_ENV = "MARGINBENCH_PROXY_TOKEN"
+MAX_PRIME_CONFIG_BYTES = 1024 * 1024
 
 
 def canonical(value: Any) -> str:
@@ -147,7 +152,9 @@ def _candidate(arguments: argparse.Namespace) -> CandidateManifest:
     candidate_settings = {
         "adapter": "prime-verifiers-v1",
         "benchmarkVersion": BENCHMARK_VERSION,
+        "budgetProxySha256": sha256(PACKAGE_ROOT / "marginbench" / "budget_proxy.py"),
         "gatewayAdapterSha256": sha256(PACKAGE_ROOT / "marginbench" / "servers" / "gateway.py"),
+        "gatewayPolicySha256": sha256(PACKAGE_ROOT / "marginbench" / "gateway.py"),
         "scenarioProtocolSha256": sha256(PACKAGE_ROOT / "marginbench" / "scenarios.py"),
         "toolSurface": ["margin"],
         "controlProfile": arguments.control_profile,
@@ -221,6 +228,41 @@ def wallet(prime: Path) -> dict[str, Any]:
     }
 
 
+def load_prime_inference_credentials() -> tuple[str, str, str | None]:
+    """Resolve Prime inference credentials without exposing them to the child runner."""
+    config: dict[str, Any] = {}
+    config_path = Path.home() / ".prime" / "config.json"
+    if config_path.exists():
+        if config_path.is_symlink() or config_path.stat().st_mode & 0o077:
+            raise ValueError("Prime config must be a private regular file.")
+        with config_path.open("rb") as handle:
+            raw = handle.read(MAX_PRIME_CONFIG_BYTES + 1)
+        if len(raw) > MAX_PRIME_CONFIG_BYTES:
+            raise ValueError("Prime config exceeds its size limit.")
+        try:
+            value = json.loads(raw)
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ValueError("Prime config is not valid JSON.") from error
+        if not isinstance(value, dict):
+            raise ValueError("Prime config must contain a JSON object.")
+        config = value
+
+    api_key = os.environ.get("PRIME_API_KEY") or config.get("api_key")
+    inference_url = (
+        os.environ.get("PRIME_INFERENCE_URL")
+        or config.get("inference_url")
+        or DEFAULT_PRIME_INFERENCE_URL
+    )
+    team_id = os.environ.get("PRIME_TEAM_ID") or config.get("team_id")
+    if not isinstance(api_key, str) or not api_key:
+        raise ValueError("Prime inference authentication is unavailable.")
+    if not isinstance(inference_url, str) or not inference_url:
+        raise ValueError("Prime inference URL is unavailable.")
+    if team_id is not None and (not isinstance(team_id, str) or not team_id):
+        raise ValueError("Prime team identity is invalid.")
+    return inference_url, api_key, team_id
+
+
 def claim_paid_start(path: Path, *, now: float, minimum_interval_seconds: float) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
@@ -245,7 +287,16 @@ def claim_paid_start(path: Path, *, now: float, minimum_interval_seconds: float)
         os.close(descriptor)
 
 
-def build_eval_command(arguments: argparse.Namespace, v1_eval: Path, output: Path) -> list[str]:
+def build_eval_command(
+    arguments: argparse.Namespace,
+    v1_eval: Path,
+    output: Path,
+    *,
+    client_base_url: str | None = None,
+    client_api_key_var: str | None = None,
+) -> list[str]:
+    if (client_base_url is None) != (client_api_key_var is None):
+        raise ValueError("client base URL and API-key variable must be supplied together")
     repetition_ids = getattr(arguments, "repetition_id", None) or []
     task_count = len(arguments.scenario) * len(
         _repetition_values(arguments.repetitions, repetition_ids)
@@ -276,6 +327,11 @@ def build_eval_command(arguments: argparse.Namespace, v1_eval: Path, output: Pat
             f"--env.{role}.max-output-tokens", str(arguments.max_output_tokens),
             f"--env.{role}.max-total-tokens", str(arguments.max_total_tokens),
             f"--env.{role}.timeout.rollout", str(arguments.rollout_timeout_seconds),
+        ]
+    if client_base_url is not None and client_api_key_var is not None:
+        command += [
+            "--client.base-url", client_base_url,
+            "--client.api-key-var", client_api_key_var,
         ]
     return command
 
@@ -376,10 +432,16 @@ def _run_manifest(
     started_at: str,
     duration_ms: int,
     observed_wallet_debit: float,
+    live_budget: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     candidate = _candidate(arguments)
     episode_values = []
     for episode in trace_summary["episodes"]:
+        stop_conditions = Counter(
+            role["stopCondition"]
+            for role in episode["roleRuns"]
+            if isinstance(role.get("stopCondition"), str)
+        )
         episode_values.append({
             "id": episode["episodeID"],
             "scenario": episode["scenario"],
@@ -394,6 +456,10 @@ def _run_manifest(
             "marginSha256": episode["marginSha256"],
             "checks": episode["checks"],
             "dimensions": episode["dimensions"],
+            "stopConditions": [
+                {"name": name, "count": count}
+                for name, count in sorted(stop_conditions.items())
+            ],
             "usage": episode["usage"],
         })
     trace_reported = round(
@@ -406,7 +472,7 @@ def _run_manifest(
         for role in episode["roleRuns"]
     })
     manifest_status = "completed" if status == "completed" else "infrastructure-error"
-    admission_bound = estimate_maximum_cost(
+    contract_bound = estimate_maximum_cost(
         arguments.scenario,
         arguments.repetitions,
         arguments.max_turns,
@@ -424,6 +490,12 @@ def _run_manifest(
         "model": arguments.model,
         "startedAt": started_at,
     }).encode("utf-8")).hexdigest()[:32]
+    live_budget_cap = (
+        float(live_budget["policy"]["maxTotalCostUSD"])
+        if live_budget is not None
+        else contract_bound
+    )
+    admission_bound = round(min(contract_bound, live_budget_cap), 6)
     return {
         "schema": "urn:marginbench:run:v1",
         "runID": run_id,
@@ -473,6 +545,16 @@ def _run_manifest(
                 "maxTurns": arguments.max_turns,
                 "rolloutTimeoutSeconds": arguments.rollout_timeout_seconds,
                 "temperature": arguments.temperature,
+                **(
+                    {
+                        "liveProxyMaxRequestBytes": live_budget["policy"]["maxRequestBytes"],
+                        "liveProxyTemplateTokenAllowance": live_budget["policy"][
+                            "templateTokenAllowance"
+                        ],
+                    }
+                    if live_budget is not None
+                    else {}
+                ),
             },
             "retryPolicy": "No automatic paid model retries; later attempts are separate capped runs after cooldown.",
             "priorInfrastructureAttempts": arguments.prior_infrastructure_attempts,
@@ -484,6 +566,14 @@ def _run_manifest(
             "observedWalletDebit": observed_wallet_debit,
             "unreconciled": round(abs(observed_wallet_debit - trace_reported), 6),
             "admissionBound": admission_bound,
+            **(
+                {
+                    "contractBound": contract_bound,
+                    "liveBudgetCap": live_budget_cap,
+                }
+                if live_budget is not None
+                else {}
+            ),
             "hardAdmissionCap": arguments.max_cost_usd,
             "boundBasis": {
                 "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
@@ -494,6 +584,7 @@ def _run_manifest(
                 "outputPricePerMillion": arguments.output_price_per_million,
                 "billingOverheadUSDPerCall": arguments.billing_overhead_usd_per_call,
             },
+            **({"liveBudget": live_budget} if live_budget is not None else {}),
         },
         "privacy": {
             "rawTracesPublished": False,
@@ -550,6 +641,29 @@ def main() -> int:
     parser.add_argument("--input-price-per-million", type=float, required=True)
     parser.add_argument("--output-price-per-million", type=float, required=True)
     parser.add_argument("--max-cost-usd", type=float, default=2.0)
+    parser.add_argument(
+        "--live-proxy-cost-cap-usd",
+        type=float,
+        help="hard cumulative provider-request reservation cap; defaults to --max-cost-usd",
+    )
+    parser.add_argument(
+        "--live-proxy-max-request-bytes",
+        type=int,
+        default=1024 * 1024,
+        help="maximum encoded inference request size accepted by the loopback spend gate",
+    )
+    parser.add_argument(
+        "--live-proxy-template-token-allowance",
+        type=int,
+        default=8192,
+        help="extra conservative input-token allowance per forwarded request",
+    )
+    parser.add_argument(
+        "--live-proxy-timeout-seconds",
+        type=float,
+        default=120.0,
+        help="upstream request timeout enforced by the loopback spend gate",
+    )
     parser.add_argument("--candidate", default="baseline")
     parser.add_argument(
         "--candidate-manifest",
@@ -612,6 +726,29 @@ def main() -> int:
         raise SystemExit("prior-infrastructure-attempts must be nonnegative")
     if not (0 < arguments.max_cost_usd <= HARD_MAX_COST_USD):
         raise SystemExit(f"max-cost-usd must be above zero and at most {HARD_MAX_COST_USD}")
+    live_proxy_cost_cap = (
+        arguments.max_cost_usd
+        if arguments.live_proxy_cost_cap_usd is None
+        else arguments.live_proxy_cost_cap_usd
+    )
+    if not (0 < live_proxy_cost_cap <= arguments.max_cost_usd):
+        raise SystemExit("live-proxy-cost-cap-usd must be above zero and at most max-cost-usd")
+    try:
+        live_budget_policy = InferenceBudgetPolicy(
+            allowed_model=arguments.model,
+            max_request_bytes=arguments.live_proxy_max_request_bytes,
+            template_token_allowance=arguments.live_proxy_template_token_allowance,
+            input_token_ceiling=arguments.input_token_ceiling_per_call,
+            max_output_tokens=arguments.max_tokens_per_call,
+            input_price_per_million=arguments.input_price_per_million,
+            output_price_per_million=arguments.output_price_per_million,
+            billing_overhead_usd_per_call=arguments.billing_overhead_usd_per_call,
+            max_total_cost_usd=live_proxy_cost_cap,
+        )
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    if not 0 < arguments.live_proxy_timeout_seconds <= 300:
+        raise SystemExit("live-proxy-timeout-seconds must be between zero and 300")
     if not (0 <= arguments.minimum_start_interval_seconds <= 3_600):
         raise SystemExit("minimum-start-interval-seconds must be between 0 and 3600")
     try:
@@ -642,7 +779,7 @@ def main() -> int:
     if not v1_eval.is_file():
         raise SystemExit("Prime Verifiers v1 eval executable is unavailable.")
 
-    estimate = estimate_maximum_cost(
+    contract_estimate = estimate_maximum_cost(
         arguments.scenario,
         arguments.repetitions,
         arguments.max_turns,
@@ -654,13 +791,16 @@ def main() -> int:
         arguments.billing_overhead_usd_per_call,
         repetition_ids,
     )
-    if estimate > arguments.max_cost_usd:
-        raise SystemExit(
-            f"estimated maximum ${estimate:.6f} exceeds the ${arguments.max_cost_usd:.6f} cap"
-        )
+    estimate = round(min(contract_estimate, live_proxy_cost_cap), 6)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     output = (arguments.output_dir or PACKAGE_ROOT / "runs" / f"{stamp}-{arguments.candidate}").resolve()
-    command = build_eval_command(arguments, v1_eval, output)
+    command = build_eval_command(
+        arguments,
+        v1_eval,
+        output,
+        client_base_url="http://127.0.0.1:<ephemeral>/api/v1",
+        client_api_key_var=PROXY_API_KEY_ENV,
+    )
     plan = {
         "schema": "urn:marginbench:prime-paid-plan:v1",
         "execute": arguments.execute,
@@ -684,6 +824,7 @@ def main() -> int:
             repetition_ids,
         ),
         "estimatedMaximumCostUSD": estimate,
+        "contractMaximumCostUSD": contract_estimate,
         "costBoundBasis": {
             "modelCallsPerAgentAtMost": arguments.max_turns,
             "upstreamAttemptsPerTurnAtMost": arguments.upstream_attempts_per_turn,
@@ -697,6 +838,30 @@ def main() -> int:
             ),
         },
         "hardRunCapUSD": arguments.max_cost_usd,
+        "liveBudgetProxy": {
+            "enabled": True,
+            "loopbackOnly": True,
+            "credentialsExposedToChild": False,
+            "requestOrResponseContentRetained": False,
+            "policy": {
+                "allowedModel": live_budget_policy.allowed_model,
+                "maxRequestBytes": live_budget_policy.max_request_bytes,
+                "templateTokenAllowance": live_budget_policy.template_token_allowance,
+                "inputTokenCeiling": live_budget_policy.input_token_ceiling,
+                "maxOutputTokens": live_budget_policy.max_output_tokens,
+                "inputPricePerMillion": live_budget_policy.input_price_per_million,
+                "outputPricePerMillion": live_budget_policy.output_price_per_million,
+                "billingOverheadUSDPerCall": live_budget_policy.billing_overhead_usd_per_call,
+                "maxTotalCostUSD": live_budget_policy.max_total_cost_usd,
+            },
+            "maximumSingleRequestReservationUSD": round(
+                live_budget_policy.request_cost_upper_bound(
+                    live_budget_policy.max_request_bytes,
+                    live_budget_policy.max_output_tokens,
+                ),
+                6,
+            ),
+        },
         "limits": {
             "maxConcurrent": arguments.max_concurrent,
             "maxTurns": arguments.max_turns,
@@ -731,6 +896,11 @@ def main() -> int:
         raise SystemExit(str(error)) from error
 
     try:
+        upstream_url, upstream_api_key, upstream_team_id = load_prime_inference_credentials()
+    except (OSError, ValueError) as error:
+        raise SystemExit(str(error)) from error
+
+    try:
         claim_paid_start(
             PACKAGE_ROOT / "runs" / ".last-paid-start",
             now=time.time(),
@@ -743,32 +913,59 @@ def main() -> int:
     before = wallet(prime)
     environment = os.environ.copy()
     environment.update({"PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(PACKAGE_ROOT)})
+    for inherited_secret in ("PRIME_API_KEY", "PRIME_TEAM_ID", "PRIME_INFERENCE_URL"):
+        environment.pop(inherited_secret, None)
     if arguments.holdout_key_value is not None:
         environment["MARGINBENCH_HOLDOUT_KEY"] = arguments.holdout_key_value
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     started = time.perf_counter()
     timed_out = False
-    with (output / "runner.log").open("wb") as log:
-        try:
-            completed = subprocess.run(
-                command,
-                cwd=PACKAGE_ROOT.parent.parent,
-                env=environment,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                check=False,
-                timeout=arguments.wall_timeout_seconds,
-            )
-            exit_code = completed.returncode
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            exit_code = 124
+    with InferenceBudgetProxy(
+        upstream_url,
+        upstream_api_key,
+        live_budget_policy,
+        team_id=upstream_team_id,
+        timeout_seconds=arguments.live_proxy_timeout_seconds,
+    ) as proxy:
+        environment[PROXY_API_KEY_ENV] = proxy.client_token
+        execution_command = build_eval_command(
+            arguments,
+            v1_eval,
+            output,
+            client_base_url=proxy.base_url,
+            client_api_key_var=PROXY_API_KEY_ENV,
+        )
+        with (output / "runner.log").open("wb") as log:
+            try:
+                completed = subprocess.run(
+                    execution_command,
+                    cwd=PACKAGE_ROOT.parent.parent,
+                    env=environment,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    check=False,
+                    timeout=arguments.wall_timeout_seconds,
+                )
+                exit_code = completed.returncode
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                exit_code = 124
+        live_budget_report = proxy.gate.report()
     after = wallet(prime)
     trace_summary = _summarize_traces(output)
     log_text = (output / "runner.log").read_text(encoding="utf-8", errors="replace")
     infrastructure_codes = []
-    if "upstream 429" in log_text or "rate_limit" in log_text:
+    if "BUDGET_PROXY_COST_LIMIT" in log_text:
+        infrastructure_codes.append("LIVE_BUDGET_EXHAUSTED")
+    elif "upstream 429" in log_text or "rate_limit" in log_text:
         infrastructure_codes.append("PROVIDER_RATE_LIMIT")
+    for proxy_code, infrastructure_code in (
+        ("BUDGET_PROXY_REQUEST_LIMIT", "LIVE_REQUEST_SIZE_LIMIT"),
+        ("BUDGET_PROXY_OUTPUT_LIMIT", "LIVE_OUTPUT_LIMIT"),
+        ("BUDGET_PROXY_UPSTREAM", "LIVE_PROXY_UPSTREAM_ERROR"),
+    ):
+        if proxy_code in log_text:
+            infrastructure_codes.append(infrastructure_code)
     if timed_out:
         infrastructure_codes.append("WALL_TIMEOUT")
     status = (
@@ -797,7 +994,10 @@ def main() -> int:
             "observedDebitUSD": observed_wallet_debit,
         },
         "estimatedMaximumCostUSD": estimate,
+        "contractMaximumCostUSD": contract_estimate,
+        "liveBudgetCapUSD": live_proxy_cost_cap,
         "costBoundBasis": plan["costBoundBasis"],
+        "liveBudget": live_budget_report,
         "infrastructureCodes": infrastructure_codes,
         **trace_summary,
         "rawTracesCommitted": False,
@@ -818,6 +1018,7 @@ def main() -> int:
             started_at=started_at,
             duration_ms=duration_ms,
             observed_wallet_debit=observed_wallet_debit,
+            live_budget=live_budget_report,
         )
         encoded = (canonical(manifest) + "\n").encode("utf-8")
         receipt = validate_bytes(encoded)

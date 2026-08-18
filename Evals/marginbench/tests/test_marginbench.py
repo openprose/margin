@@ -6,13 +6,18 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from dataclasses import asdict
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import httpx
+
 from marginbench.binary import resolve_margin_binary, validate_packaged_binary
+from marginbench.budget_proxy import InferenceBudgetPolicy, InferenceBudgetProxy
 from marginbench.candidates import CandidateManifest, load_results, paired_compare
 from marginbench.controls import DEFAULT_CONTROL_PROFILE, control_catalog, require_implemented_profile
 from marginbench.diagnostics import DiagnosticError, diagnose_artifacts
@@ -38,6 +43,7 @@ from prime_pilot import (
     build_eval_command,
     claim_paid_start,
     estimate_maximum_cost,
+    load_prime_inference_credentials,
     load_candidate_manifest,
     load_holdout_key,
 )
@@ -235,6 +241,26 @@ class MarginBenchCoreTests(unittest.TestCase):
             max_cost_usd=1.0,
             control_profile=DEFAULT_CONTROL_PROFILE,
         )
+        live_budget = {
+            "enabled": True,
+            "forwardedRequestCount": 2,
+            "rejectedRequestCount": 0,
+            "reservedCostUpperBoundUSD": 0.001,
+            "reportedPromptTokens": 1000,
+            "reportedCompletionTokens": 100,
+            "reportedTokenCostUSD": 0.000043,
+            "policy": {
+                "allowedModel": "test/model",
+                "maxRequestBytes": 4096,
+                "templateTokenAllowance": 128,
+                "inputTokenCeiling": 4096,
+                "maxOutputTokens": 250,
+                "inputPricePerMillion": 0.03,
+                "outputPricePerMillion": 0.13,
+                "billingOverheadUSDPerCall": 0.0002,
+                "maxTotalCostUSD": 1.0,
+            },
+        }
         manifest = _run_manifest(
             arguments,
             summary,
@@ -242,6 +268,7 @@ class MarginBenchCoreTests(unittest.TestCase):
             started_at="2026-08-18T00:00:00Z",
             duration_ms=123,
             observed_wallet_debit=0.003,
+            live_budget=live_budget,
         )
         self.assertEqual(len(manifest["episodes"]), 1)
         self.assertEqual(manifest["execution"]["roles"], ["author", "reviewer"])
@@ -253,6 +280,7 @@ class MarginBenchCoreTests(unittest.TestCase):
             manifest["cost"]["admissionBound"],
             manifest["cost"]["hardAdmissionCap"],
         )
+        self.assertEqual(manifest["cost"]["liveBudget"], live_budget)
         partial = json.loads(json.dumps(summary))
         partial["episodes"][0]["roleRuns"] = partial["episodes"][0]["roleRuns"][:1]
         partial_manifest = _run_manifest(
@@ -594,6 +622,189 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(command[command.index("--num-tasks") + 1], "2")
         repetition_flag = command.index("--env.taskset.repetition-ids")
         self.assertEqual(command[repetition_flag + 1:repetition_flag + 3], ["3", "7"])
+        proxied = build_eval_command(
+            arguments,
+            Path("/prime/eval"),
+            Path("/output"),
+            client_base_url="http://127.0.0.1:1234/api/v1",
+            client_api_key_var="MARGINBENCH_PROXY_TOKEN",
+        )
+        self.assertEqual(
+            proxied[proxied.index("--client.base-url") + 1],
+            "http://127.0.0.1:1234/api/v1",
+        )
+        self.assertEqual(
+            proxied[proxied.index("--client.api-key-var") + 1],
+            "MARGINBENCH_PROXY_TOKEN",
+        )
+
+    def test_prime_inference_credentials_require_a_private_config(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="marginbench-prime-config-") as temporary:
+            root = Path(temporary)
+            config = root / ".prime" / "config.json"
+            config.parent.mkdir()
+            config.write_text(json.dumps({
+                "api_key": "private-test-token",
+                "inference_url": "https://inference.example/api/v1",
+                "team_id": "team-test",
+            }), encoding="utf-8")
+            config.chmod(0o600)
+            with (
+                patch("prime_pilot.Path.home", return_value=root),
+                patch.dict(os.environ, {
+                    "PRIME_API_KEY": "",
+                    "PRIME_INFERENCE_URL": "",
+                    "PRIME_TEAM_ID": "",
+                }),
+            ):
+                self.assertEqual(load_prime_inference_credentials(), (
+                    "https://inference.example/api/v1",
+                    "private-test-token",
+                    "team-test",
+                ))
+                config.chmod(0o644)
+                with self.assertRaisesRegex(ValueError, "private regular file") as captured:
+                    load_prime_inference_credentials()
+                self.assertNotIn("private-test-token", str(captured.exception))
+
+    def test_inference_budget_proxy_enforces_auth_bytes_output_and_cumulative_cost(self) -> None:
+        observed: list[dict[str, object]] = []
+
+        class UpstreamHandler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+            def do_POST(self) -> None:  # noqa: N802
+                length = int(self.headers.get("content-length", "0"))
+                raw = self.rfile.read(length)
+                observed.append({
+                    "path": self.path,
+                    "authorization": self.headers.get("authorization"),
+                    "team": self.headers.get("x-prime-team-id"),
+                    "body": json.loads(raw),
+                })
+                response = json.dumps({
+                    "id": "fake-completion",
+                    "choices": [{"message": {"role": "assistant", "content": "done"}}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+                }).encode("utf-8")
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(response)))
+                self.end_headers()
+                self.wfile.write(response)
+
+        upstream = ThreadingHTTPServer(("127.0.0.1", 0), UpstreamHandler)
+        upstream.daemon_threads = True
+        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+        upstream_thread.start()
+        try:
+            host, port = upstream.server_address[:2]
+            policy = InferenceBudgetPolicy(
+                allowed_model="test/model",
+                max_request_bytes=512,
+                template_token_allowance=32,
+                input_token_ceiling=1000,
+                max_output_tokens=100,
+                input_price_per_million=1.0,
+                output_price_per_million=1.0,
+                billing_overhead_usd_per_call=0.0,
+                max_total_cost_usd=0.0004,
+            )
+            with InferenceBudgetProxy(
+                f"http://{host}:{port}/api/v1",
+                "actual-upstream-secret",
+                policy,
+                team_id="team-test",
+            ) as proxy:
+                endpoint = proxy.base_url + "/chat/completions"
+                headers = {"authorization": f"Bearer {proxy.client_token}"}
+                payload = {
+                    "model": "test/model",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "max_tokens": 20,
+                }
+                with httpx.Client(timeout=5) as client:
+                    accepted = client.post(endpoint, headers=headers, json=payload)
+                    self.assertEqual(accepted.status_code, 200)
+                    unauthorized = client.post(
+                        endpoint,
+                        headers={"authorization": "Bearer wrong"},
+                        json=payload,
+                    )
+                    self.assertEqual(unauthorized.status_code, 401)
+                    self.assertEqual(unauthorized.json()["error"]["code"], "BUDGET_PROXY_UNAUTHORIZED")
+                    streaming = client.post(endpoint, headers=headers, json={**payload, "stream": True})
+                    self.assertEqual(streaming.status_code, 400)
+                    self.assertEqual(streaming.json()["error"]["code"], "BUDGET_PROXY_STREAMING")
+                    wrong_model = client.post(
+                        endpoint,
+                        headers=headers,
+                        json={**payload, "model": "different/model"},
+                    )
+                    self.assertEqual(wrong_model.status_code, 400)
+                    self.assertEqual(wrong_model.json()["error"]["code"], "BUDGET_PROXY_MODEL")
+                    excessive_output = client.post(
+                        endpoint,
+                        headers=headers,
+                        json={**payload, "max_tokens": 101},
+                    )
+                    self.assertEqual(excessive_output.status_code, 400)
+                    self.assertEqual(
+                        excessive_output.json()["error"]["code"],
+                        "BUDGET_PROXY_OUTPUT_LIMIT",
+                    )
+                    boolean_output = client.post(
+                        endpoint,
+                        headers=headers,
+                        json={**payload, "max_tokens": True},
+                    )
+                    self.assertEqual(boolean_output.status_code, 400)
+                    self.assertEqual(
+                        boolean_output.json()["error"]["code"],
+                        "BUDGET_PROXY_OUTPUT_LIMIT",
+                    )
+                    nonfinite = client.post(
+                        endpoint,
+                        headers={**headers, "content-type": "application/json"},
+                        content=(
+                            b'{"model":"test/model","messages":[],"max_tokens":20,'
+                            b'"temperature":NaN}'
+                        ),
+                    )
+                    self.assertEqual(nonfinite.status_code, 400)
+                    self.assertEqual(nonfinite.json()["error"]["code"], "BUDGET_PROXY_JSON")
+                    wrong_route = client.post(
+                        proxy.base_url + "/models",
+                        headers=headers,
+                        json=payload,
+                    )
+                    self.assertEqual(wrong_route.status_code, 404)
+                    self.assertEqual(wrong_route.json()["error"]["code"], "BUDGET_PROXY_ROUTE")
+                    oversized = client.post(endpoint, headers=headers, content=b"x" * 513)
+                    self.assertEqual(oversized.status_code, 413)
+                    self.assertEqual(oversized.json()["error"]["code"], "BUDGET_PROXY_REQUEST_LIMIT")
+                    exhausted = client.post(endpoint, headers=headers, json=payload)
+                    self.assertEqual(exhausted.status_code, 429)
+                    self.assertEqual(exhausted.json()["error"]["code"], "BUDGET_PROXY_COST_LIMIT")
+                report = proxy.gate.report()
+        finally:
+            upstream.shutdown()
+            upstream.server_close()
+            upstream_thread.join(timeout=5)
+
+        self.assertEqual(len(observed), 1)
+        self.assertEqual(observed[0]["path"], "/api/v1/chat/completions")
+        self.assertEqual(observed[0]["authorization"], "Bearer actual-upstream-secret")
+        self.assertEqual(observed[0]["team"], "team-test")
+        self.assertEqual(report["forwardedRequestCount"], 1)
+        self.assertEqual(report["rejectedRequestCount"], 9)
+        self.assertEqual(report["policy"]["allowedModel"], "test/model")
+        self.assertEqual(report["reportedPromptTokens"], 10)
+        self.assertEqual(report["reportedCompletionTokens"], 5)
+        self.assertLessEqual(report["reservedCostUpperBoundUSD"], 0.0004)
 
     def test_paid_start_gate_serializes_and_enforces_cooldown(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-paid-gate-") as temporary:
@@ -642,6 +853,10 @@ class MarginBenchCoreTests(unittest.TestCase):
                 event_log=log,
             )
             self.assertEqual(gateway.call(["../../escape"]).error_code, "MARGINBENCH_COMMAND_BLOCKED")
+            directory_block = gateway.call(["ls", "."])
+            self.assertEqual(directory_block.error_code, "MARGINBENCH_COMMAND_BLOCKED")
+            self.assertIn("context . --json --max-files 16", directory_block.stderr)
+            self.assertIn("inbox . --status open --max-contributions 64", directory_block.stderr)
             self.assertEqual(
                 gateway.call(["submit"]).error_code,
                 "MARGINBENCH_COMMAND_BLOCKED",
@@ -652,6 +867,11 @@ class MarginBenchCoreTests(unittest.TestCase):
                 gateway.call(["comments", "list", "note.md", "--actor-id", "urn:spoof"]).error_code,
                 "MARGINBENCH_IDENTITY_BOUND",
             )
+            handoff_identity = gateway.call([
+                "handoff", "add", "note.md", "-m", "Transfer", "--actor-id", "urn:recipient",
+            ])
+            self.assertEqual(handoff_identity.error_code, "MARGINBENCH_IDENTITY_BOUND")
+            self.assertIn("--next-actor ACTOR_ID", handoff_identity.stderr)
             outside = root / "outside.md"
             outside.write_text("private\n", encoding="utf-8")
             (workspace / "linked.md").symlink_to(outside)
@@ -709,6 +929,14 @@ class MarginBenchCoreTests(unittest.TestCase):
                 self.assertEqual(result.score, 100.0)
                 self.assertTrue(result.safety_passed)
                 self.assertTrue(all(result.checks.values()))
+
+    def test_directory_handoff_scores_verified_state_not_one_validation_spelling(self) -> None:
+        episode = generate_episode("directory_handoff", KEY, 0)
+        required = episode.oracle["requiredCommandGroups"]
+        self.assertNotIn(["comments validate"], required)
+        self.assertIn(["context"], required)
+        self.assertIn(["inbox", "handoff list"], required)
+        self.assertEqual(set(episode.oracle["logicalSourceSha256"]), set(episode.files))
 
     def test_scripted_human_setup_is_not_counted_as_agent_work(self) -> None:
         episode = generate_episode("human_agent_relay", KEY, 0)
@@ -991,6 +1219,51 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(unsafe_report["recommendedNextExperiment"]["minimumMatchedEpisodes"], 0)
         self.assertTrue(validate_bytes(canonical_json(unsafe_report))["valid"])
 
+        blocked_only = EpisodeResult(
+            episode_id="directory_handoff:7:" + "c" * 12,
+            candidate_id="guarded-test-candidate",
+            score=25.0,
+            dimensions={
+                "outcome": 100.0,
+                "integrity": 100.0,
+                "protocol": 50.0,
+                "recovery": 100.0,
+                "efficiency": 100.0,
+            },
+            checks={
+                "source_expected": True,
+                "valid_documents": True,
+                "all_or_none": True,
+                "workspace_policy": False,
+            },
+            command_count=1,
+            invalid_command_count=1,
+            duration_ms=1.0,
+            safety_passed=False,
+            source_preserved=True,
+            margin_sha256="0" * 64,
+            events=(CommandEvent(
+                role="reviewer",
+                command="ls",
+                exit_code=64,
+                duration_ms=1.0,
+                stdin_bytes=0,
+                stdout_bytes=0,
+                stderr_bytes=1,
+                error_code="MARGINBENCH_COMMAND_BLOCKED",
+                blocked=True,
+            ),),
+        )
+        with tempfile.TemporaryDirectory(prefix="marginbench-policy-diagnostic-test-") as temporary:
+            policy_path = Path(temporary) / "policy.json"
+            policy_path.write_bytes(canonical_json(blocked_only.to_dict()))
+            policy_report = diagnose_artifacts([policy_path])
+        self.assertEqual(policy_report["topOpportunity"], "workspace-policy-attempt")
+        self.assertIn("boundary held", policy_report["findings"][0]["title"])
+        self.assertNotIn("damaged", policy_report["findings"][0]["title"])
+        self.assertEqual(policy_report["recommendedNextExperiment"]["gate"], "local-safety")
+        self.assertTrue(validate_bytes(canonical_json(policy_report))["valid"])
+
     @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
     def test_run_manifest_validation_recomputes_cost_and_rejects_tampering(self) -> None:
         margin_sha256 = CandidateManifest.create("validation-test", self.binary).margin_sha256
@@ -1064,9 +1337,19 @@ class MarginBenchCoreTests(unittest.TestCase):
                 duration_ms=123,
                 observed_wallet_debit=0.003,
             )
+            self.assertEqual(
+                manifest["episodes"][0]["stopConditions"],
+                [{"name": "agent_completed", "count": 2}],
+            )
             artifact = output / "run.json"
             artifact.write_text(json.dumps(manifest), encoding="utf-8")
             self.assertTrue(validate_artifact(artifact)["valid"])
+            loaded = load_results(artifact)
+            self.assertEqual(len(loaded), 1)
+            self.assertEqual(loaded[0].candidate_id, "validation-test")
+            self.assertEqual(loaded[0].episode_id, result["episodeID"])
+            self.assertEqual(loaded[0].score, result["score"])
+            self.assertEqual(loaded[0].events, ())
             manifest["cost"]["admissionBound"] += 0.01
             artifact.write_text(json.dumps(manifest), encoding="utf-8")
             receipt = validate_artifact(artifact)

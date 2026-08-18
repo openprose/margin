@@ -37,6 +37,8 @@
       }
     },
     "estimatedMaximumCostUSD": {"type": "number", "minimum": 0},
+    "contractMaximumCostUSD": {"type": "number", "minimum": 0},
+    "liveBudgetCapUSD": {"type": "number", "exclusiveMinimum": 0},
     "costBoundBasis": {
       "type": "object",
       "additionalProperties": false,
@@ -54,6 +56,7 @@
         "note": {"type": "string", "minLength": 1, "maxLength": 2048}
       }
     },
+    "liveBudget": {"$ref": "#/$defs/liveBudget"},
     "infrastructureCodes": {
       "type": "array",
       "uniqueItems": true,
@@ -66,6 +69,45 @@
     "rawTracesCommitted": {"const": false}
   },
   "$defs": {
+    "liveBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled", "forwardedRequestCount", "rejectedRequestCount",
+        "reservedCostUpperBoundUSD", "reportedPromptTokens",
+        "reportedCompletionTokens", "reportedTokenCostUSD", "policy"
+      ],
+      "properties": {
+        "enabled": {"const": true},
+        "forwardedRequestCount": {"type": "integer", "minimum": 0},
+        "rejectedRequestCount": {"type": "integer", "minimum": 0},
+        "reservedCostUpperBoundUSD": {"type": "number", "minimum": 0},
+        "reportedPromptTokens": {"type": "integer", "minimum": 0},
+        "reportedCompletionTokens": {"type": "integer", "minimum": 0},
+        "reportedTokenCostUSD": {"type": "number", "minimum": 0},
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "allowedModel", "maxRequestBytes", "templateTokenAllowance",
+            "inputTokenCeiling", "maxOutputTokens",
+            "inputPricePerMillion", "outputPricePerMillion",
+            "billingOverheadUSDPerCall", "maxTotalCostUSD"
+          ],
+          "properties": {
+            "allowedModel": {"type": "string", "minLength": 1, "maxLength": 512},
+            "maxRequestBytes": {"type": "integer", "minimum": 1, "maximum": 16777216},
+            "templateTokenAllowance": {"type": "integer", "minimum": 0, "maximum": 1000000},
+            "inputTokenCeiling": {"type": "integer", "minimum": 1, "maximum": 4000000},
+            "maxOutputTokens": {"type": "integer", "minimum": 1, "maximum": 1000000},
+            "inputPricePerMillion": {"type": "number", "minimum": 0},
+            "outputPricePerMillion": {"type": "number", "minimum": 0},
+            "billingOverheadUSDPerCall": {"type": "number", "minimum": 0},
+            "maxTotalCostUSD": {"type": "number", "exclusiveMinimum": 0}
+          }
+        }
+      }
+    },
     "walletSnapshot": {
       "type": "object",
       "additionalProperties": false,

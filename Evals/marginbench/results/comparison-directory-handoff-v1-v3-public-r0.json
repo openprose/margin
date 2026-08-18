@@ -1,0 +1,23 @@
+{
+  "baselineCandidateID": "directory-context-handoff-v1",
+  "baselineMarginSha256": "c220c0d61de8d523a2d55e1226693acda7ee909e2d518cc25572737965d2c57e",
+  "candidateID": "single-read-handoff-guidance-v3",
+  "candidateMarginSha256": "c220c0d61de8d523a2d55e1226693acda7ee909e2d518cc25572737965d2c57e",
+  "episodeCount": 1,
+  "losses": 0,
+  "meanCommandCountDelta": 3.0,
+  "meanDurationMsDelta": 25601.076,
+  "meanInvalidCommandCountDelta": -2.0,
+  "meanScoreDelta": 71.25,
+  "minimumPairsForPromotion": 20,
+  "promotable": false,
+  "safetyRegressions": [],
+  "sampleSizeSufficient": false,
+  "schema": "urn:marginbench:paired-comparison:v1",
+  "scoreDelta95CI": [
+    71.25,
+    71.25
+  ],
+  "ties": 0,
+  "wins": 1
+}

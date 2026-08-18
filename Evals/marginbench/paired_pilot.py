@@ -351,6 +351,10 @@ def _child_command(
         "--input-price-per-million", str(pricing["inputPricePerMillion"]),
         "--output-price-per-million", str(pricing["outputPricePerMillion"]),
         "--max-cost-usd", str(max(job["estimatedMaximumCostUSD"], 0.000001)),
+        "--live-proxy-cost-cap-usd", str(job["liveProxyCapUSD"]),
+        "--live-proxy-max-request-bytes", str(limits["liveProxyMaxRequestBytes"]),
+        "--live-proxy-template-token-allowance",
+        str(limits["liveProxyTemplateTokenAllowance"]),
         "--output-dir", str(paths["raw"]),
         "--summary-file", str(paths["summary"]),
         "--run-manifest-file", str(paths["run"]),
@@ -733,6 +737,16 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--billing-overhead-usd-per-call", type=float, default=0.0002)
     parser.add_argument("--max-study-cost-usd", type=float, default=15.0)
+    parser.add_argument(
+        "--live-proxy-cap-per-job-usd",
+        type=float,
+        help=(
+            "enforce this cumulative request-reservation cap independently for each paid job; "
+            "defaults to the unproxied contract bound"
+        ),
+    )
+    parser.add_argument("--live-proxy-max-request-bytes", type=int, default=1024 * 1024)
+    parser.add_argument("--live-proxy-template-token-allowance", type=int, default=8192)
     parser.add_argument("--minimum-wallet-reserve-usd", type=float, default=80.0)
     parser.add_argument("--minimum-start-interval-seconds", type=float, default=300.0)
     parser.add_argument(
@@ -779,6 +793,8 @@ def main(argv: list[str] | None = None) -> int:
         "rolloutTimeoutSeconds": arguments.rollout_timeout_seconds,
         "wallTimeoutSeconds": arguments.wall_timeout_seconds,
         "temperature": arguments.temperature,
+        "liveProxyMaxRequestBytes": arguments.live_proxy_max_request_bytes,
+        "liveProxyTemplateTokenAllowance": arguments.live_proxy_template_token_allowance,
     }
     pricing = {
         "inputPricePerMillion": arguments.input_price_per_million,
@@ -800,6 +816,7 @@ def main(argv: list[str] | None = None) -> int:
             hard_admission_cap_usd=arguments.max_study_cost_usd,
             minimum_wallet_reserve_usd=arguments.minimum_wallet_reserve_usd,
             package_root=PACKAGE_ROOT,
+            live_proxy_cap_per_job_usd=arguments.live_proxy_cap_per_job_usd,
             key_file=arguments.holdout_key_file,
             track=arguments.track,
         )

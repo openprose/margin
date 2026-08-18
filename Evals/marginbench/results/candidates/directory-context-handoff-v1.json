@@ -1,0 +1,13 @@
+{
+  "id": "directory-context-handoff-v1",
+  "manual_sha256": "5739e8e4f6da78091d14589f6674fd2928216b1199ea9e523a7073a8cd34909f",
+  "margin_sha256": "c220c0d61de8d523a2d55e1226693acda7ee909e2d518cc25572737965d2c57e",
+  "schema": "urn:marginbench:candidate:v1",
+  "settings": {
+    "collaborationRoot": "file-or-directory",
+    "context": "bounded-summary",
+    "handoff": "typed-durable",
+    "stageRefresh": "immutable"
+  },
+  "settings_sha256": "7bc1b2dae448abb2455cc53bc1175f81f995cced0538d78e975fe17eea4dd4e0"
+}

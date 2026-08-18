@@ -1,0 +1,19 @@
+{
+  "id": "live-budget-proxy-smoke-v1",
+  "manual_sha256": "28623a265b76a77062a91eee0c69106c6e2d572e9d9fc424ddc2628e3a519295",
+  "margin_sha256": "c220c0d61de8d523a2d55e1226693acda7ee909e2d518cc25572737965d2c57e",
+  "schema": "urn:marginbench:candidate:v1",
+  "settings": {
+    "adapter": "prime-verifiers-v1",
+    "benchmarkVersion": "0.1.0",
+    "budgetProxySha256": "c8868d78fb87ba76c829066c4fb142ca8f12ccce9660750c4ee43961977d7d9d",
+    "controlProfile": "role-separated-margin-only-v1",
+    "gatewayAdapterSha256": "d80b8d12c4ec94bc6099bca86a25e70b9116d4f9c7cd7cec522c43c3f51bb62b",
+    "gatewayPolicySha256": "06cdc57ae0d60bea5915465466f027ebe7c83e9df0fc0907354bcb72dc7a1293",
+    "scenarioProtocolSha256": "bb1d1d764d516f8c982a47fa6e1912b699f67e5ad64bc0632e145d3d34bece19",
+    "toolSurface": [
+      "margin"
+    ]
+  },
+  "settings_sha256": "6687ad26e107e222aad113f83d4051ccd4dd488da6f4c4b766cc82a00c34fac5"
+}

@@ -319,9 +319,31 @@ class MarginGateway:
             return self._blocked("MARGINBENCH_ARGUMENT_LIMIT", "an argument exceeds its byte limit", arguments, started)
         first = arguments[0]
         if first not in ALLOWED_COMMANDS and first not in {"-h", "--help", "--version"}:
-            return self._blocked("MARGINBENCH_COMMAND_BLOCKED", "only headless Margin collaboration commands are allowed", arguments, started)
+            directory_hint = (
+                " Use 'context . --json --max-files 16' to inspect a directory or "
+                "'inbox . --status open --max-contributions 64' to find open work."
+                if first in {"ls", "find", "pwd", "tree"}
+                else " Run 'man agents' or focused command help to choose a Margin command."
+            )
+            return self._blocked(
+                "MARGINBENCH_COMMAND_BLOCKED",
+                "Only headless Margin collaboration commands are allowed." + directory_hint,
+                arguments,
+                started,
+            )
         if _option_names(arguments) & IDENTITY_FLAGS:
-            return self._blocked("MARGINBENCH_IDENTITY_BOUND", "the gateway binds collaborator identity", arguments, started)
+            recipient_hint = (
+                " To name the recipient of a handoff, remove actor flags and use "
+                "'--next-actor ACTOR_ID'."
+                if command_path(arguments) == "handoff add"
+                else " Remove actor flags and retry as the bound collaborator."
+            )
+            return self._blocked(
+                "MARGINBENCH_IDENTITY_BOUND",
+                "The gateway already binds your collaborator identity." + recipient_hint,
+                arguments,
+                started,
+            )
         if any(
             _path_escapes_workspace(item) or _resolves_outside_workspace(item, self.workspace)
             for item in _path_arguments(arguments)

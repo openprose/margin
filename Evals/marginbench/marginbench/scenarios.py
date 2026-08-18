@@ -565,7 +565,6 @@ then verify directory context and both collaboration documents.""",
             ["handoff add"],
             ["comments reply"],
             ["comments resolve"],
-            ["comments validate"],
         ]
         oracle["reference"] = {
             "tradeoffPath": tradeoff_path,

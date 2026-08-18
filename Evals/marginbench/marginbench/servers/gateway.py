@@ -46,12 +46,19 @@ class MarginGatewayToolset(vf.Toolset[MarginGatewayConfig]):
         `inbox` already supplies its path, rootID, body preview, status, and revision;
         reply with rootID directly rather than deriving a source range. Replying never
         resolves the root, so resolve separately when the assigned work requires it.
-        Never guess a multiword command. Use a concrete topic such as `man staging`
-        (topics: review, comments, suggestions, staging, handoff, merge, safety), a
-        concrete command such as `stage --help`, or `capabilities --json --for staging`.
+        Never guess a multiword command. Choose exactly one initial directory read:
+        use `context . --json --max-files 16` when the brief asks for broad context,
+        or `inbox . --status open --max-contributions 64` when finding open work.
+        They overlap; calling both before acting wastes the agent budget.
+        Use a concrete topic such as `man staging` (topics: review, comments,
+        suggestions, staging, handoff, merge, safety), a concrete command such as
+        `stage --help`, or a small projection such as `capabilities --json --for
+        staging`. Never request the full `capabilities --json` catalog during a task:
+        it is intentionally comprehensive and can exhaust a small agent budget.
         New typed work starts with `comments
         add`; proposals use `suggest add|list|accept|reject`; transfers use `handoff
-        add|list`; coherent cross-file work uses `stage create|show|refresh|submit`.
+        add|list`, and `--next-actor` names the recipient (`--actor-id` never does);
+        coherent cross-file work uses `stage create|show|refresh|submit`.
         Read-only verification arguments differ from mutation arguments, so follow a
         successful receipt's `nextActions` rather than carrying mutation flags forward.
         """

@@ -209,6 +209,31 @@ def _close(left: float, right: float) -> bool:
     return math.isclose(float(left), float(right), abs_tol=0.000001)
 
 
+def _live_budget_semantics(report: dict[str, Any], prefix: str, errors: list[str]) -> None:
+    policy = report["policy"]
+    if report["reservedCostUpperBoundUSD"] > policy["maxTotalCostUSD"] + 0.000001:
+        errors.append(f"{prefix}: reserved cost exceeds the live budget cap")
+    expected_reported_cost = round(
+        report["reportedPromptTokens"] * policy["inputPricePerMillion"] / 1_000_000
+        + report["reportedCompletionTokens"] * policy["outputPricePerMillion"] / 1_000_000,
+        6,
+    )
+    if not _close(expected_reported_cost, report["reportedTokenCostUSD"]):
+        errors.append(f"{prefix}: reported token cost does not match token counts and prices")
+    if report["reportedTokenCostUSD"] > report["reservedCostUpperBoundUSD"] + 0.000001:
+        errors.append(f"{prefix}: reported token cost exceeds the reserved upper bound")
+    forwarded = report["forwardedRequestCount"]
+    maximum_prompt_tokens = forwarded * min(
+        policy["inputTokenCeiling"],
+        policy["maxRequestBytes"] * 2 + policy["templateTokenAllowance"],
+    )
+    maximum_completion_tokens = forwarded * policy["maxOutputTokens"]
+    if report["reportedPromptTokens"] > maximum_prompt_tokens:
+        errors.append(f"{prefix}: reported prompt tokens exceed the request-byte bound")
+    if report["reportedCompletionTokens"] > maximum_completion_tokens:
+        errors.append(f"{prefix}: reported completion tokens exceed the output bound")
+
+
 def _result_semantics(result: dict[str, Any], prefix: str, errors: list[str]) -> None:
     if result["invalid_command_count"] > result["command_count"]:
         errors.append(f"{prefix}: invalid_command_count exceeds command_count")
@@ -368,8 +393,34 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 + basis["outputTokenCeilingPerCall"] * basis["outputPricePerMillion"] / 1_000_000
                 + basis["billingOverheadUSDPerCall"]
             ), 6)
-            if not _close(expected, cost["admissionBound"]):
+            live_parts = (
+                "contractBound" in cost,
+                "liveBudgetCap" in cost,
+                "liveBudget" in cost,
+            )
+            if any(live_parts) and not all(live_parts):
+                errors.append(
+                    "live cost bound requires contractBound, liveBudgetCap, and liveBudget"
+                )
+            elif all(live_parts):
+                if not _close(expected, cost["contractBound"]):
+                    errors.append("contractBound does not match its recorded basis")
+                if not _close(
+                    min(cost["contractBound"], cost["liveBudgetCap"]),
+                    cost["admissionBound"],
+                ):
+                    errors.append("admissionBound does not apply the live budget cap")
+                if not _close(
+                    cost["liveBudgetCap"],
+                    cost["liveBudget"]["policy"]["maxTotalCostUSD"],
+                ):
+                    errors.append("liveBudgetCap differs from the enforced proxy policy")
+                if cost["liveBudgetCap"] > cost["hardAdmissionCap"] + 0.000001:
+                    errors.append("liveBudgetCap exceeds hardAdmissionCap")
+            elif not _close(expected, cost["admissionBound"]):
                 errors.append("admissionBound does not match its recorded basis")
+        if "liveBudget" in cost:
+            _live_budget_semantics(cost["liveBudget"], "run live budget", errors)
     elif schema_name == "prime-run-summary.schema.json":
         episodes = payload["episodes"]
         identifiers = [item["episodeID"] for item in episodes]
@@ -432,6 +483,28 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         trace_cost = round(sum(item["usage"]["reportedCostUSD"] for item in episodes), 6)
         if payload["estimatedMaximumCostUSD"] + 0.000001 < trace_cost:
             errors.append("reported model cost exceeds estimatedMaximumCostUSD")
+        if "liveBudget" in payload:
+            _live_budget_semantics(payload["liveBudget"], "Prime live budget", errors)
+        summary_bound_parts = (
+            "contractMaximumCostUSD" in payload,
+            "liveBudgetCapUSD" in payload,
+            "liveBudget" in payload,
+        )
+        if any(summary_bound_parts) and not all(summary_bound_parts):
+            errors.append(
+                "Prime live bound requires contractMaximumCostUSD, liveBudgetCapUSD, and liveBudget"
+            )
+        elif all(summary_bound_parts):
+            if not _close(
+                min(payload["contractMaximumCostUSD"], payload["liveBudgetCapUSD"]),
+                payload["estimatedMaximumCostUSD"],
+            ):
+                errors.append("Prime estimated maximum does not apply its live budget cap")
+            if not _close(
+                payload["liveBudgetCapUSD"],
+                payload["liveBudget"]["policy"]["maxTotalCostUSD"],
+            ):
+                errors.append("Prime live budget cap differs from its proxy policy")
         if payload["status"] == "completed":
             if payload["exitCode"] != 0 or payload["traceCount"] == 0:
                 errors.append("completed summary requires a successful process and at least one trace")
@@ -704,12 +777,52 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         candidates = {payload["baseline"]["id"], payload["candidate"]["id"]}
         if any(item["candidateID"] not in candidates for item in jobs):
             errors.append("Prime study plan job names an unknown candidate")
+        limits = payload["limits"]
+        pricing = payload["pricing"]
+        requested_live_cap = payload["budget"]["requestedLiveProxyCapPerJobUSD"]
+        for job in jobs:
+            attempts = (
+                len(job["roles"])
+                * limits["maxTurns"]
+                * limits["upstreamAttemptsPerTurn"]
+            )
+            contract = round(attempts * (
+                limits["inputTokenCeilingPerCall"]
+                * pricing["inputPricePerMillion"]
+                / 1_000_000
+                + limits["maxTokensPerCall"]
+                * pricing["outputPricePerMillion"]
+                / 1_000_000
+                + pricing["billingOverheadUSDPerCall"]
+            ), 6)
+            expected_live_cap = round(min(
+                contract,
+                requested_live_cap if requested_live_cap is not None else contract,
+            ), 6)
+            if not _close(contract, job["contractMaximumCostUSD"]):
+                errors.append(
+                    f"Prime study job contract bound is inconsistent: {job['ordinal']}"
+                )
+            if not _close(expected_live_cap, job["liveProxyCapUSD"]):
+                errors.append(
+                    f"Prime study job live proxy cap is inconsistent: {job['ordinal']}"
+                )
+            if not _close(job["liveProxyCapUSD"], job["estimatedMaximumCostUSD"]):
+                errors.append(
+                    f"Prime study job admission bound does not apply its proxy cap: {job['ordinal']}"
+                )
         expected_maximum = round(
             sum(float(item["estimatedMaximumCostUSD"]) for item in jobs),
             6,
         )
         if not _close(expected_maximum, payload["budget"]["estimatedMaximumCostUSD"]):
             errors.append("Prime study plan aggregate cost does not equal job bounds")
+        expected_contract = round(
+            sum(float(item["contractMaximumCostUSD"]) for item in jobs),
+            6,
+        )
+        if not _close(expected_contract, payload["budget"]["contractMaximumCostUSD"]):
+            errors.append("Prime study plan aggregate contract bound is inconsistent")
         if (
             payload["budget"]["estimatedMaximumCostUSD"]
             > payload["budget"]["hardAdmissionCapUSD"] + 0.000001
