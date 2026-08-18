@@ -1,6 +1,6 @@
 # MarginBench build-phase handoff
 
-Status at 2026-08-18 07:54 ET: the primary benchmark track and its
+Status at 2026-08-18 07:56 ET: the primary benchmark track and its
 compute-matched continuing-agent control are implemented, portable, tested,
 packaged, and ready for further no-model development. No
 additional paid run is justified before the next comparison profile passes its
@@ -57,9 +57,9 @@ Current benchmark packages:
 
 - `build/marginbench-package/marginbench-0.1.0-py3-none-manylinux_2_35_x86_64.whl`
   — SHA-256
-  `2446d5e596baacaf285d956aa550d6c7d39cd5573b4081ee29ed2b674cca3f9f`
+  `58b0b51b7bab472ee206abfd9069f8b9f423ee481c7ef13847f7e45fe4c7bc55`
 - `build/marginbench-package/marginbench-0.1.0.tar.gz` — SHA-256
-  `cb30db550c983d8a7eae2edc29bf7f4f3c0bfb48f71380287517045c8ba46326`
+  `cd8b91b4dcde44880df37bb84eceb3cc55e0b0ae0891e230c3744b5664227760`
 
 Current macOS packages:
 

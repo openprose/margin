@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 07:54 ET
+Last updated: 2026-08-18 07:56 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -770,6 +770,14 @@ The phase is successful if the repository contains:
   `2446d5e596baacaf285d956aa550d6c7d39cd5573b4081ee29ed2b674cca3f9f`;
   the final source archive is
   `cb30db550c983d8a7eae2edc29bf7f4f3c0bfb48f71380287517045c8ba46326`.
+  No inference was invoked.
+
+- 2026-08-18 07:56 ET — Removed the final source-archive-only hyperlink from
+  the README that becomes wheel metadata, then completed the same independent
+  rebuild and clean-container gates. The final self-contained wheel is
+  `58b0b51b7bab472ee206abfd9069f8b9f423ee481c7ef13847f7e45fe4c7bc55`;
+  the final source archive is
+  `cd8b91b4dcde44880df37bb84eceb3cc55e0b0ae0891e230c3744b5664227760`.
   No inference was invoked.
 
 ## Next statistically useful paid run
