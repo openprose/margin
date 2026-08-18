@@ -70,6 +70,19 @@ class MarginBenchTask(vf.Task[MarginBenchData, vf.State, vf.TaskConfig]):
             self.config,
         )
 
+    def for_continuing_agent(self) -> vf.Task:
+        if self.episode is None:
+            raise RuntimeError("Continuing task requested before the hidden episode was reconstructed.")
+        return vf.Task(
+            self.data.model_copy(update={
+                "name": f"{self.episode.public_id}:agent",
+                "description": "MarginBench continuing collaboration agent",
+                "prompt": None,
+                "system_prompt": None,
+            }),
+            self.config,
+        )
+
 
 class MarginBenchTasksetConfig(vf.TasksetConfig):
     scenario_ids: list[str] = Field(default_factory=lambda: list(SCENARIO_IDS))

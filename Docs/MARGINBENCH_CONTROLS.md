@@ -82,7 +82,11 @@ Current progress: study and execution plans now record logical roles separately
 from actual model-process count, trace seats, and phase policy. A
 `single-agent-margin-v1` dry plan therefore uses one `agent` process per episode
 without being executable. Continuing interaction and trusted phase-bound
-identity remain release gates.
+identity remain release gates. The phase-identity primitive itself is now
+implemented and tested across the live MCP server: it advances only in frozen
+order, writes an atomic mode-0600 binding outside the workspace, and overrides
+the static/tool-call identity. Wiring that controller to a single continuing
+interaction and proving all six scenarios are still outstanding.
 
 Release gates:
 

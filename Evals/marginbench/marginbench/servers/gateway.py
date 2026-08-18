@@ -10,6 +10,7 @@ from pydantic import Field
 import verifiers.v1 as vf
 
 from marginbench.gateway import MarginGateway, ToolPolicy
+from marginbench.phase_identity import read_phase_identity
 from marginbench.schema import Actor
 
 
@@ -22,6 +23,7 @@ class MarginGatewayConfig(vf.ToolsetConfig):
     actor_id: str
     actor_name: str
     actor_type: str = "software"
+    identity_binding_file: str | None = None
     timeout_seconds: float = Field(30.0, gt=0, le=120)
     max_output_bytes: int = Field(1_048_576, gt=0, le=4_194_304)
 
@@ -62,11 +64,17 @@ class MarginGatewayToolset(vf.Toolset[MarginGatewayConfig]):
         Read-only verification arguments differ from mutation arguments, so follow a
         successful receipt's `nextActions` rather than carrying mutation flags forward.
         """
+        if self.config.identity_binding_file is not None:
+            binding = read_phase_identity(Path(self.config.identity_binding_file))
+            actor, role = binding.actor, binding.seat
+        else:
+            actor = Actor(self.config.actor_id, self.config.actor_name, self.config.actor_type)
+            role = self.config.role
         gateway = MarginGateway(
             Path(self.config.margin_binary),
             Path(self.config.workspace),
-            Actor(self.config.actor_id, self.config.actor_name, self.config.actor_type),
-            self.config.role,
+            actor,
+            role,
             event_log=Path(self.config.event_log),
             state_home=Path(self.config.state_home),
             policy=ToolPolicy(

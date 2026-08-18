@@ -32,11 +32,12 @@ from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY
 from marginbench.fake_model import scripted_response
 from marginbench.gateway import MarginGateway
 from marginbench.keys import create_holdout_key
+from marginbench.phase_identity import PhaseIdentityController, read_phase_identity
 from marginbench.provenance import implementation_files, implementation_sha256
 from marginbench.reference_study import ReferenceStudyError, run_reference_study
 from marginbench.runner import ReferenceDriver, run_episode
 from marginbench.scenarios import SCENARIO_IDS, generate_episode
-from marginbench.schema import Actor, CommandEvent, EpisodeResult, canonical_json
+from marginbench.schema import Actor, CommandEvent, EpisodeResult, RoleTask, canonical_json
 from marginbench.scorer import score_episode
 from marginbench.scheduling import build_execution_plan
 from marginbench.studies import build_study_plan
@@ -648,6 +649,68 @@ class MarginBenchCoreTests(unittest.TestCase):
             return
         schema = json.loads((SCHEMA_ROOT / "control-catalog.schema.json").read_text(encoding="utf-8"))
         Draft202012Validator(schema).validate(catalog)
+
+    def test_phase_identity_is_trusted_ordered_atomic_and_single_advance(self) -> None:
+        roles = [
+            RoleTask(
+                seat="author",
+                actor=Actor("urn:test:phase-author", "Phase Author"),
+                phase=0,
+                prompt="Author phase",
+                workflow="phase-test",
+            ),
+            RoleTask(
+                seat="reviewer",
+                actor=Actor("urn:test:phase-reviewer", "Phase Reviewer"),
+                phase=1,
+                prompt="Reviewer phase",
+                workflow="phase-test",
+            ),
+        ]
+        with tempfile.TemporaryDirectory(prefix="marginbench-phase-identity-") as temporary:
+            root = Path(temporary)
+            binding_path = root / "identity.json"
+            controller = PhaseIdentityController(binding_path, roles)
+            with self.assertRaisesRegex(ValueError, "out of order"):
+                controller.advance(roles[1])
+            self.assertFalse(binding_path.exists())
+            author = controller.advance(roles[0])
+            self.assertEqual(read_phase_identity(binding_path), author)
+            self.assertEqual(os.stat(binding_path).st_mode & 0o777, 0o600)
+            with self.assertRaisesRegex(ValueError, "out of order"):
+                controller.advance(roles[0])
+            reviewer = controller.advance(roles[1])
+            self.assertEqual(read_phase_identity(binding_path), reviewer)
+            self.assertEqual(reviewer.actor.id, "urn:test:phase-reviewer")
+            with self.assertRaisesRegex(ValueError, "already complete"):
+                controller.advance(roles[1])
+
+            if hasattr(os, "O_NOFOLLOW"):
+                linked = root / "linked-identity.json"
+                linked.symlink_to(binding_path)
+                with self.assertRaisesRegex(ValueError, "unavailable"):
+                    read_phase_identity(linked)
+
+            concurrent_path = root / "concurrent.json"
+            concurrent = PhaseIdentityController(concurrent_path, [roles[0]])
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                outcomes = list(pool.map(
+                    lambda _: self._phase_identity_attempt(concurrent, roles[0]),
+                    range(16),
+                ))
+            self.assertEqual(outcomes.count(True), 1)
+            self.assertEqual(read_phase_identity(concurrent_path).actor, roles[0].actor)
+
+    @staticmethod
+    def _phase_identity_attempt(
+        controller: PhaseIdentityController,
+        role: RoleTask,
+    ) -> bool:
+        try:
+            controller.advance(role)
+        except ValueError:
+            return False
+        return True
 
     def test_holdout_key_creation_is_private_exclusive_and_never_echoes_secret(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-key-test-") as temporary:

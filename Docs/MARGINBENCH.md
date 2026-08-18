@@ -309,9 +309,9 @@ Verifiers v1 adapter completes the whole six-case local fake-agent matrix at
 100 with one exposed tool, both in process and through its real environment
 server. Both 59-request rehearsals pass through the live spend proxy with no
 rejections or paid calls. The installable manylinux wheel and source archive
-pass clean-container verification. The system Python runtime passes all 52
+pass clean-container verification. The system Python runtime passes all 54
 benchmark contracts with six intentional Prime-only skips; Prime's runtime
-passes all 52. The wheel bundles all 25 schemas.
+passes all 54. The wheel bundles all 25 schemas.
 
 Real Qwen Flash runs now cover all six families. The earlier human-relay,
 handoff, concurrent-review, suggestion-decision, and stale multi-file runs

@@ -79,6 +79,10 @@ class PrimeAdapterTests(unittest.TestCase):
         rebuilt.episode = taskset.episode_for(rebuilt.data)
         self.assertEqual(rebuilt.episode, task.episode)
         self.assertFalse(hasattr(rebuilt.for_role(rebuilt.episode.roles[0]), "episode"))
+        continuing = rebuilt.for_continuing_agent()
+        self.assertIsNone(continuing.data.prompt)
+        self.assertEqual(continuing.data.name, f"{task.episode.public_id}:agent")
+        self.assertFalse(hasattr(continuing, "episode"))
         tampered = rebuilt.data.model_copy(update={"fingerprint": "0" * 64})
         with self.assertRaisesRegex(ValueError, "fingerprint"):
             taskset.episode_for(tampered)
@@ -196,11 +200,58 @@ class PrimeAdapterTests(unittest.TestCase):
             ], stdin=plan))
             self.assertTrue(staged["ok"])
 
+    def test_phase_bound_gateway_identity_cannot_be_selected_by_the_agent(self) -> None:
+        from marginbench.phase_identity import PhaseIdentityController
+        from marginbench.scenarios import generate_episode
+        from marginbench.servers.gateway import MarginGatewayConfig, MarginGatewayToolset
+
+        episode = generate_episode("agent_agent_handoff", b"phase-bound-prime-test-key", 0)
+        roles = list(episode.roles)
+        with tempfile.TemporaryDirectory(prefix="marginbench-prime-phase-test-") as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            (workspace / "review.md").write_text("# Review\n", encoding="utf-8")
+            binding_path = root / "control" / "identity.json"
+            binding_path.parent.mkdir()
+            controller = PhaseIdentityController(binding_path, roles)
+            controller.advance(roles[0])
+            event_log = root / "control" / "events.jsonl"
+            toolset = MarginGatewayToolset(MarginGatewayConfig(
+                margin_binary=str(self.binary),
+                workspace=str(workspace),
+                event_log=str(event_log),
+                state_home=str(root / "state"),
+                role="attacker-selected-role",
+                actor_id="urn:test:attacker-selected-actor",
+                actor_name="Attacker Selected Actor",
+                identity_binding_file=str(binding_path),
+            ))
+            added = json.loads(toolset.margin([
+                "comments", "add", "review.md", "-m", "Bound to the author phase.",
+                "--document", "--id", "00000000-0000-4000-8000-000000000321",
+            ]))
+            self.assertTrue(added["ok"])
+            listed = json.loads(toolset.margin([
+                "comments", "list", "review.md", "--status", "all",
+            ]))
+            encoded = json.dumps(listed)
+            self.assertIn(roles[0].actor.id, encoded)
+            self.assertNotIn("urn:test:attacker-selected-actor", encoded)
+
+            controller.advance(roles[1])
+            self.assertTrue(json.loads(toolset.margin(["version"]))["ok"])
+            events = [json.loads(line) for line in event_log.read_text().splitlines()]
+            self.assertEqual(events[0]["role"], roles[0].seat)
+            self.assertEqual(events[-1]["role"], roles[1].seat)
+
     def test_mcp_server_starts_and_exposes_only_margin(self) -> None:
         import asyncio
         from mcp import ClientSession
         from mcp.client.streamable_http import streamable_http_client
         from verifiers.v1.mcp import serve_shared
+        from marginbench.phase_identity import PhaseIdentityController
+        from marginbench.scenarios import generate_episode
         from marginbench.servers.gateway import MarginGatewayConfig, MarginGatewayToolset
 
         async def probe() -> None:
@@ -208,14 +259,26 @@ class PrimeAdapterTests(unittest.TestCase):
                 root = Path(temporary)
                 workspace = root / "workspace"
                 workspace.mkdir()
+                roles = list(generate_episode(
+                    "agent_agent_handoff",
+                    b"phase-bound-server-test-key",
+                    0,
+                ).roles)
+                control = root / "control"
+                control.mkdir()
+                binding_path = control / "identity.json"
+                controller = PhaseIdentityController(binding_path, roles)
+                controller.advance(roles[0])
+                event_log = control / "events.jsonl"
                 toolset = MarginGatewayToolset(MarginGatewayConfig(
                     margin_binary=str(self.binary),
                     workspace=str(workspace),
-                    event_log=str(root / "events.jsonl"),
+                    event_log=str(event_log),
                     state_home=str(root / "state"),
                     role="reviewer",
                     actor_id="urn:test:prime-reviewer",
                     actor_name="Prime Reviewer",
+                    identity_binding_file=str(binding_path),
                 ))
                 async with serve_shared([toolset], harness_is_local=True) as servers:
                     self.assertEqual(set(servers), {""})
@@ -232,6 +295,17 @@ class PrimeAdapterTests(unittest.TestCase):
                         result = await session.call_tool("margin", {"arguments": ["version"]})
                         self.assertFalse(result.isError)
                         self.assertIn('"ok":true', result.content[0].text)
+                        controller.advance(roles[1])
+                        rebound = await session.call_tool("margin", {"arguments": ["version"]})
+                        self.assertFalse(rebound.isError)
+                        events = [
+                            json.loads(line)
+                            for line in event_log.read_text(encoding="utf-8").splitlines()
+                        ]
+                        self.assertEqual([event["role"] for event in events], [
+                            roles[0].seat,
+                            roles[1].seat,
+                        ])
 
         # Prime's upstream server launcher allows a long provisioning window for
         # remote runtimes. This is a local contract test, so fail promptly and

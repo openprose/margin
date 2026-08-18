@@ -391,6 +391,14 @@ until the catalog's interaction and identity gates are complete. This makes
 future compute and cost accounting reviewable without creating work state or
 spending credit.
 
+The continuing-agent groundwork also includes a trusted phase-identity file.
+The controller can advance only through the frozen role order, publishes each
+actor atomically with mode `0600`, and is read by the Margin tool server instead
+of accepting identity from model arguments. Core and live MCP-server tests prove
+out-of-order/replayed/concurrent advances fail and that one running tool server
+switches from author to reviewer. The profile remains gated until the actual
+continuing interaction and complete fake-model matrices are wired.
+
 Four repetitions across all six workflows produce the default 24 matching
 episodes, exceeding the 20-episode promotion minimum. The execution plan
 deterministically flattens each study pair into 48 candidate-ordered jobs,

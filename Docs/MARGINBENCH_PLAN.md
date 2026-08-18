@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 06:31 ET
+Last updated: 2026-08-18 06:37 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -629,6 +629,27 @@ The phase is successful if the repository contains:
   `7150f9814ec5bfd87dbaead8ae6247ac9995b3e411705ba307de1565c2a4c3e4`;
   its source archive is
   `7df424e69e2355924c45b51afc9fcd363ca2ba2e671a2248bbe7ceddb7c7585e`.
+
+- 2026-08-18 06:37 ET — Implemented and tested the trusted phase-identity seam
+  for the still-gated continuing-agent control. A controller advances only
+  through the frozen role order, permits exactly one winner under concurrent
+  advance attempts, writes a bounded atomic mode-0600 identity outside the
+  workspace, and refuses symlink, replay, out-of-order, malformed, or exhausted
+  state. The Margin MCP adapter reads that binding for each tool call rather than
+  using model-supplied identity. A live MCP-server test proves one running server
+  switches from the exact author to reviewer, while a contribution test proves
+  a static attacker-selected identity is ignored. The Prime task also has a
+  promptless projection for the future continuing exchange. The control remains
+  non-runnable because that exchange and its six-scenario local/served matrices
+  are not yet wired. The benchmark passes 54 contracts in both Python runtimes
+  (seven expected Prime-only skips in the ordinary runtime), all six reference
+  scenarios at 100, and clean-package verification. No paid call was made. The
+  implementation digest is
+  `2e674ca2b0e132032deae7b2371a5321ee82a2b6242b9e69abf4eaee499fcd18`.
+  The current Linux-verified wheel is
+  `ec22af54c8d4c7c704c7b0a51b90aa9b6db7845e77d42f34917733d6ec993e31`;
+  its source archive is
+  `424c47304b55cce92445b0eb0ec3c828d4c0df3fba5379350a9f3029b5de2cd2`.
 
 ## Next statistically useful paid run
 
