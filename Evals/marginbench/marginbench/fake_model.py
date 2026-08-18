@@ -222,6 +222,88 @@ def scripted_stage_reviewer(prompt: str, tools: list[dict]) -> dict | None:
     return _invocation(commands[offset]) if offset < len(commands) else None
 
 
+def scripted_directory_author(prompt: str, tools: list[dict]) -> dict | None:
+    match = re.search(
+        r"one open thread in\n(\S+)\. Reply with exactly this Markdown body:\n(.+?)\n"
+        r"Use mutation id ([0-9a-f-]+),.*?typed handoff in (\S+) for actor (urn:\S+)\. "
+        r"Use contribution id\n([0-9a-f-]+), request id ([0-9a-f-]+), and exactly this "
+        r"handoff body:\n(.+?)\nVerify",
+        prompt,
+        re.DOTALL,
+    )
+    if match is None:
+        raise ValueError("Fake preflight could not parse the directory-author brief.")
+    (
+        tradeoff_path,
+        analysis_body,
+        analysis_id,
+        status_path,
+        next_actor,
+        handoff_id,
+        request_id,
+        handoff_body,
+    ) = match.groups()
+    if not tools:
+        return _invocation(["context", ".", "--json"])
+    if len(tools) == 1:
+        return _invocation(["comments", "list", tradeoff_path, "--status", "all"])
+    human_root, revision = _first_comment(_stdout(tools[1]))
+    if len(tools) == 2:
+        return _invocation([
+            "comments", "reply", tradeoff_path, human_root,
+            "-m", analysis_body.strip(), "--id", analysis_id,
+            "--if-revision", str(revision),
+        ])
+    if len(tools) == 3:
+        return _invocation([
+            "comments", "resolve", tradeoff_path, human_root,
+            "--if-revision", str(_stdout(tools[2])["revision"]),
+        ])
+    if len(tools) == 4:
+        return _invocation([
+            "handoff", "add", status_path, "-m", handoff_body.strip(),
+            "--id", handoff_id, "--request-id", request_id,
+            "--next-actor", next_actor,
+        ])
+    if len(tools) == 5:
+        return _invocation(["handoff", "list", ".", "--json"])
+    return None
+
+
+def scripted_directory_reviewer(prompt: str, tools: list[dict]) -> dict | None:
+    match = re.search(
+        r"handoff in (\S+)\. Reply to its thread with exactly\nthis Markdown body:\n(.+?)\n"
+        r"Use mutation id ([0-9a-f-]+),",
+        prompt,
+        re.DOTALL,
+    )
+    if match is None:
+        raise ValueError("Fake preflight could not parse the directory-reviewer brief.")
+    status_path, body, identifier = match.groups()
+    if not tools:
+        return _invocation(["inbox", ".", "--kind", "handoff", "--status", "open", "--json"])
+    if len(tools) == 1:
+        return _invocation(["comments", "list", status_path, "--status", "all"])
+    handoff_root, revision = _first_comment(_stdout(tools[1]))
+    if len(tools) == 2:
+        return _invocation([
+            "comments", "reply", status_path, handoff_root, "-m", body.strip(),
+            "--id", identifier, "--if-revision", str(revision),
+        ])
+    if len(tools) == 3:
+        return _invocation([
+            "comments", "resolve", status_path, handoff_root,
+            "--if-revision", str(_stdout(tools[2])["revision"]),
+        ])
+    commands = (
+        ["context", ".", "--json"],
+        ["comments", "validate", "architecture/tradeoffs.md"],
+        ["comments", "validate", status_path],
+    )
+    offset = len(tools) - 4
+    return _invocation(commands[offset]) if offset < len(commands) else None
+
+
 def scripted_response(messages: list[dict]) -> dict | None:
     prompt = "\n".join(
         message.get("content", "")
@@ -229,6 +311,10 @@ def scripted_response(messages: list[dict]) -> dict | None:
         if message.get("role") == "user" and isinstance(message.get("content"), str)
     )
     tools = _tools(messages)
+    if "Begin with bounded directory context" in prompt:
+        return scripted_directory_author(prompt, tools)
+    if "Use a bounded directory-wide inbox or handoff" in prompt:
+        return scripted_directory_reviewer(prompt, tools)
     if "A human left one open thread" in prompt:
         return scripted_human_relay(prompt, tools)
     if "Create one typed handoff" in prompt:

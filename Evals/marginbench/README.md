@@ -11,7 +11,7 @@ the first hosted adapter, built for Prime Intellect Verifiers v1.
 
 ## What v1 measures
 
-The five initial scenario families cover:
+The six current scenario families cover:
 
 - replying to and resolving a human's existing review thread;
 - leaving a durable handoff that a second agent can find without a transcript;
@@ -20,6 +20,9 @@ The five initial scenario families cover:
   the other after its source cursor becomes stale;
 - staging one all-or-none change across two files, observing stale metadata,
   refreshing the immutable stage, and submitting it atomically.
+- triaging a human thread in one directory document, leaving a typed handoff in
+  another, and having a second agent discover and complete it from root context
+  without receiving the first agent's transcript.
 
 Each case is generated deterministically from a secret key and repetition
 number. Public development cases use a documented key. Private evaluation cases
@@ -54,7 +57,7 @@ make marginbench-preflight
 `marginbench-test` runs the Python contracts under both the system interpreter
 and Prime's Verifiers environment, then requires the deterministic reference
 policy to score 100 on every scenario. `marginbench-preflight` runs every role
-in all five Verifiers v1 scenarios through a local fake OpenAI-compatible model.
+in all six Verifiers v1 scenarios through a local fake OpenAI-compatible model.
 Neither command invokes a paid model.
 
 The same gates are encoded in `.github/workflows/marginbench.yml` for a clean
@@ -307,10 +310,11 @@ marginbench study-plan --baseline released --candidate compact-guidance \
 marginbench execution-plan study-plan.json > execution-plan.json
 ```
 
-Four repetitions across all five workflows produce the default 20 matching
-episodes required for promotion. The execution plan deterministically flattens
-each study pair into 40 candidate-ordered jobs, preserving the exact 10 AB / 10
-BA order and assigning every job a digest-derived retry identity. Its default
+Four repetitions across all six workflows produce the default 24 matching
+episodes, exceeding the 20-episode promotion minimum. The execution plan
+deterministically flattens each study pair into 48 candidate-ordered jobs,
+preserving the exact 12 AB / 12 BA order and assigning every job a digest-derived
+retry identity. Its default
 failure rule stops after an incomplete job; a completed job is verified and
 skipped on replay rather than charged twice. Supplying `--key-file` to the
 study planner marks the plan as a private holdout; either emitted file contains

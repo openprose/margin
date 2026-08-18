@@ -148,7 +148,7 @@ class MarginBenchCoreTests(unittest.TestCase):
                 self.assertIsInstance(invocation, dict)
                 self.assertIsInstance(invocation.get("arguments"), list)
                 self.assertTrue(invocation["arguments"])
-        self.assertEqual(expected_roles, 9)
+        self.assertEqual(expected_roles, 11)
 
     def test_prime_summary_aggregates_roles_into_one_schema_valid_episode(self) -> None:
         margin_sha256 = CandidateManifest.create("summary-test", self.binary).margin_sha256
@@ -330,13 +330,13 @@ class MarginBenchCoreTests(unittest.TestCase):
             development_cases=False,
         )
         self.assertEqual(plan, repeated)
-        self.assertEqual(plan["episodeCount"], 20)
+        self.assertEqual(plan["episodeCount"], 24)
         self.assertEqual(plan["controlProfile"], DEFAULT_CONTROL_PROFILE)
         self.assertTrue(plan["sampleSizeSufficient"])
         self.assertEqual(plan["totalRoleRuns"], plan["roleRunsPerCandidate"] * 2)
         orders = [tuple(item["candidateOrder"]) for item in plan["episodes"]]
-        self.assertEqual(orders.count(("baseline", "candidate-v2")), 10)
-        self.assertEqual(orders.count(("candidate-v2", "baseline")), 10)
+        self.assertEqual(orders.count(("baseline", "candidate-v2")), 12)
+        self.assertEqual(orders.count(("candidate-v2", "baseline")), 12)
         encoded = json.dumps(plan)
         self.assertNotIn("oracle", encoded)
         self.assertNotIn("prompt", encoded)
@@ -362,12 +362,12 @@ class MarginBenchCoreTests(unittest.TestCase):
             path.write_text(json.dumps(study), encoding="utf-8")
             plan = build_execution_plan(path)
             self.assertEqual(plan, build_execution_plan(path))
-            self.assertEqual(plan["episodeCount"], 20)
-            self.assertEqual(plan["jobCount"], 40)
+            self.assertEqual(plan["episodeCount"], 24)
+            self.assertEqual(plan["jobCount"], 48)
             self.assertEqual(plan["roleProcessCount"], study["totalRoleRuns"])
             first = [job["candidateID"] for job in plan["jobs"] if job["candidatePosition"] == 0]
-            self.assertEqual(first.count("baseline"), 10)
-            self.assertEqual(first.count("candidate-v2"), 10)
+            self.assertEqual(first.count("baseline"), 12)
+            self.assertEqual(first.count("candidate-v2"), 12)
             self.assertTrue(validate_bytes(json.dumps(plan).encode("utf-8"))["valid"])
             encoded = json.dumps(plan)
             self.assertNotIn("oracle", encoded)

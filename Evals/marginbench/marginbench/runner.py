@@ -150,6 +150,47 @@ class ReferenceDriver:
                 gateway.call(["comments", "validate", "review.md"])
                 gateway.call(["comments", "validate", "notes/decision.md"])
             return
+
+        if scenario == "directory_handoff":
+            tradeoff_path = reference["tradeoffPath"]
+            status_path = reference["statusPath"]
+            if role.seat == "author":
+                gateway.call(["context", ".", "--json"])
+                listed = gateway.call(["comments", "list", tradeoff_path, "--status", "all"])
+                human_root = _actual_annotation_id(listed, reference["humanID"])
+                replied = gateway.call([
+                    "comments", "reply", tradeoff_path, human_root,
+                    "-m", reference["analysisBody"], "--id", reference["analysisID"],
+                    "--if-revision", str(_revision(listed)),
+                ])
+                gateway.call([
+                    "comments", "resolve", tradeoff_path, human_root,
+                    "--if-revision", str(_revision(replied)),
+                ])
+                gateway.call([
+                    "handoff", "add", status_path, "-m", reference["handoffBody"],
+                    "--id", reference["handoffID"], "--request-id", reference["requestID"],
+                    "--next-actor", reference["nextActorID"],
+                ])
+                gateway.call(["handoff", "list", ".", "--json"])
+            else:
+                gateway.call(["inbox", ".", "--kind", "handoff", "--status", "open", "--json"])
+                listed = gateway.call(["comments", "list", status_path, "--status", "all"])
+                handoff_root = _actual_annotation_id(listed, reference["handoffID"])
+                replied = gateway.call([
+                    "comments", "reply", status_path, handoff_root,
+                    "-m", reference["acknowledgementBody"],
+                    "--id", reference["acknowledgementID"],
+                    "--if-revision", str(_revision(listed)),
+                ])
+                gateway.call([
+                    "comments", "resolve", status_path, handoff_root,
+                    "--if-revision", str(_revision(replied)),
+                ])
+                gateway.call(["context", ".", "--json"])
+                gateway.call(["comments", "validate", tradeoff_path])
+                gateway.call(["comments", "validate", status_path])
+            return
         raise ValueError(f"Reference policy does not support {scenario}.")
 
 

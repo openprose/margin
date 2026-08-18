@@ -15,6 +15,7 @@ SCENARIO_IDS = (
     "concurrent_review",
     "suggestion_decision",
     "staged_multifile",
+    "directory_handoff",
 )
 
 ADJECTIVES = (
@@ -455,6 +456,129 @@ refreshed stage atomically, validate both Markdown documents, and leave the old 
             "refreshedStageID": refreshed_id,
             "requestID": request_id,
             "plan": plan,
+        }
+
+    elif scenario_id == "directory_handoff":
+        tradeoff_target = _phrase(random)
+        status_target = _phrase(random)
+        tradeoff_path = "architecture/tradeoffs.md"
+        status_path = "notes/status.md"
+        files = {
+            "architecture/overview.md": primary,
+            tradeoff_path: _document(random, tradeoff_target),
+            status_path: _document(random, status_target),
+        }
+        human_id, analysis_id = random.uuid(), random.uuid()
+        handoff_id, acknowledgement_id = random.uuid(), random.uuid()
+        request_id = random.uuid()
+        human_body = _message(random, "Human architecture question")
+        analysis_body = _message(random, "Architecture answer")
+        handoff_body = _message(random, "Directory handoff")
+        acknowledgement_body = _message(random, "Directory handoff accepted")
+        events.append(HarnessEvent(0, "before", "comment_add", {
+            "path": tradeoff_path,
+            "body": human_body,
+            "id": human_id,
+            "quote": tradeoff_target,
+            "actor": human.__dict__,
+        }))
+        roles.extend([
+            RoleTask(
+                seat="author",
+                actor=author,
+                phase=0,
+                workflow="directory-review",
+                prompt=f"""{SYSTEM_RULES}
+
+Begin with bounded directory context rooted at `.`. A human left one open thread in
+{tradeoff_path}. Reply with exactly this Markdown body:
+{analysis_body}
+Use mutation id {analysis_id}, resolve the human root with the revision you observed, and then
+create one typed handoff in {status_path} for actor {reviewer.id}. Use contribution id
+{handoff_id}, request id {request_id}, and exactly this handoff body:
+{handoff_body}
+Verify that the handoff is discoverable from the directory root.""",
+            ),
+            RoleTask(
+                seat="reviewer",
+                actor=reviewer,
+                phase=1,
+                workflow="directory-review",
+                prompt=f"""{SYSTEM_RULES}
+
+You receive no transcript from the prior agent. Use a bounded directory-wide inbox or handoff
+view rooted at `.` to find the open handoff in {status_path}. Reply to its thread with exactly
+this Markdown body:
+{acknowledgement_body}
+Use mutation id {acknowledgement_id}, resolve the handoff root with the revision you observed,
+then verify directory context and both collaboration documents.""",
+            ),
+        ])
+        oracle = _base_oracle(files)
+        oracle["annotations"] = [
+            _annotation(
+                human_id,
+                tradeoff_path,
+                human_body,
+                human,
+                status="resolved",
+                root_id=human_id,
+            ),
+            _annotation(
+                analysis_id,
+                tradeoff_path,
+                analysis_body,
+                author,
+                status="resolved",
+                parent_id=human_id,
+                root_id=human_id,
+            ),
+            _annotation(
+                handoff_id,
+                status_path,
+                handoff_body,
+                author,
+                kind="handoff",
+                status="resolved",
+                root_id=handoff_id,
+                properties=[{
+                    "path": ["margin:handoff", "intendedNextActors"],
+                    "equals": [reviewer.id],
+                }],
+            ),
+            _annotation(
+                acknowledgement_id,
+                status_path,
+                acknowledgement_body,
+                reviewer,
+                status="resolved",
+                parent_id=handoff_id,
+                root_id=handoff_id,
+            ),
+        ]
+        oracle["minimumAnnotations"] = 4
+        oracle["efficientCommandTarget"] = 14
+        oracle["maxCommands"] = 32
+        oracle["requiredCommandGroups"] = [
+            ["context"],
+            ["inbox", "handoff list"],
+            ["handoff add"],
+            ["comments reply"],
+            ["comments resolve"],
+            ["comments validate"],
+        ]
+        oracle["reference"] = {
+            "tradeoffPath": tradeoff_path,
+            "statusPath": status_path,
+            "humanID": human_id,
+            "analysisID": analysis_id,
+            "analysisBody": analysis_body,
+            "handoffID": handoff_id,
+            "handoffBody": handoff_body,
+            "acknowledgementID": acknowledgement_id,
+            "acknowledgementBody": acknowledgement_body,
+            "requestID": request_id,
+            "nextActorID": reviewer.id,
         }
 
     return EpisodeDefinition(

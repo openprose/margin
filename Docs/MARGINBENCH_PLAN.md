@@ -376,18 +376,37 @@ The phase is successful if the repository contains:
   survive. The ordinary runtime passes 36 tests with five intentional
   Prime-only skips, and Prime's pinned runtime passes all 41. No model or paid
   service was invoked.
+- 2026-08-18 03:45 ET — Added a sixth scenario for directory-scale continuity:
+  one agent triages and resolves a human architecture thread in one file,
+  leaves a typed handoff in another, and a second isolated agent discovers,
+  replies to, and resolves it from bounded root context. The exact reference
+  takes 13 valid commands across three Markdown files and scores 100. The full
+  four-repetition default now contains 24 paired episodes, 48 ordered candidate
+  jobs, and 88 role processes; its complete no-model run gave both candidates a
+  100 minimum, 24 ties, and a verified seven-artifact publication bundle. The
+  Prime fake-agent rehearsal produced six 100 rewards in 59 turns through one
+  Margin tool. The system suite passes 36 tests with five Prime-only skips and
+  Prime passes all 41. Fresh x86-64 wheel and Linux arm64 self-tests both pass
+  all six cases; the clean Linux source package passes 41 tests with 18 expected
+  optional/runtime skips. No paid call was made. The implementation digest is
+  `2170e28eea718e72e9b6481f11776b1de8e09a6179d7a892124ad65437f30ff9`.
+  The Linux-verified wheel is
+  `4762696f8c281a921ddf6a424d307a27668ab24ae14b7f4ee0db69c807e1836e`;
+  the source archive is
+  `3a5c69dea0a756594bd110fbed3802b5344e71036a8742c9137b2ce95db0870a`.
 
 ## Next statistically useful paid run
 
 The next useful experiment is not another one-off. It is a paired interface
-comparison over all five workflows with four private repetitions: 20 matched
-episodes per candidate, 36 role processes per candidate, and exactly balanced
-AB/BA ordering. That is the smallest default study eligible for promotion.
+comparison over all six workflows with four private repetitions: 24 matched
+episodes per candidate, 44 role processes per candidate, and exactly balanced
+12/12 AB/BA ordering. That is the default study and exceeds the 20-episode
+promotion minimum.
 
 At Qwen Flash's current API price of $0.03/M input tokens and $0.13/M output
 tokens, a **provisional** 65,536-input-token ceiling, 2,400 output tokens,
 12 turns, three possible upstream attempts per turn, and $0.0002 rounding
-allowance gives a conservative bound of $3.211596 per candidate or $6.423192
+allowance gives a conservative bound of $3.925284 per candidate or $7.850568
 for the pair. This is well inside Gate 3's $50 envelope and far above observed
 cost, which is intentional. It is not execution-ready until Prime or the model
 publisher documents that 65,536-token per-call ceiling. Prime's current Models

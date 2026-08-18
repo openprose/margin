@@ -15,7 +15,8 @@ portable, attributable, and understandable after processes disappear.
 
 This is not a general writing-quality benchmark. V1 measures correct use of
 Margin's Markdown collaboration protocol: bounded reads, threaded comments,
-typed handoffs, suggestions, concurrent updates, and atomic multi-file stages.
+typed handoffs, directory-wide discovery, suggestions, concurrent updates, and
+atomic multi-file stages.
 
 ## Why the core is ours and Prime is an adapter
 
@@ -59,6 +60,7 @@ The initial task families are:
 | Concurrent review | Agent ↔ agent | Both contributions survive, with correct authorship and no duplicates |
 | Suggestion decision | Author → reviewer | Two exact proposals; one accepted source edit and one stale-safe rejection |
 | Staged multi-file | Author → human event → reviewer | Stale attempt changes nothing; refreshed stage commits both files or neither |
+| Directory handoff | Human → author → reviewer | Triage in one file and a discoverable, completed handoff in another without transcript sharing |
 
 Cases are deterministic for `(version, private key, family, repetition)`. The
 key changes the prose, identities, IDs, and exact outcomes while preserving task
@@ -134,7 +136,7 @@ The tracked `MarginBench` continuous-integration workflow starts from an empty
 Ubuntu runner with read-only repository permission. It repeats all portable
 Swift tests, rebuilds the x86-64 binary against its declared digest, runs the
 provider-independent and Prime adapter contracts, completes the fake-model
-five-workflow rehearsal, builds the wheel, exercises it in the pinned Linux
+six-workflow rehearsal, builds the wheel, exercises it in the pinned Linux
 image, and retains the package with a validation receipt. It has no credential
 or paid-inference step. The workflow file is statically checked locally; its
 first hosted execution awaits a GitHub remote.
@@ -181,11 +183,11 @@ bound above zero on a deterministic paired bootstrap 95% interval. Duplicate
 episode IDs are rejected rather than silently collapsed. Public-development
 gains must be confirmed on a private rotating test set.
 
-The default study planner freezes four repetitions of all five workflows and
-counterbalances candidate order to exactly 10 AB and 10 BA episodes. It emits
+The default study planner freezes four repetitions of all six workflows and
+counterbalances candidate order to exactly 12 AB and 12 BA episodes. It emits
 only case fingerprints, roles, and candidate order—not private prompts, answers,
 or the holdout key. The deterministic execution planner expands those pairs to
-40 ordered candidate jobs with digest-derived identities and fail-closed resume
+48 ordered candidate jobs with digest-derived identities and fail-closed resume
 rules. Prime can select each exact repetition rather than regenerating index
 zero, and a frozen candidate manifest must match the executable. For private
 runs, the taskset consumes the mode-0600 holdout key from its environment before
@@ -239,7 +241,7 @@ recommendation, not a claim that those licenses already apply.
 
 ## Known limitations
 
-- V1 has five scenario families and is not yet broad enough for a definitive
+- V1 has six scenario families and is not yet broad enough for a definitive
   model ranking.
 - It measures protocol correctness more strongly than prose quality or creative
   judgment.
@@ -267,16 +269,17 @@ recommendation, not a claim that those licenses already apply.
 
 ## Current evidence
 
-At the 0.1 snapshot, all five reference scenarios score 100 on macOS, Linux
-x86-64, and Linux arm64. Margin 0.3.2 passes 164 macOS tests and 112 portable
+At the current 0.1 development snapshot, all six reference scenarios score 100
+on macOS, Linux x86-64, and Linux arm64. Margin 0.3.2 passes 164 macOS tests and 112 portable
 Linux tests; a repeat x86-64 build is byte-for-byte identical. The Verifiers v1
-adapter completes the whole five-case local fake-agent matrix at 100 with only
+adapter completes the whole six-case local fake-agent matrix at 100 with only
 one exposed tool. The installable manylinux wheel and source archive also pass
-their tests in clean containers. The system Python runtime passes 35 benchmark
-contracts with five Prime-only skips; Prime's runtime passes all 40. The wheel
+their tests in clean containers. The system Python runtime passes 36 benchmark
+contracts with five Prime-only skips; Prime's runtime passes all 41. The wheel
 bundles all 24 schemas.
 
-Real Qwen Flash runs exercised every family. The initial human-relay smoke
+Real Qwen Flash runs exercised the original five families; the new directory
+handoff has deliberately only used no-model gates so far. The initial human-relay smoke
 scored 25; successive general CLI guidance improvements reached the exact
 durable result and then 100. Handoff reached 100. Concurrent review, suggestion
 decision, and stale multi-file recovery all reached their exact final document
