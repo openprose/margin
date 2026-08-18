@@ -130,6 +130,15 @@ The Linux Margin executable is built from the same source as the macOS app using
 a pinned multi-architecture Swift container. The binary itself is a release
 artifact rather than a Git object; its digest and byte size are recorded.
 
+The tracked `MarginBench` continuous-integration workflow starts from an empty
+Ubuntu runner with read-only repository permission. It repeats all portable
+Swift tests, rebuilds the x86-64 binary against its declared digest, runs the
+provider-independent and Prime adapter contracts, completes the fake-model
+five-workflow rehearsal, builds the wheel, exercises it in the pinned Linux
+image, and retains the package with a validation receipt. It has no credential
+or paid-inference step. The workflow file is statically checked locally; its
+first hosted execution awaits a GitHub remote.
+
 Public JSON evidence can be checked independently with `marginbench validate`.
 The installed command bundles all versioned schemas and adds bounded semantic
 checks for totals that JSON Schema alone cannot prove: event counts, episode

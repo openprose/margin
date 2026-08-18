@@ -17,6 +17,9 @@ Release date: 2026-08-18
   cross-field checks for publication artifacts. It rejects duplicate JSON
   keys, inconsistent counts and costs, unsafe promotion claims, and payloads
   over 16 MiB while producing a digest-bearing machine-readable receipt.
+- Adds a read-only, no-secret GitHub Actions gate for the portable Swift core,
+  reproducible x86-64 binary, provider-independent tests, Prime adapter,
+  fake-model rehearsal, wheel smoke test, and retained validation receipt.
 
 ### Verification and artifacts
 

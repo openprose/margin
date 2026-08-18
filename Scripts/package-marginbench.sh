@@ -41,6 +41,14 @@ verify_sha256() {
     }
 }
 
+file_size() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        stat -f '%z' "$1"
+    else
+        stat -c '%s' "$1"
+    fi
+}
+
 for architecture in x86_64 aarch64; do
     binary="$BINARY_DIR/margin-linux-$architecture"
     [[ -f "$binary" ]] || {
@@ -50,7 +58,7 @@ for architecture in x86_64 aarch64; do
     expected_sha="$(jq -er --arg architecture "$architecture" '.artifacts[] | select(.architecture == $architecture) | .sha256' "$MANIFEST")"
     expected_bytes="$(jq -er --arg architecture "$architecture" '.artifacts[] | select(.architecture == $architecture) | .bytes' "$MANIFEST")"
     verify_sha256 "$binary" "$expected_sha"
-    [[ "$(stat -f '%z' "$binary")" == "$expected_bytes" ]] || {
+    [[ "$(file_size "$binary")" == "$expected_bytes" ]] || {
         print -u2 "Byte-size mismatch for $binary"
         exit 65
     }
@@ -90,7 +98,7 @@ wheel_metadata="$(unzip -p "$wheel" '*/WHEEL')"
 }
 
 mkdir -p "$STAGING_DIR/site"
-/usr/bin/ditto -x -k "$wheel" "$STAGING_DIR/site"
+unzip -q "$wheel" -d "$STAGING_DIR/site"
 docker run --platform linux/amd64 --rm \
     -v "$STAGING_DIR/site:/package:ro" \
     -e PYTHONPATH=/package \

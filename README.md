@@ -265,6 +265,10 @@ The original real-agent benchmark lives in `Benchmarks/agent_benchmark`. The hil
 An installed benchmark package can check a publication artifact offline with
 `marginbench validate ARTIFACT`; it emits a digest-bearing JSON receipt and
 returns status 65 for malformed, inconsistent, or unsupported evidence.
+The tracked `MarginBench` workflow repeats the pinned Linux Swift gate, rebuilds
+the declared x86-64 executable by digest, runs both Python/Prime test surfaces,
+performs the no-model rehearsal, and retains a checked wheel and validation
+receipt for each relevant change.
 
 Measured launch results, agent benchmarks/evals, and the complete verification record are in `Docs/PERFORMANCE.md`, `Docs/AGENT_BENCHMARK.md`, `Docs/CLI_EVALS.md`, and `Docs/RELEASE_NOTES.md`.
 

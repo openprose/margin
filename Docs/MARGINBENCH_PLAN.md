@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 02:06 ET
+Last updated: 2026-08-18 02:15 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -278,6 +278,15 @@ The phase is successful if the repository contains:
   `4accb41d0579039e80d6c57fd93f5c14c460390d36f2903e878ca3e97323238b`;
   the source archive is
   `00b355103f8e840d53486eadfe345c24b152d59e8078b63eb10f3b232fa42af1`.
+- 2026-08-18 02:15 ET — Added a least-privilege GitHub Actions gate that
+  rebuilds the exact Linux x86-64 binary, runs the 112 Swift tests and both
+  Python/Prime suites, performs the five-scenario no-model rehearsal, exercises
+  the wheel in pinned Linux, and retains only the package plus a validation
+  receipt. It uses no credential or paid model. `actionlint` passes. The package
+  verifier itself now uses portable size and zip operations, and its complete
+  macOS-hosted clean-Linux check still produces the exact recorded hashes. The
+  workflow's first hosted run awaits a repository remote; all underlying steps
+  have already passed locally or in the same pinned containers.
 
 ## Next statistically useful paid run
 

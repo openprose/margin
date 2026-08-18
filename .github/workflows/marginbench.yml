@@ -1,0 +1,114 @@
+name: MarginBench
+
+on:
+  push:
+    paths:
+      - ".github/workflows/marginbench.yml"
+      - "Package.swift"
+      - "Sources/MarginCore/**"
+      - "Sources/MarginCLI/**"
+      - "Tests/MarginCoreTests/**"
+      - "Tests/MarginCLITests/**"
+      - "Evals/marginbench/**"
+      - "Scripts/build-marginbench-linux.sh"
+      - "Scripts/package-marginbench.sh"
+      - "Scripts/test-linux.sh"
+  pull_request:
+    paths:
+      - ".github/workflows/marginbench.yml"
+      - "Package.swift"
+      - "Sources/MarginCore/**"
+      - "Sources/MarginCLI/**"
+      - "Tests/MarginCoreTests/**"
+      - "Tests/MarginCLITests/**"
+      - "Evals/marginbench/**"
+      - "Scripts/build-marginbench-linux.sh"
+      - "Scripts/package-marginbench.sh"
+      - "Scripts/test-linux.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marginbench-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portable-gate:
+    name: Portable core, benchmark, and Prime adapter
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      MARGINBENCH_ROOT: ${{ github.workspace }}/Evals/marginbench
+      MARGINBENCH_BINARY: ${{ github.workspace }}/Evals/marginbench/marginbench/bin/margin-linux-x86_64
+
+    steps:
+      - name: Check out the frozen source
+        uses: actions/checkout@v4
+
+      - name: Select Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pinned host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes jq libdigest-sha-perl unzip zsh
+          python -m pip install --disable-pip-version-check uv==0.7.8 "jsonschema>=4.23,<5"
+          uv tool install --with "jsonschema>=4.23,<5" prime==0.6.24
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run every portable Swift contract in pinned Linux
+        run: zsh Scripts/test-linux.sh
+
+      - name: Rebuild and verify the published x86-64 executable
+        run: |
+          zsh Scripts/build-marginbench-linux.sh amd64
+          expected_sha="$(jq -er '.artifacts[] | select(.architecture == "x86_64") | .sha256' Evals/marginbench/BINARY_MANIFEST.json)"
+          expected_bytes="$(jq -er '.artifacts[] | select(.architecture == "x86_64") | .bytes' Evals/marginbench/BINARY_MANIFEST.json)"
+          actual_sha="$(shasum -a 256 "$MARGINBENCH_BINARY" | awk '{print $1}')"
+          actual_bytes="$(stat -c '%s' "$MARGINBENCH_BINARY")"
+          test "$actual_sha" = "$expected_sha"
+          test "$actual_bytes" = "$expected_bytes"
+          "$MARGINBENCH_BINARY" version
+
+      - name: Run provider-independent contracts and exact reference cases
+        run: |
+          PYTHONPATH="$MARGINBENCH_ROOT" python -m unittest discover \
+            -s "$MARGINBENCH_ROOT/tests" -p 'test_*.py'
+          PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli self-test \
+            --margin-bin "$MARGINBENCH_BINARY"
+
+      - name: Run the Prime Verifiers contracts and no-model rehearsal
+        run: |
+          PYTHONPATH="$MARGINBENCH_ROOT" \
+            "$HOME/.local/share/uv/tools/prime/bin/python" -m unittest discover \
+            -s "$MARGINBENCH_ROOT/tests" -p 'test_*.py'
+          PYTHONPATH="$MARGINBENCH_ROOT" "$MARGINBENCH_ROOT/preflight.py" \
+            --margin-bin "$MARGINBENCH_BINARY"
+
+      - name: Build and exercise the distributable wheel
+        run: |
+          uv build "$MARGINBENCH_ROOT" --out-dir build/ci-marginbench-dist
+          wheel="$(find build/ci-marginbench-dist -type f -name '*.whl' -print -quit)"
+          mkdir -p build/ci-marginbench-site
+          unzip -q "$wheel" -d build/ci-marginbench-site
+          docker run --rm --platform linux/amd64 \
+            -v "$GITHUB_WORKSPACE/build/ci-marginbench-site:/package:ro" \
+            -e PYTHONPATH=/package \
+            swift:5.10-jammy@sha256:ffc42e399ad0cad324f68d58f65e4d5f2c22eb9df73c4dfa249e898d497254b3 \
+            python3 -m marginbench.cli self-test
+          PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli validate \
+            "$MARGINBENCH_ROOT/results/EXPERIMENT_LEDGER.json" \
+            > build/ci-marginbench-dist/validation-receipt.json
+
+      - name: Retain the checked package and validation receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: marginbench-linux-x86_64-${{ github.sha }}
+          path: build/ci-marginbench-dist/
+          if-no-files-found: error
+          retention-days: 7
