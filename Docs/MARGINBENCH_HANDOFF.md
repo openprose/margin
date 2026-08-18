@@ -1,11 +1,12 @@
 # MarginBench build-phase handoff
 
-Status at 2026-08-18 10:33 ET: the primary benchmark track and its
+Status at 2026-08-18 11:03 ET: the primary benchmark track and its
 compute-matched continuing-agent control are implemented, portable, tested,
-packaged, and locally green. The first paid topology calibration produced one
-valid role-separated half and one infrastructure-invalid continuing half, so it
-does not support a comparison. A repaired, dry retry plan is ready; no paid
-retry has run.
+packaged, and locally green. Two paid topology attempts each produced a valid
+role-separated half and an infrastructure-invalid continuing half, so neither
+supports a comparison. In the latest attempt the continuing agent reached the
+exact result but encountered a recovered upstream 429; the frozen policy still
+invalidates that episode.
 
 ## What exists
 
@@ -39,7 +40,7 @@ retry has run.
 | Hosted-boundary rehearsal | Both profiles passed 6/6 in process and 6/6 through the environment server; the concurrent-writer recovery path also passed 10/10 targeted served stress runs; 59 requests per full run, zero rejects, zero provider-bound violations, no paid inference |
 | Clean distributable | Extracted source passed 63 tests with eight expected Prime-only skips; installed Intel Linux wheel passed self-test; package and CI reject sensitive/generated archive paths |
 | macOS responsiveness | Final app warm launch median 286.610 ms, p95 289.237 ms; latest CLI help sample median 5.247 ms, p95 5.832 ms |
-| Paid calibration | 19 benchmark attempts, 17 completed runs, 207 traced model calls, $0.0394 total wallet debit since opening; $199.9467 remains. The topology pair is incomplete and unscored as a comparison. |
+| Paid calibration | 21 benchmark attempts, 18 completed runs, 228 traced model calls, $0.0436 total wallet debit since opening; $199.9425 remains. No topology pair is valid or scored as a comparison. |
 
 Run the local release gates from the repository root:
 
@@ -75,10 +76,10 @@ ID signed or notarized because no distribution certificate is available.
 ## Spend position
 
 The opening balance was $199.9861 and the authenticated wallet now reports
-$199.9467. Total debit is $0.0394. Today's attempted topology pair used $0.0019
-inside the benchmark plus $0.0001 from a mistaken natural-language balance
-probe. All subsequent repairs, packaging, and served rehearsals were
-model-free.
+$199.9425. Total debit is $0.0436. The original attempted topology pair used
+$0.0019 inside the benchmark plus $0.0001 from a mistaken natural-language
+balance probe. The separately authorized fresh pair used $0.0042. All repairs,
+packaging, and served rehearsals between those attempts were model-free.
 
 A complete 24-pair private study has a deliberately pessimistic provider
 contract bound of $96.665312. With the tested per-job live cap it can enforce a
@@ -86,14 +87,14 @@ $2.40 maximum, but it should not run yet. The next paid checkpoint would be one
 matched pair capped at $0.10 total, only after an implemented comparison
 profile gives that pair a useful scientific question.
 
-The attempted public pair cannot be compared because the continuing half hit a
-provider accounting bound after one forwarded call. The repaired runner keeps
-the 1,200-token requested generation limit and separately prices eight possible
-provider wrapper tokens. A fresh pair is dry-planned at $0.049 per half, $0.098
-combined, with equal $2.185707 disclosed contract bounds. Run it only as a
-separate paid retry; if both halves validate, inspect them before preparing the
-private 24-case study. The broad study's $96.665312 provider-contract figure
-remains a disclosed worst case rather than an expected-spend estimate.
+The first public pair could not be compared because the continuing half hit a
+provider accounting bound. The repaired runner then priced eight possible
+wrapper tokens, but the fresh continuing run encountered an upstream 429 before
+recovering to an exact result. The frozen policy invalidates any such episode,
+so the diagnostic 100 is not comparison evidence. Resolve that policy
+prospectively with model-free fixtures before another paid attempt. The broad
+study's $96.665312 provider-contract figure remains a disclosed worst case
+rather than an expected-spend estimate.
 
 A full no-spend schedule expansion confirms that both profiles contain 88
 logical role runs. Role separation uses 88 model processes; continuation uses
@@ -103,13 +104,14 @@ budget advantage from using fewer processes.
 
 ## Next work, in order
 
-1. Decide whether to authorize the separately capped fresh public retry. Its
-   plans are already matched and dry: same case, actors, model, sampling,
-   Margin digest, and provider ceiling; $0.049 per half and $0.098 combined.
-   Use it only to calibrate the control, not to claim a ranking.
-2. If the fresh pair validates, inspect both redacted artifacts before planning
-   any private cases. The exact 24-case, 12/12-counterbalanced design remains
-   frozen in `Docs/MARGINBENCH_CONTROLS.md`.
+1. Define, before another run, whether a bounded provider retry that later
+   succeeds is valid-but-disclosed or infrastructure-invalid. Add deterministic
+   tests for recovered and terminal 429s; do not change the judgment on the
+   run already observed.
+2. Only after that policy is frozen should another matched public calibration
+   be proposed. Inspect both redacted artifacts before planning private cases.
+   The exact 24-case, 12/12-counterbalanced design remains frozen in
+   `Docs/MARGINBENCH_CONTROLS.md`.
 3. Implement and adversarially test the representation-neutral fact projection
    and visible Markdown interchange drafted in
    `Docs/MARGINBENCH_NEUTRAL_OUTCOMES.md`, then build the plain-Markdown and

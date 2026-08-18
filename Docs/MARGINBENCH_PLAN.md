@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 10:33 ET
+Last updated: 2026-08-18 11:03 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -26,14 +26,14 @@ This document is the live checklist for the build phase ending at 08:00 ET on
 ## Credit ledger and spending gates
 
 Opening Prime Intellect credit: **$199.9861**. Latest observed balance:
-**$199.9467**. Total debit so far: **$0.0394**.
+**$199.9425**. Total debit so far: **$0.0436**.
 
 | Gate | Maximum cumulative spend | Purpose | Status |
 | --- | ---: | --- | --- |
 | 0 | $0 | Install, login, local tests, container builds, dry runs | Complete |
 | 1 | $2 | One tiny end-to-end hosted smoke test | Complete; $0.0017 first valid smoke |
 | 2 | $15 | Cheap-model calibration on a small public-development slice | Complete; cumulative debit $0.0394 |
-| 3 | $50 | Paired comparisons of promising CLI/manual variants | Not started |
+| 3 | $50 | Paired comparisons of promising CLI/manual variants | Calibration attempted; no valid pair, cumulative debit $0.0436 |
 | 4 | $120 | Broader model/team matrix only after stable signal | Not started |
 | Reserve | $80 | Held for follow-up, failures, and a meaningful final run | Untouched |
 
@@ -808,16 +808,34 @@ The phase is successful if the repository contains:
   and the source archive is
   `b3b6a78e89ffa7c9e4ea6797923588cd178b4dd5ab7aecb7013d4780fe8653df`.
 
+- 2026-08-18 11:03 ET — Ran the separately authorized fresh topology pair
+  under the repaired harness. Both halves used the same public
+  `agent_agent_handoff` repetition-0 fingerprint, model, temperature, logical
+  actors, Margin binary, 1,208-token billing ceiling, and $2.185707 disclosed
+  contract bound, with independent $0.049 live caps. The role-separated half
+  completed at 96.25 with exact outcome, intact source, one invalid command,
+  ten model calls, and $0.0016 observed debit. The continuing agent reached the
+  exact outcome at a diagnostic score of 100 with zero invalid commands, but
+  one recorded model call returned an upstream 429 before later calls
+  succeeded. The frozen policy classifies any provider rate limit as an
+  infrastructure error, so that score is not recorded and the halves are not
+  compared. The continuing half used eleven model calls and $0.0026. Fresh-pair
+  debit was $0.0042; total debit from the original $199.9861 balance is now
+  $0.0436, leaving $199.9425. Both redacted infrastructure/completion artifacts
+  validate, raw traces remain private and uncommitted, and no further paid
+  retry ran. Before any more inference, decide prospectively whether a
+  transparently recovered, pre-budgeted provider retry invalidates an episode
+  or is disclosed as execution metadata.
+
 ## Next statistically useful paid run
 
-The first public topology calibration did not yield a pair: its role-separated
-half is valid evidence, but its continuing half is an infrastructure failure.
-The next paid action, if separately approved, is a fresh rerun of both halves
-under the repaired harness. Both dry plans use the same case, model, sampling,
-logical actors, Margin binary, and 1,208-token billing ceiling (1,200 requested
-tokens plus eight bounded wrapper tokens). Each live gate is $0.049, so the
-fresh pair can add at most $0.098. It is a calibration only, not ranking
-evidence.
+Neither public topology attempt yielded a valid pair. In the first, provider
+usage exceeded the original reservation by two wrapper tokens. In the repaired
+retry, the continuing agent recovered from an upstream 429 and reached the
+exact state, but the predeclared policy invalidated the episode. The next step
+is model-free: freeze a prospective rule for recovered provider errors and add
+fixtures for both recovered and terminal 429s. Do not reinterpret the existing
+result or buy another retry merely to obtain a preferred comparison.
 
 After a clean public pair, the next useful experiment is a paired interface
 comparison over all six workflows with four private repetitions: 24 matched
@@ -838,9 +856,9 @@ planner now preserves the $96.665312 contract maximum separately while allowing
 an explicit $0.05 live cap on each of 48 jobs: the enforceable study maximum is
 $2.40 under a $3 admission cap, and the first matched pair is at most $0.10.
 That no-model plan preserves a $190 wallet reserve. Do not schedule any private
-jobs until a fresh public topology pair is complete and inspected. The
-remaining $199.9467 balance is sufficient, so no additional credits are
-requested.
+jobs until the provider-error policy is frozen and a valid public topology pair
+is complete and inspected. The remaining $199.9425 balance is sufficient, so
+no additional credits are requested.
 
 ## Decisions still to earn with evidence
 
