@@ -98,7 +98,8 @@ both the schema and semantic totals agree; malformed, unsupported, or tampered
 artifacts return status 65. Supported evidence includes episode results,
 reference runs, candidate manifests, study plans, paired comparisons, paid-run
 summaries, redacted run manifests and ledgers, runtime probes, control catalogs,
-and binary manifests. The validator itself is packaged with MarginBench, so a
+Prime paired-study plans and completed-job receipts, and binary manifests. The
+validator itself is packaged with MarginBench, so a
 reviewer does not need this source checkout.
 
 ### Build and verify a leaderboard bundle
@@ -216,6 +217,39 @@ model.
 The printed plan must be reviewed before adding the separately documented paid
 execution flags. Raw traces remain under ignored `runs/`; only redacted summaries
 and run manifests are publication artifacts.
+
+For a complete paired study, use the source package's `paired_pilot.py` instead
+of launching forty independent jobs by hand. It is also dry-run by default:
+
+```sh
+Evals/marginbench/paired_pilot.py \
+  --study-plan study-plan.json --execution-plan execution-plan.json \
+  --baseline-manifest candidate-baseline.json --baseline-bin margin-baseline \
+  --candidate-manifest candidate-new.json --candidate-bin margin-new \
+  --holdout-key-file .private-marginbench/holdout.key \
+  --model qwen/qwen3.7-flash \
+  --input-token-ceiling-per-call PROVIDER_DOCUMENTED_LIMIT \
+  --input-token-ceiling-source https://provider.example/model-contract \
+  --input-price-per-million 0.03 --output-price-per-million 0.13 \
+  --pricing-source https://provider.example/model-pricing \
+  --max-study-cost-usd 15 --minimum-wallet-reserve-usd 80
+```
+
+The resulting `urn:marginbench:prime-study-plan:v1` artifact contains no secret
+or local path. It binds all forty candidate-ordered jobs, benchmark and candidate
+digests, every limit and price, the per-job worst cases, aggregate admission
+bound, and protected reserve. Paid execution additionally needs the literal
+confirmation printed by `--help`. `--max-new-jobs 1` stops cleanly after one
+newly completed job; a later identical invocation resumes at the next job.
+Completed outputs are schema- and digest-checked before a receipt is written.
+An incomplete or uncertain attempt leaves a durable marker and blocks automatic
+retry. After all jobs finish, the controller creates and independently verifies
+the same redacted leaderboard bundle as the no-model reference runner.
+
+Prime's current model record for `qwen/qwen3.7-flash` publishes its token prices
+but not its maximum input length. The full paid study therefore remains gated:
+do not replace `PROVIDER_DOCUMENTED_LIMIT` with a guess. Dry planning, fake-child
+resumption tests, and publication verification require no model call.
 
 ### Prime-managed runtime probe
 

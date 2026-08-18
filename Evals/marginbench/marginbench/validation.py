@@ -108,6 +108,10 @@ def _schema_name(payload: Any) -> tuple[str, str]:
         "urn:marginbench:paired-comparison:v1": "paired-comparison.schema.json",
         "urn:marginbench:prime-run-summary:v1": "prime-run-summary.schema.json",
         "urn:marginbench:prime-runtime-probe:v1": "runtime-probe.schema.json",
+        "urn:marginbench:prime-study-completion:v1": "prime-study-completion.schema.json",
+        "urn:marginbench:prime-study-job-receipt:v1": "prime-study-job-receipt.schema.json",
+        "urn:marginbench:prime-study-plan:v1": "prime-study-plan.schema.json",
+        "urn:marginbench:prime-study-progress:v1": "prime-study-progress.schema.json",
         "urn:marginbench:reference-run:v1": "reference-run.schema.json",
         "urn:marginbench:reference-study-receipt:v1": "reference-study-receipt.schema.json",
         "urn:marginbench:result:v1": "result.schema.json",
@@ -588,6 +592,43 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 first_positions[first] += 1
         if abs(first_positions[payload["baselineCandidate"]] - first_positions[payload["candidate"]]) > 1:
             errors.append("execution plan candidate-first order is not counterbalanced")
+    elif schema_name == "prime-study-plan.schema.json":
+        if payload["id"] != submission_identifier(payload):
+            errors.append("Prime study plan id does not match its canonical content")
+        if payload["baseline"]["id"] == payload["candidate"]["id"]:
+            errors.append("Prime study plan must identify two distinct candidates")
+        jobs = payload["jobs"]
+        if payload["jobCount"] != len(jobs):
+            errors.append("Prime study plan jobCount does not equal jobs length")
+        if [item["ordinal"] for item in jobs] != list(range(len(jobs))):
+            errors.append("Prime study plan ordinals are not contiguous")
+        if payload["roleProcessCount"] != sum(len(item["roles"]) for item in jobs):
+            errors.append("Prime study plan role-process total is inconsistent")
+        job_ids = [item["id"] for item in jobs]
+        if len(job_ids) != len(set(job_ids)):
+            errors.append("Prime study plan contains duplicate job ids")
+        candidates = {payload["baseline"]["id"], payload["candidate"]["id"]}
+        if any(item["candidateID"] not in candidates for item in jobs):
+            errors.append("Prime study plan job names an unknown candidate")
+        expected_maximum = round(
+            sum(float(item["estimatedMaximumCostUSD"]) for item in jobs),
+            6,
+        )
+        if not _close(expected_maximum, payload["budget"]["estimatedMaximumCostUSD"]):
+            errors.append("Prime study plan aggregate cost does not equal job bounds")
+        if (
+            payload["budget"]["estimatedMaximumCostUSD"]
+            > payload["budget"]["hardAdmissionCapUSD"] + 0.000001
+        ):
+            errors.append("Prime study plan estimate exceeds its hard admission cap")
+    elif schema_name == "prime-study-progress.schema.json":
+        if payload["completedJobs"] > payload["jobCount"]:
+            errors.append("Prime study progress exceeds its job total")
+        if "status" in payload and (
+            payload["completedJobs"] >= payload["jobCount"]
+            or payload["nextOrdinal"] != payload["completedJobs"]
+        ):
+            errors.append("paused Prime study progress has an inconsistent next job")
     elif schema_name == "submission.schema.json":
         if payload["id"] != submission_identifier(payload):
             errors.append("submission id does not match its canonical manifest")

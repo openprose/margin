@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:prime-study-job-receipt:v1",
+  "title": "MarginBench verified paired Prime job receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "planID", "jobID", "ordinal", "candidateID", "episodeID",
+    "summary", "run", "observedWalletDebitUSD", "traceReportedCostUSD",
+    "modelCalls", "safetyPassed", "sourcePreserved", "privacy"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:prime-study-job-receipt:v1"},
+    "planID": {"$ref": "#/$defs/prefixedSha256"},
+    "jobID": {"$ref": "#/$defs/prefixedSha256"},
+    "ordinal": {"type": "integer", "minimum": 0, "maximum": 999},
+    "candidateID": {"type": "string", "minLength": 1, "maxLength": 256},
+    "episodeID": {"type": "string", "minLength": 1, "maxLength": 512},
+    "summary": {"$ref": "#/$defs/evidence"},
+    "run": {"$ref": "#/$defs/evidence"},
+    "observedWalletDebitUSD": {"type": "number", "minimum": 0},
+    "traceReportedCostUSD": {"type": "number", "minimum": 0},
+    "modelCalls": {"type": "integer", "minimum": 0},
+    "safetyPassed": {"type": "boolean"},
+    "sourcePreserved": {"type": "boolean"},
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rawTracesPublished", "credentialsPresent", "holdoutKeyPublished"],
+      "properties": {
+        "rawTracesPublished": {"const": false},
+        "credentialsPresent": {"const": false},
+        "holdoutKeyPublished": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "prefixedSha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string", "minLength": 1, "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

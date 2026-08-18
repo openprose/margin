@@ -277,7 +277,7 @@ class MarginBenchCoreTests(unittest.TestCase):
             self.assertEqual(payload["$schema"], "https://json-schema.org/draft/2020-12/schema")
             self.assertNotIn(payload["$id"], schemas)
             schemas[payload["$id"]] = payload
-        self.assertEqual(len(schemas), 20)
+        self.assertEqual(len(schemas), 24)
 
         try:
             from jsonschema import Draft202012Validator

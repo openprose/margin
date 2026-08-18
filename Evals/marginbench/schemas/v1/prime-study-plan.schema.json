@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:prime-study-plan:v1",
+  "title": "MarginBench budget-bound paired Prime study plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "id", "benchmarkVersion", "benchmarkImplementationSha256",
+    "taskSet", "developmentCases", "controlProfile", "track", "model",
+    "generationKeyID", "studyPlanSha256", "executionPlanSha256", "baseline",
+    "candidate", "limits", "pricing", "budget", "failurePolicy", "jobCount",
+    "roleProcessCount", "jobs"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:prime-study-plan:v1"},
+    "id": {"$ref": "#/$defs/prefixedSha256"},
+    "benchmarkVersion": {"type": "string", "minLength": 1, "maxLength": 128},
+    "benchmarkImplementationSha256": {"$ref": "#/$defs/sha256"},
+    "taskSet": {"type": "string", "minLength": 1, "maxLength": 256},
+    "developmentCases": {"type": "boolean"},
+    "controlProfile": {"type": "string", "minLength": 1, "maxLength": 256},
+    "track": {"const": "interface"},
+    "model": {"type": "string", "minLength": 1, "maxLength": 256},
+    "generationKeyID": {"$ref": "#/$defs/prefixedSha256"},
+    "studyPlanSha256": {"$ref": "#/$defs/sha256"},
+    "executionPlanSha256": {"$ref": "#/$defs/sha256"},
+    "baseline": {"$ref": "#/$defs/candidate"},
+    "candidate": {"$ref": "#/$defs/candidate"},
+    "limits": {"$ref": "#/$defs/limits"},
+    "pricing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputPricePerMillion", "outputPricePerMillion",
+        "billingOverheadUSDPerCall", "source"
+      ],
+      "properties": {
+        "inputPricePerMillion": {"type": "number", "minimum": 0},
+        "outputPricePerMillion": {"type": "number", "minimum": 0},
+        "billingOverheadUSDPerCall": {"type": "number", "minimum": 0, "maximum": 1},
+        "source": {
+          "type": "string", "minLength": 9, "maxLength": 2048,
+          "pattern": "^https://"
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "currency", "estimatedMaximumCostUSD", "hardAdmissionCapUSD",
+        "minimumWalletReserveUSD"
+      ],
+      "properties": {
+        "currency": {"const": "USD"},
+        "estimatedMaximumCostUSD": {"type": "number", "minimum": 0},
+        "hardAdmissionCapUSD": {"type": "number", "exclusiveMinimum": 0, "maximum": 50},
+        "minimumWalletReserveUSD": {"type": "number", "minimum": 0}
+      }
+    },
+    "failurePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "continueAfterIncompleteJob", "automaticPaidRetry", "completedJobReplay",
+        "orphanedAttempt"
+      ],
+      "properties": {
+        "continueAfterIncompleteJob": {"const": false},
+        "automaticPaidRetry": {"const": false},
+        "completedJobReplay": {"const": "verify-and-skip"},
+        "orphanedAttempt": {"const": "stop-for-operator-review"}
+      }
+    },
+    "jobCount": {"type": "integer", "minimum": 2, "maximum": 1000},
+    "roleProcessCount": {"type": "integer", "minimum": 2, "maximum": 32000},
+    "jobs": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ordinal", "id", "episodeID", "scenario", "repetition", "fingerprint",
+          "candidateID", "candidatePosition", "roles", "estimatedMaximumCostUSD"
+        ],
+        "properties": {
+          "ordinal": {"type": "integer", "minimum": 0, "maximum": 999},
+          "id": {"$ref": "#/$defs/prefixedSha256"},
+          "episodeID": {"type": "string", "minLength": 1, "maxLength": 512},
+          "scenario": {"type": "string", "minLength": 1, "maxLength": 256},
+          "repetition": {"type": "integer", "minimum": 0, "maximum": 99},
+          "fingerprint": {"$ref": "#/$defs/sha256"},
+          "candidateID": {"type": "string", "minLength": 1, "maxLength": 256},
+          "candidatePosition": {"type": "integer", "minimum": 0, "maximum": 1},
+          "roles": {
+            "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1, "maxLength": 128}
+          },
+          "estimatedMaximumCostUSD": {"type": "number", "minimum": 0, "maximum": 15}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "prefixedSha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "manifestSha256", "manifestDigest", "marginSha256", "manualSha256",
+        "settingsSha256"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "manifestSha256": {"$ref": "#/$defs/sha256"},
+        "manifestDigest": {"$ref": "#/$defs/sha256"},
+        "marginSha256": {"$ref": "#/$defs/sha256"},
+        "manualSha256": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "settingsSha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxTurns", "maxInputTokens", "maxOutputTokens", "maxTotalTokens",
+        "inputTokenCeilingPerCall", "inputTokenCeilingSource",
+        "upstreamAttemptsPerTurn", "maxTokensPerCall",
+        "maxConcurrent", "rolloutTimeoutSeconds", "wallTimeoutSeconds", "temperature"
+      ],
+      "properties": {
+        "maxTurns": {"type": "integer", "minimum": 1},
+        "maxInputTokens": {"type": "integer", "minimum": 1},
+        "maxOutputTokens": {"type": "integer", "minimum": 1},
+        "maxTotalTokens": {"type": "integer", "minimum": 1},
+        "inputTokenCeilingPerCall": {"type": "integer", "minimum": 1},
+        "inputTokenCeilingSource": {
+          "type": "string", "minLength": 9, "maxLength": 2048,
+          "pattern": "^https://"
+        },
+        "upstreamAttemptsPerTurn": {"type": "integer", "minimum": 1},
+        "maxTokensPerCall": {"type": "integer", "minimum": 1},
+        "maxConcurrent": {"type": "integer", "minimum": 1},
+        "rolloutTimeoutSeconds": {"type": "number", "exclusiveMinimum": 0},
+        "wallTimeoutSeconds": {"type": "number", "exclusiveMinimum": 0},
+        "temperature": {"type": "number", "minimum": 0, "maximum": 2}
+      }
+    }
+  }
+}

@@ -203,6 +203,16 @@ and re-verifies it before atomically exposing the output. That makes scheduling,
 candidate identity, private-key parity, scoring, comparison, and publication a
 single zero-cost CI gate rather than separate assumptions.
 
+The source package also includes `paired_pilot.py`, a dry-by-default controller
+for the corresponding Prime study. It turns the entire execution schedule into
+one immutable, schema-checked cost plan before any paid call. The plan binds the
+two candidate bundles, generation-key ID, model, live limits, price inputs, each
+job's worst-case charge, the whole-study cap, and a wallet reserve. Execution is
+serial and receipt-based: completed jobs are revalidated and skipped on resume;
+an attempt without complete trustworthy evidence stops for operator review and
+is never retried automatically. `--max-new-jobs 1` provides a cheap first-job
+gate before continuing the remaining schedule.
+
 ## Contamination policy
 
 Public seeds and task generators are deliberately available for development, so
@@ -262,9 +272,9 @@ x86-64, and Linux arm64. Margin 0.3.2 passes 164 macOS tests and 112 portable
 Linux tests; a repeat x86-64 build is byte-for-byte identical. The Verifiers v1
 adapter completes the whole five-case local fake-agent matrix at 100 with only
 one exposed tool. The installable manylinux wheel and source archive also pass
-their tests in clean containers. The system Python runtime passes 32 benchmark
-contracts with five Prime-only skips; Prime's runtime passes all 37. The wheel
-bundles all 20 schemas.
+their tests in clean containers. The system Python runtime passes 35 benchmark
+contracts with five Prime-only skips; Prime's runtime passes all 40. The wheel
+bundles all 24 schemas.
 
 Real Qwen Flash runs exercised every family. The initial human-relay smoke
 scored 25; successive general CLI guidance improvements reached the exact

@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 03:00 ET
+Last updated: 2026-08-18 03:23 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -129,6 +129,10 @@ Rules:
   calibration exposed concrete failures.
 - [x] Stop on infrastructure ambiguity, vacuous scoring, or safety leakage and
   repair locally before spending again.
+- [x] Add a whole-study controller that is dry by default, protects an explicit
+  wallet reserve, can pause after one newly completed job, resumes only from a
+  verified contiguous receipt prefix, and never retries an uncertain paid
+  attempt automatically.
 
 ### 7. Publishable benchmark foundation
 
@@ -338,6 +342,31 @@ The phase is successful if the repository contains:
   `8d5b5676d271d6d4929bca8fb6ea7e8c2a9c2a057952fcab190282b4433a81a4`;
   the source archive is
   `ad6aacbf35d370a59a29c94c4c7a7f0d7973187590dfa6a0ff09e54872902445`.
+- 2026-08-18 03:15 ET — Added the paired Prime study controller without making
+  another model call. Its immutable public plan binds both candidate manifests
+  and executables, the exact job schedule, generation-key ID, model, all live
+  limits, provider prices, per-job worst cases, whole-study cap, and minimum
+  wallet reserve. The executor holds one controller lock, checks the wallet
+  against the remaining worst case before each job, writes an attempt marker
+  before starting inference, validates matching redacted summary/run bytes
+  before writing a resumable receipt, refuses noncontiguous state, and performs
+  no automatic paid retry. A fake-child integration stopped after one job,
+  resumed at job two, produced a verified submission, and then replayed without
+  reading the wallet or launching a child. An uncertain unreceipted attempt
+  blocked the second invocation before wallet or process access. A complete
+  private dry plan contains 40 jobs and 72 role processes, omits the key value,
+  preserves an $80 reserve, and computes a $6.423192 worst case from the
+  provisional 65,536-token assumption. Candidate inputs and the private key are
+  copied into the mode-0700 ignored work area and digest-checked before any paid
+  call, so later jobs and publication cannot drift with the original paths. The
+  system runtime passes 35 tests with five Prime-only skips; Prime passes all 40. No
+  balance change or model call was made. The frozen benchmark implementation
+  digest is
+  `c0be396d17869a96035389d7e782f0f37132b4d86d185df36217792fa12d1af2`.
+  The clean-Linux verified wheel is
+  `609ce9ffa6aa300c41c9ee687c59f55472fe021b1e327b4e5a4e18494addb632`;
+  the source archive is
+  `d078228427b5afa4856240d09bbd865edd0ee6c81c15eec1a428106bd5f1f5ab`.
 
 ## Next statistically useful paid run
 
@@ -349,13 +378,16 @@ AB/BA ordering. That is the smallest default study eligible for promotion.
 At Qwen Flash's current API price of $0.03/M input tokens and $0.13/M output
 tokens, a **provisional** 65,536-input-token ceiling, 2,400 output tokens,
 12 turns, three possible upstream attempts per turn, and $0.0002 rounding
-allowance gives a conservative bound of $3.211592 per candidate or $6.423184
+allowance gives a conservative bound of $3.211596 per candidate or $6.423192
 for the pair. This is well inside Gate 3's $50 envelope and far above observed
 cost, which is intentional. It is not execution-ready until Prime or the model
 publisher documents that 65,536-token per-call ceiling. Prime's current Models
-API exposes price but not context length, so substituting an assumed value would
-repeat the billing-bound error already caught here. No broader paid run should
-start until that contract fact is verified and a no-model plan is reviewed.
+API exposes price but not context length, and a fresh official-source search did
+not identify a specification for this exact served model, so substituting an
+assumed value would repeat the billing-bound error already caught here. The new
+paired controller is ready to calculate, reserve, serialize, pause, resume, and
+publish the study once that contract fact is verified; until then it remains in
+dry-run/fake-child mode.
 
 ## Decisions still to earn with evidence
 
