@@ -222,13 +222,16 @@ or the holdout key. The deterministic execution planner expands those pairs to
 rules. Prime can select each exact repetition rather than regenerating index
 zero, and a frozen candidate manifest must match the executable. For private
 runs, the taskset consumes the mode-0600 holdout key from its environment before
-agent subprocesses start; only its one-way ID is published. The runnable primary
-control is role-separated collaboration through Margin alone. Single-agent,
-plain-Markdown, Margin-plus-shell, and no-exchange controls are specified
-publicly but refuse to run until their identity, scoring, and isolation rules
-are implemented; they cannot silently enter the main track. `marginbench
-controls` reports their remaining release gates in structured form. Their exact
-fairness and release contract is in `Docs/MARGINBENCH_CONTROLS.md`.
+agent subprocesses start; only its one-way ID is published. The runnable
+controls are role-separated Margin collaboration and the compute-matched single
+continuing Margin agent. Plain-Markdown, Margin-plus-shell, and no-exchange
+controls are specified publicly but refuse to run until their scoring and
+isolation rules are implemented; they cannot silently enter the main track.
+`marginbench controls` reports their remaining release gates in structured
+form. Their exact fairness and release contract is in
+[`MARGINBENCH_CONTROLS.md`](MARGINBENCH_CONTROLS.md); the first neutral-fact
+design for the ordinary-Markdown comparison is in
+[`MARGINBENCH_NEUTRAL_OUTCOMES.md`](MARGINBENCH_NEUTRAL_OUTCOMES.md).
 
 The same schedule is exercised end to end without a model by
 `marginbench reference-study`. It runs both frozen binaries through the real
