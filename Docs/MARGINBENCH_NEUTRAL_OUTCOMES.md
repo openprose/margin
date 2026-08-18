@@ -44,6 +44,8 @@ human-readable record shape:
 ```markdown
 # Collaboration
 
+Format: marginbench-neutral-v1
+
 ## FACT_ID
 
 - Kind: issue
@@ -68,6 +70,9 @@ Exact Markdown body.
 ```
 
 Records are ordered by ID for deterministic rewrites. `none` is literal.
+The exact format marker is required; unknown versions fail closed instead of
+being interpreted as v1. Line endings are LF and the file is UTF-8 without a
+byte-order mark.
 Single-value fields occupy exactly one line; generated identifiers and source
 passages never contain line breaks. `Body bytes` is the exact UTF-8 byte length
 after the blank line following `### Body`; the next record begins only after
