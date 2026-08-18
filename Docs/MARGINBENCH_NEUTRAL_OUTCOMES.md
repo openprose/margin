@@ -106,6 +106,26 @@ status, relationship, and expected-text fields. Every scalar satisfied the v1
 single-line rule. This supports the shape but does not substitute for the
 parser and adversarial gates below.
 
+## Deterministic projection order
+
+The eventual parser should operate on bytes, not a forgiving rendered-Markdown
+tree:
+
+1. Require canonical UTF-8/LF bytes, the exact heading, and the v1 marker.
+2. Read each level-two ID and every required single-line field exactly once.
+3. Parse the nonnegative body length, then consume exactly that many UTF-8
+   bytes after the body heading.
+4. Require the canonical separator or end of file; never search through body
+   text for the next record.
+5. Validate IDs, paths, enums, actor provenance, parent/root relationships,
+   cycles, and task-specific fields before emitting any facts.
+6. Sort canonical facts by ID and encode them with the versioned neutral schema.
+7. Join the trusted write events by fact ID only after both inputs validate.
+
+Parsing is all-or-nothing. Diagnostics may report a bounded byte offset and
+stable error code, but may not include private body text or silently recover a
+partial ledger.
+
 ## Comparable checks
 
 The common score contains only checks available to both representations:
