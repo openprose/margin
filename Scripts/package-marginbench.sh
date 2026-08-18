@@ -97,13 +97,24 @@ wheel_metadata="$(unzip -p "$wheel" '*/WHEEL')"
     exit 65
 }
 
-mkdir -p "$STAGING_DIR/site"
-unzip -q "$wheel" -d "$STAGING_DIR/site"
+python_verify_image="python:3.13-slim-bookworm@sha256:00faa2debb87529f9f0764e9491d8ba400a3678976616c3bd7cb193745ac20d1"
 docker run --platform linux/amd64 --rm \
-    -v "$STAGING_DIR/site:/package:ro" \
-    -e PYTHONPATH=/package \
-    swift:5.10-jammy \
-    python3 -m marginbench.cli self-test
+    -v "$STAGING_DIR/dist:/dist:ro" \
+    -e MARGINBENCH_WHEEL="/dist/${wheel:t}" \
+    -e PYTHONDONTWRITEBYTECODE=1 \
+    -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    -e PIP_ROOT_USER_ACTION=ignore \
+    "$python_verify_image" \
+    bash -lc '
+        set -euo pipefail
+        python -m pip install --quiet --no-cache-dir "jsonschema>=4.23,<5"
+        python -m pip install --quiet --no-cache-dir --no-deps "$MARGINBENCH_WHEEL"
+        marginbench self-test
+        marginbench reference --scenario human_agent_relay > /tmp/reference.json
+        marginbench diagnose /tmp/reference.json > /tmp/diagnostic.json
+        marginbench validate /tmp/diagnostic.json > /tmp/validation.json
+        python3 -c '\''import json; value=json.load(open("/tmp/diagnostic.json")); assert value["topOpportunity"] == "no-ranked-defect"'\''
+    '
 
 mkdir -p "$STAGING_DIR/source"
 /usr/bin/tar -xzf "$source_archive" -C "$STAGING_DIR/source"

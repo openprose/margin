@@ -26,6 +26,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from marginbench.candidates import paired_compare  # noqa: E402
+from marginbench.diagnostics import DiagnosticError, diagnose_artifacts  # noqa: E402
 from marginbench.keys import read_holdout_key  # noqa: E402
 from marginbench.prime_study import (  # noqa: E402
     PrimeStudyError,
@@ -397,6 +398,14 @@ def _final_receipt(output: Path, plan: dict[str, Any], receipts: list[dict[str, 
     if not verification["valid"]:
         raise PrimeStudyError("Completed publication bundle does not verify.")
     submission = json.loads((output / "submission.json").read_bytes())
+    diagnostic, diagnostic_raw = _read_json(
+        output / "diagnostic.json",
+        "urn:marginbench:diagnostic-report:v1",
+    )
+    diagnostic_inputs = sorted(item["sha256"] for item in diagnostic["artifacts"])
+    submission_runs = sorted(item["sha256"] for item in submission["runs"])
+    if diagnostic_inputs != submission_runs:
+        raise PrimeStudyError("Completed diagnostic report does not cover the published runs.")
     return _validated_receipt({
         "schema": "urn:marginbench:prime-study-completion:v1",
         "completed": True,
@@ -415,6 +424,11 @@ def _final_receipt(output: Path, plan: dict[str, Any], receipts: list[dict[str, 
         "allSafe": all(item["safetyPassed"] for item in receipts),
         "allSourcePreserved": all(item["sourcePreserved"] for item in receipts),
         "submissionID": submission["id"],
+        "diagnostic": {
+            "path": "diagnostic.json",
+            "sha256": hashlib.sha256(diagnostic_raw).hexdigest(),
+            "topOpportunity": diagnostic["topOpportunity"],
+        },
         "verified": True,
         "output": str(output),
     })
@@ -485,6 +499,14 @@ def _finalize(
         if not verification["valid"]:
             raise PrimeStudyError("Generated paid-study submission failed verification.")
         (staging / "verification.json").write_bytes(canonical_json(verification))
+        try:
+            diagnostic = diagnose_artifacts([staging / relative for relative in run_relatives])
+        except DiagnosticError as error:
+            raise PrimeStudyError("Generated paid-study diagnosis failed.") from error
+        diagnostic_raw = canonical_json(diagnostic)
+        if not validate_bytes(diagnostic_raw)["valid"]:
+            raise PrimeStudyError("Generated paid-study diagnosis failed validation.")
+        (staging / "diagnostic.json").write_bytes(diagnostic_raw)
         os.replace(staging, output)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)

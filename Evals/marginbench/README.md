@@ -96,6 +96,30 @@ An installed Linux package may simply run `marginbench self-test`; it discovers
 its bundled executable, verifies the binary against the embedded manifest, and
 never downloads code at runtime.
 
+## Turn results into the next interface experiment
+
+`marginbench diagnose` accepts one or more validated result, redacted run, or
+Prime summary artifacts and ranks the concrete failure classes worth addressing:
+
+```sh
+marginbench diagnose baseline-run.json candidate-run.json > diagnosis.json
+marginbench validate diagnosis.json
+```
+
+The report separates safety, incomplete durable work, missed recovery, invalid
+command forms, attribution, interaction count, and early agent stops. It breaks
+the evidence down by candidate and scenario, recommends changing one interface
+surface at a time, and requires at least 20 matched private episodes before an
+ordinary promotion. Any safety or source-integrity failure instead sends the
+candidate back to local testing with no paid expansion.
+
+Diagnostics read each input once with the normal 16 MiB bound. They retain only
+artifact digests, scores, checks, command-path/error counts, and public case IDs;
+they do not retain artifact paths, document text, prompts, raw traces, or keys.
+The paired Prime controller creates `diagnostic.json` automatically when a study
+finishes, verifies that it covers exactly the published redacted runs, and binds
+its digest and top-ranked opportunity into the completion receipt.
+
 ## Validate publication artifacts
 
 Every current publication format has a bundled JSON Schema plus bounded

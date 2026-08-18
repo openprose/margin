@@ -103,6 +103,7 @@ def _schema_name(payload: Any) -> tuple[str, str]:
         "urn:marginbench:binary-manifest:v1": "binary-manifest.schema.json",
         "urn:marginbench:candidate:v1": "candidate.schema.json",
         "urn:marginbench:control-catalog:v1": "control-catalog.schema.json",
+        "urn:marginbench:diagnostic-report:v1": "diagnostic-report.schema.json",
         "urn:marginbench:experiment-ledger:v1": "experiment-ledger.schema.json",
         "urn:marginbench:execution-plan:v1": "execution-plan.schema.json",
         "urn:marginbench:paired-comparison:v1": "paired-comparison.schema.json",
@@ -497,6 +498,88 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         default = next((item for item in profiles if item["id"] == payload["default"]), None)
         if default is not None and default["status"] != "implemented":
             errors.append("default control profile is not implemented")
+    elif schema_name == "diagnostic-report.schema.json":
+        if payload["artifactCount"] != len(payload["artifacts"]):
+            errors.append("diagnostic artifactCount does not equal artifacts length")
+        if payload["candidateCount"] != len(payload["candidates"]):
+            errors.append("diagnostic candidateCount does not equal candidates length")
+        if payload["scenarioCount"] != len(payload["scenarios"]):
+            errors.append("diagnostic scenarioCount does not equal scenarios length")
+        candidate_episodes = sum(item["episodeCount"] for item in payload["candidates"])
+        scenario_episodes = sum(item["episodeCount"] for item in payload["scenarios"])
+        if candidate_episodes != payload["episodeCount"]:
+            errors.append("diagnostic candidate episode totals are inconsistent")
+        if scenario_episodes != payload["episodeCount"]:
+            errors.append("diagnostic scenario episode totals are inconsistent")
+        if sum(item["commandCount"] for item in payload["candidates"]) != payload["commandCount"]:
+            errors.append("diagnostic command total is inconsistent")
+        if sum(item["invalidCommandCount"] for item in payload["candidates"]) != payload["invalidCommandCount"]:
+            errors.append("diagnostic invalid-command total is inconsistent")
+        if sum(item["safetyFailureCount"] for item in payload["candidates"]) != payload["safetyFailureCount"]:
+            errors.append("diagnostic safety-failure total is inconsistent")
+        if sum(item["sourceFailureCount"] for item in payload["candidates"]) != payload["sourceFailureCount"]:
+            errors.append("diagnostic source-failure total is inconsistent")
+        overall_failed = {item["name"]: item["count"] for item in payload["failedChecks"]}
+        candidate_failed: dict[str, int] = {}
+        for candidate in payload["candidates"]:
+            for item in candidate["failedChecks"]:
+                candidate_failed[item["name"]] = candidate_failed.get(item["name"], 0) + item["count"]
+        if candidate_failed != overall_failed:
+            errors.append("diagnostic failed-check totals are inconsistent")
+        candidate_ids = [item["candidateID"] for item in payload["candidates"]]
+        scenario_ids = [item["scenario"] for item in payload["scenarios"]]
+        if len(candidate_ids) != len(set(candidate_ids)):
+            errors.append("diagnostic report contains duplicate candidate IDs")
+        if len(scenario_ids) != len(set(scenario_ids)):
+            errors.append("diagnostic report contains duplicate scenario IDs")
+        score_summary = payload["scoreSummary"]
+        weighted_score = sum(
+            item["meanScore"] * item["episodeCount"] for item in payload["candidates"]
+        ) / payload["episodeCount"]
+        if not _close(weighted_score, score_summary["mean"]):
+            errors.append("diagnostic mean score is inconsistent")
+        if not _close(min(item["minimumScore"] for item in payload["candidates"]), score_summary["minimum"]):
+            errors.append("diagnostic minimum score is inconsistent")
+        if not _close(max(item["maximumScore"] for item in payload["candidates"]), score_summary["maximum"]):
+            errors.append("diagnostic maximum score is inconsistent")
+        for dimension, overall in payload["dimensionMeans"].items():
+            if any(dimension not in item["dimensionMeans"] for item in payload["candidates"]):
+                errors.append(f"diagnostic candidate is missing dimension: {dimension}")
+                continue
+            weighted = sum(
+                item["dimensionMeans"][dimension] * item["episodeCount"]
+                for item in payload["candidates"]
+            ) / payload["episodeCount"]
+            if not _close(weighted, overall):
+                errors.append(f"diagnostic dimension mean is inconsistent: {dimension}")
+        for item in (*payload["candidates"], *payload["scenarios"]):
+            if not item["minimumScore"] <= item["meanScore"] <= item["maximumScore"]:
+                errors.append("diagnostic group score ordering is inconsistent")
+            expected_mean_commands = item["commandCount"] / item["episodeCount"]
+            if not _close(expected_mean_commands, item["meanCommandCount"]):
+                errors.append("diagnostic group mean command count is inconsistent")
+        findings = payload["findings"]
+        finding_ids = [item["id"] for item in findings]
+        if len(finding_ids) != len(set(finding_ids)):
+            errors.append("diagnostic report contains duplicate finding IDs")
+        if payload["topOpportunity"] != finding_ids[0]:
+            errors.append("diagnostic topOpportunity is not the first ranked finding")
+        severity_order = {"critical": 0, "high": 1, "medium": 2, "info": 3}
+        severities = [severity_order[item["severity"]] for item in findings]
+        if severities != sorted(severities):
+            errors.append("diagnostic findings are not ranked by severity")
+        for finding in findings:
+            evidence = finding["evidence"]
+            if evidence["episodeCount"] > payload["episodeCount"]:
+                errors.append("diagnostic finding exceeds the report episode count")
+            if evidence["invalidCommandCount"] > payload["invalidCommandCount"]:
+                errors.append("diagnostic finding exceeds the report invalid-command count")
+        experiment = payload["recommendedNextExperiment"]
+        local_gate = payload["safetyFailureCount"] > 0 or payload["sourceFailureCount"] > 0
+        if experiment["gate"] != ("local-safety" if local_gate else "matched-private-pairs"):
+            errors.append("diagnostic experiment gate disagrees with safety totals")
+        if experiment["minimumMatchedEpisodes"] != (0 if local_gate else 20):
+            errors.append("diagnostic minimum matched episodes disagrees with its gate")
     elif schema_name == "binary-manifest.schema.json":
         artifacts = payload["artifacts"]
         for field in ("architecture", "platform", "path"):

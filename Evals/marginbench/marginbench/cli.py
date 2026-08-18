@@ -12,6 +12,7 @@ from pathlib import Path
 from .binary import resolve_margin_binary
 from .candidates import CandidateManifest, load_results, paired_compare
 from .controls import control_catalog
+from .diagnostics import DiagnosticError, diagnose_artifacts
 from .entropy import PUBLIC_DEVELOPMENT_KEY
 from .keys import create_holdout_key
 from .reference_study import ReferenceStudyError, run_reference_study
@@ -148,6 +149,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     validate.add_argument("artifact", help="JSON artifact path, or - for bounded stdin")
 
+    diagnose = subparsers.add_parser(
+        "diagnose",
+        help="rank privacy-preserving CLI and workflow opportunities from redacted results",
+    )
+    diagnose.add_argument(
+        "artifact",
+        type=Path,
+        nargs="+",
+        help="validated result, reference run, redacted run, or Prime summary",
+    )
+
     submission = subparsers.add_parser(
         "submission",
         help="create or verify a digest-bound cross-artifact leaderboard submission",
@@ -272,6 +284,12 @@ def main(argv: list[str] | None = None) -> int:
         receipt = validate_artifact(Path(arguments.artifact))
         _write(receipt)
         return 0 if receipt["valid"] else 65
+    if arguments.command == "diagnose":
+        try:
+            _write(diagnose_artifacts(arguments.artifact))
+        except DiagnosticError as error:
+            raise SystemExit(str(error)) from error
+        return 0
     if arguments.command == "submission":
         if arguments.submission_command == "verify":
             receipt = verify_submission(arguments.manifest)

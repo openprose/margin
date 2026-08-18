@@ -181,6 +181,19 @@ The resulting receipt proves internal consistency of the published bytes; it
 does not authenticate the submitter or prove the order in which candidates
 were actually executed.
 
+The same redacted evidence now drives the interface feedback loop through
+`marginbench diagnose`. It ranks safety and document integrity first, then
+missing durable outcomes, recovery, command discoverability, attribution,
+interaction count, and exhausted agent budgets. Candidate and scenario
+summaries expose whether a proposed CLI/manual/settings change fixed the target
+without changing the model, private cases, role layout, or limits. Reports are
+themselves schema-checked artifacts and contain no source text, prompt, raw
+trace, key, or local artifact path. Safe candidates are directed to a minimum
+20-case matched private comparison; unsafe candidates are directed back to free
+local reproduction. Completed paired Prime studies create this report
+automatically, require it to cover exactly the published redacted runs, and bind
+its digest and top-ranked opportunity into the completion receipt.
+
 ## Leaderboard tracks
 
 Results should not collapse unlike interventions into one ranking:
@@ -288,9 +301,9 @@ on macOS, Linux x86-64, and Linux arm64. Margin 0.3.2 passes 164 macOS tests and
 112 portable Linux tests; a repeat x86-64 build is byte-for-byte identical. The Verifiers v1
 adapter completes the whole six-case local fake-agent matrix at 100 with only
 one exposed tool. The installable manylinux wheel and source archive also pass
-their tests in clean containers. The system Python runtime passes 37 benchmark
-contracts with six Prime-only skips; Prime's runtime passes all 43. The wheel
-bundles all 24 schemas.
+their tests in clean containers. The system Python runtime passes 38 benchmark
+contracts with six Prime-only skips; Prime's runtime passes all 44. The wheel
+bundles all 25 schemas.
 
 Real Qwen Flash runs exercised the original five families; the new directory
 handoff has deliberately only used no-model gates so far. The initial human-relay smoke

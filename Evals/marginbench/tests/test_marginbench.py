@@ -15,6 +15,7 @@ from unittest.mock import patch
 from marginbench.binary import resolve_margin_binary, validate_packaged_binary
 from marginbench.candidates import CandidateManifest, load_results, paired_compare
 from marginbench.controls import DEFAULT_CONTROL_PROFILE, control_catalog, require_implemented_profile
+from marginbench.diagnostics import DiagnosticError, diagnose_artifacts
 from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY
 from marginbench.fake_model import scripted_response
 from marginbench.gateway import MarginGateway
@@ -23,7 +24,7 @@ from marginbench.provenance import implementation_files, implementation_sha256
 from marginbench.reference_study import ReferenceStudyError, run_reference_study
 from marginbench.runner import ReferenceDriver, run_episode
 from marginbench.scenarios import SCENARIO_IDS, generate_episode
-from marginbench.schema import Actor, CommandEvent, EpisodeResult
+from marginbench.schema import Actor, CommandEvent, EpisodeResult, canonical_json
 from marginbench.scorer import score_episode
 from marginbench.scheduling import build_execution_plan
 from marginbench.studies import build_study_plan
@@ -290,7 +291,7 @@ class MarginBenchCoreTests(unittest.TestCase):
             self.assertEqual(payload["$schema"], "https://json-schema.org/draft/2020-12/schema")
             self.assertNotIn(payload["$id"], schemas)
             schemas[payload["$id"]] = payload
-        self.assertEqual(len(schemas), 24)
+        self.assertEqual(len(schemas), 25)
 
         try:
             from jsonschema import Draft202012Validator
@@ -919,6 +920,64 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertFalse(oversized["valid"])
         self.assertEqual(oversized["error"]["code"], "ARTIFACT_TOO_LARGE")
         self.assertIsNone(oversized["sha256"])
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_diagnostics_rank_actionable_failures_without_private_content(self) -> None:
+        source = PACKAGE_ROOT / "results" / "PRIME_GATE2_CONCURRENT_V7.json"
+        report = diagnose_artifacts([source])
+        self.assertEqual(report["episodeCount"], 1)
+        self.assertEqual(report["topOpportunity"], "command-discoverability")
+        self.assertEqual(report["invalidCommandCount"], 1)
+        self.assertEqual(report["findings"][0]["severity"], "high")
+        self.assertEqual(report["recommendedNextExperiment"]["gate"], "matched-private-pairs")
+        self.assertFalse(report["privacy"]["documentContentRetained"])
+        encoded = canonical_json(report)
+        self.assertNotIn(str(source).encode("utf-8"), encoded)
+        validation = validate_bytes(encoded)
+        self.assertTrue(validation["valid"], validation["errors"])
+        self.assertEqual(validation["artifactSchema"], "urn:marginbench:diagnostic-report:v1")
+
+        with self.assertRaisesRegex(DiagnosticError, "repeat a candidate/episode pair"):
+            diagnose_artifacts([source, source])
+
+        broken = dict(report)
+        broken["topOpportunity"] = "not-the-ranked-finding"
+        invalid = validate_bytes(canonical_json(broken))
+        self.assertFalse(invalid["valid"])
+        self.assertTrue(any("topOpportunity" in error for error in invalid["errors"]))
+
+        unsafe = EpisodeResult(
+            episode_id="human_agent_relay:9:" + "b" * 12,
+            candidate_id="unsafe-test-candidate",
+            score=25.0,
+            dimensions={
+                "outcome": 100.0,
+                "integrity": 0.0,
+                "protocol": 100.0,
+                "recovery": 100.0,
+                "efficiency": 100.0,
+            },
+            checks={
+                "source_expected": False,
+                "valid_documents": False,
+                "all_or_none": True,
+                "workspace_policy": True,
+            },
+            command_count=0,
+            invalid_command_count=0,
+            duration_ms=1.0,
+            safety_passed=False,
+            source_preserved=False,
+            margin_sha256="0" * 64,
+        )
+        with tempfile.TemporaryDirectory(prefix="marginbench-diagnostic-test-") as temporary:
+            unsafe_path = Path(temporary) / "unsafe.json"
+            unsafe_path.write_bytes(canonical_json(unsafe.to_dict()))
+            unsafe_report = diagnose_artifacts([unsafe_path])
+        self.assertEqual(unsafe_report["topOpportunity"], "safety-or-integrity")
+        self.assertEqual(unsafe_report["recommendedNextExperiment"]["gate"], "local-safety")
+        self.assertEqual(unsafe_report["recommendedNextExperiment"]["minimumMatchedEpisodes"], 0)
+        self.assertTrue(validate_bytes(canonical_json(unsafe_report))["valid"])
 
     @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
     def test_run_manifest_validation_recomputes_cost_and_rejects_tampering(self) -> None:

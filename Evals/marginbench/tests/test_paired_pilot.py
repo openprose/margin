@@ -342,6 +342,11 @@ class PairedPrimeControllerTests(unittest.TestCase):
             self.assertEqual(len(calls), 2)
             self.assertTrue(validate_bytes(canonical_json(completed))["valid"])
             self.assertTrue(verify_submission(arguments.publication_dir / "submission.json")["valid"])
+            diagnostic_path = arguments.publication_dir / "diagnostic.json"
+            self.assertTrue(validate_artifact(diagnostic_path)["valid"])
+            diagnostic = json.loads(diagnostic_path.read_bytes())
+            self.assertEqual(completed["diagnostic"]["topOpportunity"], diagnostic["topOpportunity"])
+            self.assertFalse(diagnostic["privacy"]["rawTracesRequired"])
             receipts = sorted((arguments.work_dir / "redacted" / "jobs").glob("*.receipt.json"))
             self.assertEqual(len(receipts), 2)
             self.assertTrue(all(validate_artifact(path)["valid"] for path in receipts))
@@ -359,6 +364,20 @@ class PairedPrimeControllerTests(unittest.TestCase):
             )
             self.assertEqual(replay["submissionID"], completed["submissionID"])
             self.assertEqual(len(calls), 2)
+
+            diagnostic_path.write_bytes(b"{}")
+            with self.assertRaisesRegex(Exception, "artifact is invalid"):
+                execute_study(
+                    arguments,
+                    plan,
+                    wallet_reader=lambda _: self.fail("tampered replay must not read the wallet"),
+                    child_runner=lambda *_args, **_kwargs: self.fail(
+                        "tampered replay must not start a child"
+                    ),
+                    start_claimer=lambda *_, **__: self.fail(
+                        "tampered replay must not claim a paid start"
+                    ),
+                )
 
     def test_dry_cli_emits_the_exact_valid_plan_without_creating_work_state(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-paired-dry-cli-") as temporary:

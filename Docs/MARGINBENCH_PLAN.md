@@ -433,6 +433,31 @@ The phase is successful if the repository contains:
   `d72be45bd1bb51b51d83ee07c2dc34f864fc602eb6ab8cb7b04294ee5b6bc133`;
   the source archive is
   `fa2addb0d5f0197043c314e53e39cdbf8881d79748aeec89decdfb07bb851aa8`.
+- 2026-08-18 04:23 ET — Added the deterministic feedback step needed to turn
+  benchmark evidence into disciplined interface experiments. `marginbench
+  diagnose` accepts validated results and redacted run summaries, reads each
+  once within the 16 MiB bound, and ranks safety/integrity, missing durable work,
+  stale recovery, command discoverability, attribution, interaction count, and
+  exhausted agent budgets. It reports bounded candidate/scenario breakdowns and
+  holds model, cases, roles, and limits constant while recommending one surface
+  change. Any safety failure blocks paid expansion; an ordinary candidate is
+  directed to at least 20 matched private cases. The report retains no document
+  text, prompt, raw trace, key, or local artifact path and is itself the 25th
+  schema-checked public format. Earlier valid paid evidence correctly ranks a
+  missing durable result above invalid command forms and excess interaction.
+  Completed paired Prime studies now create this report automatically, prove it
+  covers exactly the submission's redacted runs, and bind its digest and first
+  opportunity into the completion receipt; tampering makes replay fail before
+  wallet or model access. The wheel was installed—not merely unpacked—on pinned
+  Python 3.13 Linux and completed self-test, diagnosis, and validation; the clean
+  source archive passes 44 tests with 20 expected optional/runtime skips. The
+  system runtime passes 38 contracts with six Prime-only skips and Prime passes
+  all 44. No paid model was called. The implementation digest is
+  `65f11a2e7d9771552c99b0659635e32b7ecb70e0835b760f56cbab65d18ecf72`.
+  The Linux-verified wheel is
+  `a6ced81d1d5ae5831a09df7fe8eae07a41f8843685d51b93c0d83f24c0a01f11`;
+  the source archive is
+  `3e923497ad5bd12546f76978cf3ddc9e14c2790dcdf6d89ffbc84fc2523b3550`.
 
 ## Next statistically useful paid run
 

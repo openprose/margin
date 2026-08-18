@@ -7,7 +7,7 @@
   "required": [
     "schema", "completed", "paidModelsInvoked", "planID", "jobCount",
     "observedWalletDebitUSD", "traceReportedCostUSD", "modelCalls", "allSafe",
-    "allSourcePreserved", "submissionID", "verified", "output"
+    "allSourcePreserved", "submissionID", "diagnostic", "verified", "output"
   ],
   "properties": {
     "schema": {"const": "urn:marginbench:prime-study-completion:v1"},
@@ -21,6 +21,16 @@
     "allSafe": {"type": "boolean"},
     "allSourcePreserved": {"type": "boolean"},
     "submissionID": {"$ref": "#/$defs/prefixedSha256"},
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "topOpportunity"],
+      "properties": {
+        "path": {"const": "diagnostic.json"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "topOpportunity": {"type": "string", "minLength": 1, "maxLength": 128}
+      }
+    },
     "verified": {"const": true},
     "output": {"type": "string", "minLength": 1, "maxLength": 4096}
   },

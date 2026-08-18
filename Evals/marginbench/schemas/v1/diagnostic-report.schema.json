@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:diagnostic-report:v1",
+  "title": "MarginBench privacy-preserving diagnostic report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "artifactCount", "artifacts", "episodeCount", "candidateCount",
+    "scenarioCount", "scoreSummary", "safetyFailureCount", "sourceFailureCount",
+    "commandCount", "invalidCommandCount", "blockedCommandCount", "dimensionMeans",
+    "failedChecks", "errorCodes", "failingCommandPaths", "stopConditions",
+    "candidates", "scenarios", "findings", "topOpportunity",
+    "recommendedNextExperiment", "privacy"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:diagnostic-report:v1"},
+    "artifactCount": {"type": "integer", "minimum": 1, "maximum": 128},
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "sha256", "byteCount"],
+        "properties": {
+          "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "byteCount": {"type": "integer", "minimum": 1, "maximum": 16777216}
+        }
+      }
+    },
+    "episodeCount": {"type": "integer", "minimum": 1, "maximum": 10000},
+    "candidateCount": {"type": "integer", "minimum": 1, "maximum": 128},
+    "scenarioCount": {"type": "integer", "minimum": 1, "maximum": 128},
+    "scoreSummary": {"$ref": "#/$defs/scoreSummary"},
+    "safetyFailureCount": {"type": "integer", "minimum": 0},
+    "sourceFailureCount": {"type": "integer", "minimum": 0},
+    "commandCount": {"type": "integer", "minimum": 0},
+    "invalidCommandCount": {"type": "integer", "minimum": 0},
+    "blockedCommandCount": {"type": "integer", "minimum": 0},
+    "dimensionMeans": {"$ref": "#/$defs/dimensions"},
+    "failedChecks": {"$ref": "#/$defs/counts"},
+    "errorCodes": {"$ref": "#/$defs/counts"},
+    "failingCommandPaths": {"$ref": "#/$defs/counts"},
+    "stopConditions": {"$ref": "#/$defs/counts"},
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {"$ref": "#/$defs/groupSummary"}
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {"$ref": "#/$defs/scenarioSummary"}
+    },
+    "findings": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "items": {"$ref": "#/$defs/finding"}
+    },
+    "topOpportunity": {"type": "string", "minLength": 1, "maxLength": 128},
+    "recommendedNextExperiment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate", "hypothesis", "changeOneSurfaceAtATime", "holdConstant",
+        "minimumMatchedEpisodes"
+      ],
+      "properties": {
+        "gate": {"enum": ["local-safety", "matched-private-pairs"]},
+        "hypothesis": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "changeOneSurfaceAtATime": {"const": true},
+        "holdConstant": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 128}
+        },
+        "minimumMatchedEpisodes": {"type": "integer", "minimum": 0, "maximum": 10000}
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "documentContentRetained", "promptsRetained", "rawTracesRequired",
+        "artifactPathsRetained"
+      ],
+      "properties": {
+        "documentContentRetained": {"const": false},
+        "promptsRetained": {"const": false},
+        "rawTracesRequired": {"const": false},
+        "artifactPathsRetained": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "scoreSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mean", "minimum", "maximum"],
+      "properties": {
+        "mean": {"type": "number", "minimum": 0, "maximum": 100},
+        "minimum": {"type": "number", "minimum": 0, "maximum": 100},
+        "maximum": {"type": "number", "minimum": 0, "maximum": 100}
+      }
+    },
+    "dimensions": {
+      "type": "object",
+      "maxProperties": 32,
+      "additionalProperties": {"type": "number", "minimum": 0, "maximum": 100}
+    },
+    "count": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "count"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "count": {"type": "integer", "minimum": 1, "maximum": 10000000}
+      }
+    },
+    "counts": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {"$ref": "#/$defs/count"}
+    },
+    "groupSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateID", "episodeCount", "meanScore", "minimumScore", "maximumScore",
+        "commandCount", "meanCommandCount", "invalidCommandCount", "safetyFailureCount",
+        "sourceFailureCount", "dimensionMeans", "failedChecks"
+      ],
+      "properties": {
+        "candidateID": {"type": "string", "minLength": 1, "maxLength": 256},
+        "episodeCount": {"type": "integer", "minimum": 1, "maximum": 10000},
+        "meanScore": {"type": "number", "minimum": 0, "maximum": 100},
+        "minimumScore": {"type": "number", "minimum": 0, "maximum": 100},
+        "maximumScore": {"type": "number", "minimum": 0, "maximum": 100},
+        "commandCount": {"type": "integer", "minimum": 0},
+        "meanCommandCount": {"type": "number", "minimum": 0},
+        "invalidCommandCount": {"type": "integer", "minimum": 0},
+        "safetyFailureCount": {"type": "integer", "minimum": 0},
+        "sourceFailureCount": {"type": "integer", "minimum": 0},
+        "dimensionMeans": {"$ref": "#/$defs/dimensions"},
+        "failedChecks": {"$ref": "#/$defs/counts"}
+      }
+    },
+    "scenarioSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenario", "episodeCount", "meanScore", "minimumScore", "maximumScore",
+        "commandCount", "meanCommandCount", "invalidCommandCount", "safetyFailureCount",
+        "sourceFailureCount", "dimensionMeans", "failedChecks"
+      ],
+      "properties": {
+        "scenario": {"type": "string", "minLength": 1, "maxLength": 256},
+        "episodeCount": {"type": "integer", "minimum": 1, "maximum": 10000},
+        "meanScore": {"type": "number", "minimum": 0, "maximum": 100},
+        "minimumScore": {"type": "number", "minimum": 0, "maximum": 100},
+        "maximumScore": {"type": "number", "minimum": 0, "maximum": 100},
+        "commandCount": {"type": "integer", "minimum": 0},
+        "meanCommandCount": {"type": "number", "minimum": 0},
+        "invalidCommandCount": {"type": "integer", "minimum": 0},
+        "safetyFailureCount": {"type": "integer", "minimum": 0},
+        "sourceFailureCount": {"type": "integer", "minimum": 0},
+        "dimensionMeans": {"$ref": "#/$defs/dimensions"},
+        "failedChecks": {"$ref": "#/$defs/counts"}
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "severity", "title", "evidence", "candidateSurfaces", "nextExperiment"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,127}$"},
+        "severity": {"enum": ["critical", "high", "medium", "info"]},
+        "title": {"type": "string", "minLength": 1, "maxLength": 256},
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "episodeCount", "scenarios", "exampleEpisodeIDs", "failedChecks",
+            "invalidCommandCount", "stopConditions"
+          ],
+          "properties": {
+            "episodeCount": {"type": "integer", "minimum": 1, "maximum": 10000},
+            "scenarios": {
+              "type": "array", "maxItems": 128, "uniqueItems": true,
+              "items": {"type": "string", "minLength": 1, "maxLength": 256}
+            },
+            "exampleEpisodeIDs": {
+              "type": "array", "maxItems": 8, "uniqueItems": true,
+              "items": {"type": "string", "minLength": 1, "maxLength": 512}
+            },
+            "failedChecks": {"$ref": "#/$defs/counts"},
+            "invalidCommandCount": {"type": "integer", "minimum": 0},
+            "stopConditions": {"$ref": "#/$defs/counts"}
+          }
+        },
+        "candidateSurfaces": {
+          "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 128}
+        },
+        "nextExperiment": {"type": "string", "minLength": 1, "maxLength": 2048}
+      }
+    }
+  }
+}
