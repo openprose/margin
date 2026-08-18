@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 07:37 ET
+Last updated: 2026-08-18 07:43 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -85,7 +85,10 @@ Rules:
 - [x] Place a strict Margin gateway between agents and the shared workspace.
 - [x] Score exact outcomes, source preservation, all-or-none transactions,
   attribution, recovery, calls, tokens, latency, human attention, and cost.
-- [ ] Add single-agent, no-collaboration, and unconstrained-shell controls.
+- [x] Add the compute-matched single continuing-agent control and pass its full
+  local, served, identity, accounting, privacy, and validation gates.
+- [ ] Add the representation-neutral plain-Markdown/no-exchange controls and
+  the remotely isolated Margin-plus-shell control.
 - [x] Add topology-aware dry planning for gated controls: logical roles,
   model-process counts, trace seats, and phase policy are distinct and validated;
   execution remains refused until each profile's complete gates pass.
@@ -95,9 +98,10 @@ Rules:
 - [x] Add reference, idle, spam, fake-agent, and adversarial tests with no paid
   model calls. The remaining control variants are benchmark breadth, not a
   correctness blocker.
-  The control catalog and fail-closed execution gates are now frozen; only the
-  primary Margin-only profile is marked runnable until the other four meet
-  their identity, task-neutral scoring, and remote-isolation requirements.
+  The control catalog and fail-closed execution gates are now frozen; the
+  primary role-separated and compute-matched continuing-agent profiles are
+  runnable. The other three remain gated on task-neutral scoring or remote
+  isolation.
 
 ### 4. Add the Prime Verifiers adapter
 
