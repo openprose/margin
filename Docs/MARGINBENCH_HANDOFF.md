@@ -83,6 +83,15 @@ $2.40 maximum, but it should not run yet. The next paid checkpoint would be one
 matched pair capped at $0.10 total, only after an implemented comparison
 profile gives that pair a useful scientific question.
 
+The two implemented profiles now supply that question. Based only on the 193
+calibration calls already observed, one matched case would likely cost about
+$0.004 and the 24-case matrix about $0.092; these are planning estimates, not
+admission guarantees. The proposed sequence is therefore: one public matched
+case with a hard $0.10 cumulative proxy cap, inspect its artifacts, then—only if
+valid—prepare the private 24-case run with a $2.40 enforced cap and an untouched
+wallet reserve. The $96.662016 provider-contract figure remains the disclosed
+worst case rather than being mistaken for expected spend.
+
 ## Next work, in order
 
 1. Use the now-runnable `single-agent-margin-v1` control to prepare a matched,
