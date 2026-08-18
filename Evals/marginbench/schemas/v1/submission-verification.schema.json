@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:submission-verification:v1",
+  "title": "MarginBench cross-artifact submission verification receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "valid", "submissionID", "manifestSha256", "artifactCount",
+    "artifacts", "error", "errors"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:submission-verification:v1"},
+    "valid": {"type": "boolean"},
+    "submissionID": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+    "manifestSha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "artifactCount": {"type": "integer", "minimum": 0, "maximum": 260},
+    "artifacts": {
+      "type": "array",
+      "maxItems": 260,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "schema", "sha256", "byteCount"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1, "maxLength": 1024},
+          "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "byteCount": {"type": "integer", "minimum": 0, "maximum": 16777216}
+        }
+      }
+    },
+    "error": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": {"type": "string", "minLength": 1, "maxLength": 128},
+            "message": {"type": "string", "minLength": 1, "maxLength": 1024}
+          }
+        }
+      ]
+    },
+    "errors": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {"type": "string", "minLength": 1, "maxLength": 500}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"valid": {"const": true}}},
+      "then": {
+        "properties": {
+          "submissionID": {"type": "string"},
+          "manifestSha256": {"type": "string"},
+          "error": {"type": "null"},
+          "errors": {"maxItems": 0}
+        }
+      },
+      "else": {"properties": {"error": {"type": "object"}}}
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:submission:v1",
+  "title": "MarginBench self-contained leaderboard submission manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "id", "benchmarkVersion", "benchmarkImplementationSha256",
+    "taskSet", "track", "developmentCases",
+    "controlProfile", "baseline", "candidate", "studyPlan", "comparison", "runs", "privacy"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:submission:v1"},
+    "id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "benchmarkVersion": {"type": "string", "minLength": 1, "maxLength": 128},
+    "benchmarkImplementationSha256": {"$ref": "#/$defs/sha256"},
+    "taskSet": {"type": "string", "minLength": 1, "maxLength": 256},
+    "track": {"enum": ["model", "interface", "team", "open-systems"]},
+    "developmentCases": {"type": "boolean"},
+    "controlProfile": {"type": "string", "minLength": 1, "maxLength": 256},
+    "baseline": {"$ref": "#/$defs/candidateReference"},
+    "candidate": {"$ref": "#/$defs/candidateReference"},
+    "studyPlan": {"$ref": "#/$defs/artifactReference"},
+    "comparison": {"$ref": "#/$defs/artifactReference"},
+    "runs": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["candidateID", "path", "sha256"],
+        "properties": {
+          "candidateID": {"type": "string", "minLength": 1, "maxLength": 256},
+          "path": {"$ref": "#/$defs/path"},
+          "sha256": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rawTracesIncluded", "credentialsIncluded", "holdoutKeyIncluded"],
+      "properties": {
+        "rawTracesIncluded": {"const": false},
+        "credentialsIncluded": {"const": false},
+        "holdoutKeyIncluded": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\u0000).+$"
+    },
+    "artifactReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "candidateReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "sha256"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "path": {"$ref": "#/$defs/path"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

@@ -115,8 +115,11 @@
         "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "score": {"type": "number", "minimum": 0, "maximum": 100},
         "safetyPassed": {"type": "boolean"},
+        "sourcePreserved": {"type": "boolean"},
         "commandCount": {"type": "integer", "minimum": 0},
         "invalidCommandCount": {"type": "integer", "minimum": 0},
+        "durationMs": {"type": "number", "minimum": 0},
+        "marginSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "checks": {"type": "object", "additionalProperties": {"type": "boolean"}},
         "dimensions": {
           "type": "object",

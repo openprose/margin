@@ -18,6 +18,12 @@ from .runner import ReferenceDriver, run_episode
 from .scenarios import SCENARIO_IDS, generate_episode
 from .schema import canonical_json
 from .studies import build_study_plan
+from .submission import (
+    SubmissionError,
+    build_submission,
+    verification_failure,
+    verify_submission,
+)
 from .validation import validate_artifact
 
 
@@ -121,6 +127,27 @@ def main(argv: list[str] | None = None) -> int:
     )
     validate.add_argument("artifact", help="JSON artifact path, or - for bounded stdin")
 
+    submission = subparsers.add_parser(
+        "submission",
+        help="create or verify a digest-bound cross-artifact leaderboard submission",
+    )
+    submission_commands = submission.add_subparsers(dest="submission_command", required=True)
+    submission_create = submission_commands.add_parser(
+        "create",
+        help="build a deterministic submission manifest after cross-checking every artifact",
+    )
+    submission_create.add_argument("root", type=Path)
+    submission_create.add_argument("--baseline-manifest", type=Path, required=True)
+    submission_create.add_argument("--candidate-manifest", type=Path, required=True)
+    submission_create.add_argument("--study-plan", type=Path, required=True)
+    submission_create.add_argument("--comparison", type=Path, required=True)
+    submission_create.add_argument("--run", type=Path, action="append", required=True)
+    submission_verify = submission_commands.add_parser(
+        "verify",
+        help="verify digests, schemas, study coverage, candidates, runs, and recomputed comparison",
+    )
+    submission_verify.add_argument("manifest", type=Path)
+
     arguments = parser.parse_args(argv)
     if arguments.command == "generate":
         episode = generate_episode(arguments.scenario, _key(arguments.key_file), arguments.repetition)
@@ -200,6 +227,25 @@ def main(argv: list[str] | None = None) -> int:
         receipt = validate_artifact(Path(arguments.artifact))
         _write(receipt)
         return 0 if receipt["valid"] else 65
+    if arguments.command == "submission":
+        if arguments.submission_command == "verify":
+            receipt = verify_submission(arguments.manifest)
+            _write(receipt)
+            return 0 if receipt["valid"] else 65
+        try:
+            manifest = build_submission(
+                arguments.root,
+                baseline_manifest=arguments.baseline_manifest,
+                candidate_manifest=arguments.candidate_manifest,
+                study_plan=arguments.study_plan,
+                comparison=arguments.comparison,
+                runs=arguments.run,
+            )
+        except SubmissionError as error:
+            _write(verification_failure(error.code, str(error)))
+            return 65
+        _write(manifest)
+        return 0
     return 64
 
 

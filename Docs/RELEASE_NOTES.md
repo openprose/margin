@@ -17,6 +17,10 @@ Release date: 2026-08-18
   cross-field checks for publication artifacts. It rejects duplicate JSON
   keys, inconsistent counts and costs, unsafe promotion claims, and payloads
   over 16 MiB while producing a digest-bearing machine-readable receipt.
+- Adds deterministic leaderboard submission manifests and an offline verifier
+  that binds candidates, study plan, redacted runs, and comparison by digest;
+  verifies complete paired coverage; and recomputes the reported comparison
+  without raw traces, hidden fixtures, credentials, or a holdout key.
 - Adds a read-only, no-secret GitHub Actions gate for the portable Swift core,
   reproducible x86-64 binary, provider-independent tests, Prime adapter,
   fake-model rehearsal, wheel smoke test, and retained validation receipt.
@@ -24,9 +28,9 @@ Release date: 2026-08-18
 ### Verification and artifacts
 
 - All 164 macOS tests and all 112 portable Linux tests pass. The system runtime
-  passes 29 MarginBench tests with four Prime-only skips; Prime's runtime passes
-  all 33. The five-case reference matrix and Prime fake-model rehearsal both
-  score 100 with no paid calls. Sixteen public schemas are bundled in the
+  passes 30 MarginBench tests with four Prime-only skips; Prime's runtime passes
+  all 34. The five-case reference matrix and Prime fake-model rehearsal both
+  score 100 with no paid calls. Eighteen public schemas are bundled in the
   installable package. The existing CLI and directory-collaboration evals also
   remain fully green.
 - The final x86-64 Linux binary rebuild is byte-for-byte reproducible. Both
@@ -37,9 +41,9 @@ Release date: 2026-08-18
 - `Margin-0.3.2-macOS-arm64.pkg`: 3,521,281 bytes, SHA-256
   `b374f8411a0ce90c6b2f402d3951796db5efdb0a1acd4b5108154a040d33fe79`.
 - `marginbench-0.1.0-py3-none-manylinux_2_35_x86_64.whl`: SHA-256
-  `4accb41d0579039e80d6c57fd93f5c14c460390d36f2903e878ca3e97323238b`.
+  `0b6677be94d6e49c17dc55b303d15e96a3b84dc000c78d3ba64c526614f28d71`.
 - `marginbench-0.1.0.tar.gz`: SHA-256
-  `00b355103f8e840d53486eadfe345c24b152d59e8078b63eb10f3b232fa42af1`.
+  `133084d01f376eafcd4e92823e3dc772ee57eb4a408e57d4999f9056f45c52e8`.
 
 ### Performance
 

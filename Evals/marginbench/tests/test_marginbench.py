@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,6 +23,7 @@ from marginbench.scenarios import SCENARIO_IDS, generate_episode
 from marginbench.schema import Actor, CommandEvent, EpisodeResult
 from marginbench.scorer import score_episode
 from marginbench.studies import build_study_plan
+from marginbench.submission import SubmissionError, build_submission, verify_submission
 from marginbench.validation import validate_artifact, validate_bytes
 from prime_pilot import _run_manifest, _summarize_traces, claim_paid_start, estimate_maximum_cost
 
@@ -136,12 +138,16 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(expected_roles, 9)
 
     def test_prime_summary_aggregates_roles_into_one_schema_valid_episode(self) -> None:
+        margin_sha256 = CandidateManifest.create("summary-test", self.binary).margin_sha256
         result = {
             "episodeID": "agent_agent_handoff:0:" + "a" * 12,
             "score": 100.0,
             "safetyPassed": True,
+            "sourcePreserved": True,
             "commandCount": 7,
             "invalidCommandCount": 0,
+            "durationMs": 12.5,
+            "marginSha256": margin_sha256,
             "checks": {"valid_documents": True},
             "dimensions": {"outcome": 100.0},
         }
@@ -260,7 +266,7 @@ class MarginBenchCoreTests(unittest.TestCase):
             self.assertEqual(payload["$schema"], "https://json-schema.org/draft/2020-12/schema")
             self.assertNotIn(payload["$id"], schemas)
             schemas[payload["$id"]] = payload
-        self.assertEqual(len(schemas), 16)
+        self.assertEqual(len(schemas), 18)
 
         try:
             from jsonschema import Draft202012Validator
@@ -544,12 +550,13 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertGreater(result.dimensions["efficiency"], 0.0)
         self.assertLess(result.score, 100.0)
 
-    def test_paired_comparison_requires_identical_cases_and_safety_parity(self) -> None:
+    def test_paired_comparison_requires_identical_cases_and_candidate_integrity(self) -> None:
         def result(
             identifier: str,
             score: float,
             candidate_id: str,
             safe: bool = True,
+            source_preserved: bool | None = None,
         ) -> EpisodeResult:
             return EpisodeResult(
                 episode_id=identifier,
@@ -561,7 +568,7 @@ class MarginBenchCoreTests(unittest.TestCase):
                 invalid_command_count=0,
                 duration_ms=1,
                 safety_passed=safe,
-                source_preserved=safe,
+                source_preserved=safe if source_preserved is None else source_preserved,
                 margin_sha256="0" * 64,
             )
 
@@ -580,6 +587,13 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertTrue(repeated["promotable"])
         unsafe = [result("a", 25, "candidate", False), result("b", 70, "candidate")]
         self.assertFalse(paired_compare(baseline, unsafe, bootstrap_samples=100)["promotable"])
+        source_corrupt = [
+            result("a", 25, "candidate", source_preserved=False),
+            result("b", 70, "candidate"),
+        ]
+        source_comparison = paired_compare(baseline, source_corrupt, bootstrap_samples=100)
+        self.assertEqual(source_comparison["safetyRegressions"], ["a"])
+        self.assertFalse(source_comparison["promotable"])
         with self.assertRaises(ValueError):
             paired_compare(baseline, [result("a", 60, "candidate")])
         with self.assertRaisesRegex(ValueError, "duplicate episode IDs"):
@@ -664,12 +678,16 @@ class MarginBenchCoreTests(unittest.TestCase):
 
     @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
     def test_run_manifest_validation_recomputes_cost_and_rejects_tampering(self) -> None:
+        margin_sha256 = CandidateManifest.create("validation-test", self.binary).margin_sha256
         result = {
             "episodeID": "agent_agent_handoff:0:" + "a" * 12,
             "score": 100.0,
             "safetyPassed": True,
+            "sourcePreserved": True,
             "commandCount": 7,
             "invalidCommandCount": 0,
+            "durationMs": 12.5,
+            "marginSha256": margin_sha256,
             "checks": {"valid_documents": True},
             "dimensions": {"outcome": 100.0},
         }
@@ -890,6 +908,302 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertFalse(receipt["valid"])
         self.assertEqual(receipt["error"]["code"], "UNSUPPORTED_SCHEMA")
         self.assertEqual(invalid.stderr, b"")
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_submission_binds_candidates_study_runs_and_recomputed_comparison(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="marginbench-submission-") as temporary:
+            root = Path(temporary)
+            baseline_manifest = CandidateManifest.create(
+                "baseline",
+                self.binary,
+                settings={"guidance": "released"},
+            )
+            candidate_manifest = CandidateManifest.create(
+                "candidate",
+                self.binary,
+                settings={"guidance": "compact"},
+            )
+            study = build_study_plan(
+                baseline="baseline",
+                candidate="candidate",
+                scenarios=["human_agent_relay"],
+                repetitions=1,
+                key=KEY,
+                development_cases=False,
+            )
+            planned = study["episodes"][0]
+
+            def episode_result(candidate_id: str, score: float, duration: float) -> EpisodeResult:
+                return EpisodeResult(
+                    episode_id=planned["id"],
+                    candidate_id=candidate_id,
+                    score=score,
+                    dimensions={"outcome": score},
+                    checks={"exact": True},
+                    command_count=1,
+                    invalid_command_count=0,
+                    duration_ms=duration,
+                    safety_passed=True,
+                    source_preserved=True,
+                    margin_sha256=baseline_manifest.margin_sha256,
+                )
+
+            baseline_result = episode_result("baseline", 50, 10)
+            candidate_result = episode_result("candidate", 60, 8)
+            comparison = paired_compare([baseline_result], [candidate_result])
+
+            def run_manifest(
+                identifier: str,
+                manifest: CandidateManifest,
+                result: EpisodeResult,
+            ) -> dict:
+                return {
+                    "schema": "urn:marginbench:run:v1",
+                    "runID": identifier,
+                    "status": "completed",
+                    "track": "interface",
+                    "benchmark": {
+                        "name": "MarginBench",
+                        "version": study["benchmarkVersion"],
+                        "taskSet": study["taskSet"],
+                        "developmentCases": study["developmentCases"],
+                        "implementationSha256": "a" * 64,
+                    },
+                    "candidate": {
+                        "id": manifest.id,
+                        "marginSha256": manifest.margin_sha256,
+                        "manualSha256": manifest.manual_sha256,
+                        "settingsSha256": manifest.settings_sha256,
+                    },
+                    "execution": {
+                        "adapter": "test",
+                        "provider": "test",
+                        "model": "test/model",
+                        "harness": "test",
+                        "runtime": "test",
+                        "controlProfile": study["controlProfile"],
+                        "roles": planned["roles"],
+                        "startedAt": "2026-08-18T00:00:00Z",
+                        "durationMs": result.duration_ms,
+                        "limits": {"maxTurns": 1},
+                        "retryPolicy": "none",
+                        "priorInfrastructureAttempts": 0,
+                    },
+                    "episodes": [{
+                        "id": planned["id"],
+                        "scenario": planned["scenario"],
+                        "fingerprint": planned["fingerprint"],
+                        "repetition": planned["repetition"],
+                        "score": result.score,
+                        "safetyPassed": result.safety_passed,
+                        "sourcePreserved": result.source_preserved,
+                        "commandCount": result.command_count,
+                        "invalidCommandCount": result.invalid_command_count,
+                        "durationMs": result.duration_ms,
+                        "marginSha256": result.margin_sha256,
+                        "checks": result.checks,
+                        "dimensions": result.dimensions,
+                        "usage": {
+                            "modelCalls": 1,
+                            "promptTokens": 1,
+                            "completionTokens": 1,
+                            "cachedInputTokens": 0,
+                            "reasoningTokens": 0,
+                            "reportedCostUSD": 0.001,
+                        },
+                    }],
+                    "cost": {
+                        "currency": "USD",
+                        "traceReported": 0.001,
+                        "observedWalletDebit": 0.001,
+                        "unreconciled": 0,
+                    },
+                    "privacy": {
+                        "rawTracesPublished": False,
+                        "credentialsPresent": False,
+                        "promptsPublished": False,
+                        "holdoutKeyPublished": False,
+                    },
+                }
+
+            values = {
+                "baseline.json": asdict(baseline_manifest),
+                "candidate.json": asdict(candidate_manifest),
+                "study.json": study,
+                "comparison.json": comparison,
+                "run-baseline.json": run_manifest("run-baseline", baseline_manifest, baseline_result),
+                "run-candidate.json": run_manifest("run-candidate", candidate_manifest, candidate_result),
+            }
+            for name, value in values.items():
+                (root / name).write_text(json.dumps(value), encoding="utf-8")
+
+            manifest = build_submission(
+                root,
+                baseline_manifest=Path("baseline.json"),
+                candidate_manifest=Path("candidate.json"),
+                study_plan=Path("study.json"),
+                comparison=Path("comparison.json"),
+                runs=[Path("run-baseline.json"), Path("run-candidate.json")],
+            )
+            manifest_path = root / "submission.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            receipt = verify_submission(manifest_path)
+            self.assertTrue(receipt["valid"], receipt)
+            self.assertEqual(receipt["artifactCount"], 6)
+            self.assertTrue(validate_bytes(json.dumps(receipt).encode("utf-8"))["valid"])
+            self.assertEqual(manifest["baseline"]["id"], "baseline")
+            self.assertEqual(manifest["candidate"]["id"], "candidate")
+            reversed_runs = build_submission(
+                root,
+                baseline_manifest=Path("baseline.json"),
+                candidate_manifest=Path("candidate.json"),
+                study_plan=Path("study.json"),
+                comparison=Path("comparison.json"),
+                runs=[Path("run-candidate.json"), Path("run-baseline.json")],
+            )
+            self.assertEqual(reversed_runs, manifest)
+
+            alias = root / "baseline-link.json"
+            alias.symlink_to(root / "baseline.json")
+            with self.assertRaisesRegex(SubmissionError, "symbolic link"):
+                build_submission(
+                    root,
+                    baseline_manifest=Path("baseline-link.json"),
+                    candidate_manifest=Path("candidate.json"),
+                    study_plan=Path("study.json"),
+                    comparison=Path("comparison.json"),
+                    runs=[Path("run-baseline.json"), Path("run-candidate.json")],
+                )
+            alias.unlink()
+
+            lowered_threshold = json.loads(json.dumps(comparison))
+            lowered_threshold["minimumPairsForPromotion"] = 2
+            (root / "comparison.json").write_text(
+                json.dumps(lowered_threshold),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(SubmissionError, "promotion threshold"):
+                build_submission(
+                    root,
+                    baseline_manifest=Path("baseline.json"),
+                    candidate_manifest=Path("candidate.json"),
+                    study_plan=Path("study.json"),
+                    comparison=Path("comparison.json"),
+                    runs=[Path("run-baseline.json"), Path("run-candidate.json")],
+                )
+            (root / "comparison.json").write_text(json.dumps(comparison), encoding="utf-8")
+
+            changed_model = json.loads(json.dumps(values["run-candidate.json"]))
+            changed_model["execution"]["model"] = "different/model"
+            (root / "run-candidate.json").write_text(
+                json.dumps(changed_model),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(SubmissionError, "different execution controls"):
+                build_submission(
+                    root,
+                    baseline_manifest=Path("baseline.json"),
+                    candidate_manifest=Path("candidate.json"),
+                    study_plan=Path("study.json"),
+                    comparison=Path("comparison.json"),
+                    runs=[Path("run-baseline.json"), Path("run-candidate.json")],
+                )
+            (root / "run-candidate.json").write_text(
+                json.dumps(values["run-candidate.json"]),
+                encoding="utf-8",
+            )
+
+            environment = dict(os.environ)
+            environment["PYTHONPATH"] = str(PACKAGE_ROOT)
+            created = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "marginbench.cli",
+                    "submission",
+                    "create",
+                    ".",
+                    "--baseline-manifest",
+                    "baseline.json",
+                    "--candidate-manifest",
+                    "candidate.json",
+                    "--study-plan",
+                    "study.json",
+                    "--comparison",
+                    "comparison.json",
+                    "--run",
+                    "run-baseline.json",
+                    "--run",
+                    "run-candidate.json",
+                ],
+                cwd=root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=environment,
+                check=False,
+            )
+            self.assertEqual(created.returncode, 0, created.stderr.decode(errors="replace"))
+            self.assertEqual(json.loads(created.stdout), manifest)
+            cli_manifest = root / "submission-cli.json"
+            cli_manifest.write_bytes(created.stdout)
+            verified = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "marginbench.cli",
+                    "submission",
+                    "verify",
+                    str(cli_manifest),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=environment,
+                check=False,
+            )
+            self.assertEqual(verified.returncode, 0, verified.stderr.decode(errors="replace"))
+            self.assertTrue(json.loads(verified.stdout)["valid"])
+
+            legacy_run = json.loads(json.dumps(values["run-candidate.json"]))
+            del legacy_run["episodes"][0]["sourcePreserved"]
+            (root / "run-candidate.json").write_text(json.dumps(legacy_run), encoding="utf-8")
+            with self.assertRaisesRegex(SubmissionError, "publication fields"):
+                build_submission(
+                    root,
+                    baseline_manifest=Path("baseline.json"),
+                    candidate_manifest=Path("candidate.json"),
+                    study_plan=Path("study.json"),
+                    comparison=Path("comparison.json"),
+                    runs=[Path("run-baseline.json"), Path("run-candidate.json")],
+                )
+            (root / "run-candidate.json").write_text(
+                json.dumps(values["run-candidate.json"]),
+                encoding="utf-8",
+            )
+
+            values["run-candidate.json"]["episodes"][0]["score"] = 61
+            (root / "run-candidate.json").write_text(
+                json.dumps(values["run-candidate.json"]),
+                encoding="utf-8",
+            )
+            receipt = verify_submission(manifest_path)
+            self.assertFalse(receipt["valid"])
+            self.assertEqual(receipt["error"]["code"], "SUBMISSION_INCONSISTENT")
+
+            (root / "run-candidate.json").write_text(
+                json.dumps(run_manifest("run-candidate", candidate_manifest, candidate_result)),
+                encoding="utf-8",
+            )
+            comparison["meanScoreDelta"] = 9
+            (root / "comparison.json").write_text(json.dumps(comparison), encoding="utf-8")
+            with self.assertRaisesRegex(SubmissionError, "recomputation"):
+                build_submission(
+                    root,
+                    baseline_manifest=Path("baseline.json"),
+                    candidate_manifest=Path("candidate.json"),
+                    study_plan=Path("study.json"),
+                    comparison=Path("comparison.json"),
+                    runs=[Path("run-baseline.json"), Path("run-candidate.json")],
+                )
 
 
 if __name__ == "__main__":

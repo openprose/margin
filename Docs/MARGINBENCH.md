@@ -149,6 +149,21 @@ and returns a machine-readable validation receipt with a SHA-256. A receipt is
 evidence that bytes satisfy the published rules; it is not a submitter
 signature.
 
+For leaderboard publication, `marginbench submission create` adds the missing
+cross-file guarantee. Its deterministic manifest binds both candidate
+manifests, the study plan, all redacted run manifests, and the reported paired
+comparison by SHA-256. `marginbench submission verify` then checks the complete
+episode coverage for both candidates, benchmark/track/control identity,
+candidate, per-episode build, and benchmark-implementation digests, study
+fingerprints and promotion threshold, track-specific fixed execution settings,
+safety and source integrity, and a fresh deterministic recomputation of the comparison. It reads
+each artifact as one bounded snapshot, rejects paths outside the bundle and
+symlink references, allows at most 16 MiB per artifact and 64 MiB in aggregate,
+and requires no raw traces, prompts, fixtures, credentials, or holdout key.
+The resulting receipt proves internal consistency of the published bytes; it
+does not authenticate the submitter or prove the order in which candidates
+were actually executed.
+
 ## Leaderboard tracks
 
 Results should not collapse unlike interventions into one ranking:
@@ -160,10 +175,10 @@ Results should not collapse unlike interventions into one ranking:
 
 The primary comparison is paired: baseline and candidate see the same generated
 episode IDs. A candidate is promotable only with at least 20 matching episodes,
-no safety regression, and a lower bound above zero on a deterministic paired
-bootstrap 95% interval. Duplicate episode IDs are rejected rather than silently
-collapsed. Public-development gains must be confirmed on a private rotating
-test set.
+safe and source-preserving behavior on every candidate episode, and a lower
+bound above zero on a deterministic paired bootstrap 95% interval. Duplicate
+episode IDs are rejected rather than silently collapsed. Public-development
+gains must be confirmed on a private rotating test set.
 
 The default study planner freezes four repetitions of all five workflows and
 counterbalances candidate order to exactly 10 AB and 10 BA episodes. It emits
@@ -213,6 +228,10 @@ recommendation, not a claim that those licenses already apply.
   interface improvement. Promotion requires repeated paired private cases.
 - Provider rate limits and transient errors must be reported as infrastructure
   outcomes, never scored as model failures or silently retried as new episodes.
+- Submission manifests prove that a published evidence bundle is internally
+  consistent, but v1 has no submitter signature, transparency log, or trusted
+  proof that the counterbalanced execution order was followed. Official intake
+  must authenticate submissions and control private-case execution separately.
 - The validator deliberately identifies four tracked historical artifacts as
   invalid instead of normalizing them away: the original experiment log reused
   a later ledger identifier with a different shape, two early handoff summaries
@@ -228,9 +247,9 @@ x86-64, and Linux arm64. Margin 0.3.2 passes 164 macOS tests and 112 portable
 Linux tests; a repeat x86-64 build is byte-for-byte identical. The Verifiers v1
 adapter completes the whole five-case local fake-agent matrix at 100 with only
 one exposed tool. The installable manylinux wheel and source archive also pass
-their tests in clean containers. The system Python runtime passes 29 benchmark
-contracts with four Prime-only skips; Prime's runtime passes all 33. The wheel
-bundles all 16 schemas.
+their tests in clean containers. The system Python runtime passes 30 benchmark
+contracts with four Prime-only skips; Prime's runtime passes all 34. The wheel
+bundles all 18 schemas.
 
 Real Qwen Flash runs exercised every family. The initial human-relay smoke
 scored 25; successive general CLI guidance improvements reached the exact

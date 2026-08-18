@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 02:15 ET
+Last updated: 2026-08-18 02:27 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -287,6 +287,24 @@ The phase is successful if the repository contains:
   macOS-hosted clean-Linux check still produces the exact recorded hashes. The
   workflow's first hosted run awaits a repository remote; all underlying steps
   have already passed locally or in the same pinned containers.
+- 2026-08-18 02:27 ET — Added a deterministic, cross-artifact submission
+  manifest and offline verifier for leaderboard evidence. It binds both
+  candidates, the study plan, every redacted run, and the comparison by digest;
+  requires exact paired coverage; verifies benchmark, track, control, case, and
+  build identity plus track-specific fixed execution settings; prevents a
+  post-hoc promotion-threshold reduction; and recomputes the comparison from
+  per-episode measurements.
+  Artifact reads are single-snapshot, 16 MiB each and 64 MiB aggregate; raw
+  traces, prompts, fixtures, credentials, and holdout keys are excluded. The
+  candidate promotion gate now also rejects source corruption independently of
+  the baseline. The system runtime passes 30 tests with four Prime-only skips,
+  Prime passes all 34, and the five-workflow reference and fake-model matrices
+  remain 100 without a paid call. The frozen implementation digest is
+  `6b254d4874687f9b691ae310fc11068e7319a6aa07f625b23a4c4d2266eb8b12`.
+  The clean-Linux verified wheel is
+  `0b6677be94d6e49c17dc55b303d15e96a3b84dc000c78d3ba64c526614f28d71`;
+  the source archive is
+  `133084d01f376eafcd4e92823e3dc772ee57eb4a408e57d4999f9056f45c52e8`.
 
 ## Next statistically useful paid run
 

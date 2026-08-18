@@ -188,8 +188,11 @@ def _summarize_traces(output: Path) -> dict[str, Any]:
         immutable_result = {
             "score": marginbench.get("score"),
             "safetyPassed": marginbench.get("safetyPassed"),
+            "sourcePreserved": marginbench.get("sourcePreserved"),
             "commandCount": marginbench.get("commandCount"),
             "invalidCommandCount": marginbench.get("invalidCommandCount"),
+            "durationMs": marginbench.get("durationMs"),
+            "marginSha256": marginbench.get("marginSha256"),
             "checks": marginbench.get("checks"),
             "dimensions": marginbench.get("dimensions"),
         }
@@ -274,8 +277,11 @@ def _run_manifest(
             "repetition": episode["repetition"],
             "score": episode["score"],
             "safetyPassed": episode["safetyPassed"],
+            "sourcePreserved": episode["sourcePreserved"],
             "commandCount": episode["commandCount"],
             "invalidCommandCount": episode["invalidCommandCount"],
+            "durationMs": episode["durationMs"],
+            "marginSha256": episode["marginSha256"],
             "checks": episode["checks"],
             "dimensions": episode["dimensions"],
             "usage": episode["usage"],

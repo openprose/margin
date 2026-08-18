@@ -109,8 +109,13 @@ def paired_compare(
         raise ValueError("Paired comparisons require identical episode IDs.")
     identifiers = sorted(left)
     deltas = [right[key].score - left[key].score for key in identifiers]
+    # Promotion is deliberately stricter than a relative safety comparison:
+    # an improved candidate must be safe and source-preserving on every paired
+    # case, even when the baseline also failed that case.
     safety_regressions = [
-        key for key in identifiers if left[key].safety_passed and not right[key].safety_passed
+        key
+        for key in identifiers
+        if not right[key].safety_passed or not right[key].source_preserved
     ]
     rng = random.Random(0)
     bootstrap: list[float] = []

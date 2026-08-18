@@ -8,7 +8,7 @@ import math
 import re
 import sys
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .candidates import CandidateManifest
@@ -111,6 +111,8 @@ def _schema_name(payload: Any) -> tuple[str, str]:
         "urn:marginbench:result:v1": "result.schema.json",
         "urn:marginbench:run:v1": "run-manifest.schema.json",
         "urn:marginbench:study-plan:v1": "study-plan.schema.json",
+        "urn:marginbench:submission:v1": "submission.schema.json",
+        "urn:marginbench:submission-verification:v1": "submission-verification.schema.json",
         VALIDATION_SCHEMA: "validation-receipt.schema.json",
     }
     if identifier == "urn:marginbench:episode:v1":
@@ -134,6 +136,18 @@ def _is_rfc3339(value: object) -> bool:
     except ValueError:
         return False
     return parsed.tzinfo is not None
+
+
+def submission_identifier(payload: dict[str, Any]) -> str:
+    material = dict(payload)
+    material.pop("id", None)
+    encoded = json.dumps(
+        material,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
 def _validator(schema_name: str):
@@ -295,12 +309,26 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         identifiers = [item["id"] for item in episodes]
         if len(identifiers) != len(set(identifiers)):
             errors.append("run contains duplicate episode ids")
+        roles = payload["execution"]["roles"]
+        if len(roles) != len(set(roles)):
+            errors.append("run execution contains duplicate roles")
         for episode in episodes:
             expected = f"{episode['scenario']}:{episode['repetition']}:{episode['fingerprint'][:12]}"
             if episode["id"] != expected:
                 errors.append(f"episode id is inconsistent: {episode['id']}")
             if episode["invalidCommandCount"] > episode["commandCount"]:
                 errors.append(f"invalid command count exceeds command count: {episode['id']}")
+            publication_fields = ("sourcePreserved", "durationMs", "marginSha256")
+            present = [field in episode for field in publication_fields]
+            if any(present) and not all(present):
+                errors.append(f"run episode has incomplete publication fields: {episode['id']}")
+            elif all(present):
+                if episode["marginSha256"] != payload["candidate"]["marginSha256"]:
+                    errors.append(f"run episode Margin digest differs from its candidate: {episode['id']}")
+                if (
+                    not episode["safetyPassed"] or not episode["sourcePreserved"]
+                ) and episode["score"] > 25:
+                    errors.append(f"unsafe or source-corrupt run score exceeds 25: {episode['id']}")
         trace_cost = round(sum(item["usage"]["reportedCostUSD"] for item in episodes), 6)
         cost = payload["cost"]
         if not _close(trace_cost, cost["traceReported"]):
@@ -345,6 +373,23 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         for episode in episodes:
             if episode["invalidCommandCount"] > episode["commandCount"]:
                 errors.append(f"invalid command count exceeds command count: {episode['episodeID']}")
+            publication_fields = ("sourcePreserved", "durationMs", "marginSha256")
+            present = [field in episode for field in publication_fields]
+            if any(present) and not all(present):
+                errors.append(
+                    f"Prime episode has incomplete publication fields: {episode['episodeID']}"
+                )
+            elif all(present):
+                if episode["marginSha256"] != payload["marginSha256"]:
+                    errors.append(
+                        f"Prime episode Margin digest differs from its summary: {episode['episodeID']}"
+                    )
+                if (
+                    not episode["safetyPassed"] or not episode["sourcePreserved"]
+                ) and episode["score"] > 25:
+                    errors.append(
+                        f"unsafe or source-corrupt Prime score exceeds 25: {episode['episodeID']}"
+                    )
             if "scenario" in episode:
                 expected = (
                     f"{episode['scenario']}:{episode['repetition']}:"
@@ -479,6 +524,35 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             )
             if not _close(round(hourly * hours, 6), payload["failureBoundUSD"]):
                 errors.append("runtime probe failure bound does not match resources and pricing")
+    elif schema_name == "submission.schema.json":
+        if payload["id"] != submission_identifier(payload):
+            errors.append("submission id does not match its canonical manifest")
+        if payload["baseline"]["id"] == payload["candidate"]["id"]:
+            errors.append("submission must identify two distinct candidates")
+        references = [
+            payload["baseline"],
+            payload["candidate"],
+            payload["studyPlan"],
+            payload["comparison"],
+            *payload["runs"],
+        ]
+        paths = [item["path"] for item in references]
+        if len(paths) != len(set(paths)):
+            errors.append("submission contains duplicate artifact paths")
+        for path in paths:
+            value = PurePosixPath(path)
+            if value.is_absolute() or ".." in value.parts or value.as_posix() != path:
+                errors.append(f"submission artifact path is not canonical: {path[:200]}")
+        candidates = {payload["baseline"]["id"], payload["candidate"]["id"]}
+        run_candidates = [item["candidateID"] for item in payload["runs"]]
+        if set(run_candidates) != candidates:
+            errors.append("submission runs must cover both declared candidates and no others")
+    elif schema_name == "submission-verification.schema.json":
+        if payload["artifactCount"] != len(payload["artifacts"]):
+            errors.append("verification artifactCount does not equal artifacts length")
+        paths = [item["path"] for item in payload["artifacts"]]
+        if len(paths) != len(set(paths)):
+            errors.append("verification receipt contains duplicate artifact paths")
     return errors[:MAX_REPORTED_ERRORS]
 
 

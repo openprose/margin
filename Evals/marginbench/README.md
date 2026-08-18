@@ -101,6 +101,44 @@ summaries, redacted run manifests and ledgers, runtime probes, control catalogs,
 and binary manifests. The validator itself is packaged with MarginBench, so a
 reviewer does not need this source checkout.
 
+### Build and verify a leaderboard bundle
+
+Validating each JSON file separately does not prove that the files belong to
+the same experiment. A publication bundle therefore has one deterministic
+submission manifest that binds the two candidates, private or public study
+plan, every redacted run manifest, and paired comparison by path and digest.
+Create it only after all referenced files are in one directory tree:
+
+```sh
+marginbench submission create publication \
+  --baseline-manifest candidate-baseline.json \
+  --candidate-manifest candidate-new.json \
+  --study-plan study-plan.json \
+  --comparison comparison.json \
+  --run runs/baseline-1.json --run runs/candidate-1.json \
+  > publication/submission.json
+
+marginbench submission verify publication/submission.json
+```
+
+Creation fails unless the run set covers every study-plan episode exactly once
+for each candidate and agrees on the benchmark, track, control, candidate
+digests, benchmark-implementation digest, case fingerprints, and track-specific
+fixed execution settings. It also prevents a comparison from lowering the
+promotion threshold frozen in the study plan. Verification rereads the bundle,
+checks every recorded digest and schema, and recomputes the paired comparison from the
+redacted episode measurements. It never needs prompts, raw traces, fixtures, or
+the holdout key. The verifier reads each file once, caps files at 16 MiB and the
+whole referenced bundle at 64 MiB, rejects path escape and symlink references,
+and emits a machine-readable verification receipt.
+
+The manifest is a portable integrity record, not a submitter signature and not
+proof of execution chronology. Official leaderboard intake should separately
+authenticate the submitter and run the private cases under benchmark-controlled
+orchestration. Run manifests created before the publication fields
+`sourcePreserved`, `durationMs`, and per-episode `marginSha256` were introduced
+remain historical evidence but cannot enter a recomputable v1 submission.
+
 ## Linux artifact
 
 Prime-hosted and other container evaluations use the same Swift core and CLI as
@@ -202,7 +240,8 @@ requires:
 
 Use `marginbench compare BASE_RESULTS CANDIDATE_RESULTS` for the deterministic
 paired comparison. Promotion requires at least 20 matching episodes by default,
-a positive paired-bootstrap lower bound, and no safety regression; a single
+a positive paired-bootstrap lower bound, and a candidate that is safe and
+source-preserving on every case; a single
 development case can diagnose a failure but can never be labeled promotable.
 CLI/manual changes, model changes, team-layout changes, and prompt changes
 should be reported as separate tracks rather than mixed into one claim.
