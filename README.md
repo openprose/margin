@@ -18,7 +18,9 @@ There is no account, server, database, daemon, WebView, plug-in runtime, or mode
 - Stage related operations across several files and submit them all-or-none with compare-and-swap checks, deterministic crash recovery, and idempotent retries.
 - Preserve comment metadata as an ignorable terminal HTML comment containing W3C Web Annotation JSON-LD.
 
-Margin currently targets Apple silicon Macs running macOS 13 or newer. The v0.3 package is ad-hoc signed for local installation because this machine has no Developer ID certificate.
+Margin currently targets Apple silicon Macs running macOS 13 or newer. The
+v0.3.2 package is ad-hoc signed for local installation because this machine has
+no Developer ID certificate.
 
 ## Build and install
 
