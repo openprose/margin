@@ -112,6 +112,16 @@ jobs:
         run: |
           uv build "$MARGINBENCH_ROOT" --out-dir build/ci-marginbench-dist
           wheel="$(find build/ci-marginbench-dist -type f -name '*.whl' -print -quit)"
+          source_archive="$(find build/ci-marginbench-dist -type f -name '*.tar.gz' -print -quit)"
+          sensitive_pattern='(^|/)(runs|keys|transcripts|raw-prompts|tmp|__pycache__|\.ruff_cache)(/|$)|(^|/)\.env($|\.)|\.(key|secret)($|\.)'
+          if unzip -Z1 "$wheel" | grep -Eq "$sensitive_pattern"; then
+            echo "Wheel contains a sensitive or generated path." >&2
+            exit 1
+          fi
+          if tar -tzf "$source_archive" | grep -Eq "$sensitive_pattern"; then
+            echo "Source archive contains a sensitive or generated path." >&2
+            exit 1
+          fi
           docker run --rm --platform linux/amd64 \
             -v "$GITHUB_WORKSPACE/build/ci-marginbench-dist:/dist:ro" \
             -e MARGINBENCH_WHEEL="/dist/$(basename "$wheel")" \

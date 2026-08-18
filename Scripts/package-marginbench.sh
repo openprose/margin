@@ -9,6 +9,7 @@ OUTPUT_DIR="${MARGINBENCH_DIST_DIR:-$PROJECT_DIR/build/marginbench-package}"
 STAGING_DIR="$(mktemp -d /tmp/marginbench-package.XXXXXX)"
 PYTHON_VERIFY_IMAGE_AMD64="python@sha256:0f16c5d35fe6464ee471792ab3bb9116f911b65b3fbf10120c98d2bdc6332f48"
 PYTHON_VERIFY_IMAGE_ARM64="python@sha256:3b6bee0531ed64639c7846e5a083a3d13531ceb58326f52d63d436f4edabf50e"
+SENSITIVE_ARCHIVE_PATTERN='(^|/)(runs|keys|transcripts|raw-prompts|tmp|__pycache__|\.ruff_cache)(/|$)|(^|/)\.env($|\.)|\.(key|secret)($|\.)'
 
 case "$(uname -m)" in
     arm64|aarch64)
@@ -115,6 +116,34 @@ wheel_metadata="$(unzip -p "$wheel" '*/WHEEL')"
     print -u2 "The wheel metadata does not match its embedded Linux executable."
     exit 65
 }
+
+reject_sensitive_archive_paths() {
+    local archive="$1"
+    local kind="$2"
+    local listing
+    case "$kind" in
+        wheel) listing="$(unzip -Z1 "$archive")" ;;
+        source) listing="$(/usr/bin/tar -tzf "$archive")" ;;
+        *) print -u2 "Unknown archive kind: $kind"; exit 64 ;;
+    esac
+    if printf '%s\n' "$listing" | LC_ALL=C grep -Eq "$SENSITIVE_ARCHIVE_PATTERN"; then
+        print -u2 "Refusing a MarginBench $kind archive containing a sensitive or generated path."
+        exit 65
+    fi
+}
+
+# Keep the fail-closed path rule executable instead of relying on a prose-only
+# packaging promise. Similar source names such as keys.py must remain legal.
+printf '%s\n' 'marginbench-0.1.0/runs/trace.jsonl' \
+    | LC_ALL=C grep -Eq "$SENSITIVE_ARCHIVE_PATTERN"
+if printf '%s\n' 'marginbench-0.1.0/marginbench/keys.py' \
+    | LC_ALL=C grep -Eq "$SENSITIVE_ARCHIVE_PATTERN"; then
+    print -u2 "The package privacy rule rejects a legitimate source path."
+    exit 70
+fi
+
+reject_sensitive_archive_paths "$wheel" wheel
+reject_sensitive_archive_paths "$source_archive" source
 
 docker run --platform linux/amd64 --rm \
     -v "$STAGING_DIR/dist:/dist:ro" \
