@@ -99,6 +99,12 @@ compare-and-swap replacement. Agents may choose another Markdown layout, but
 only the supplied layout has a deterministic public parser and can earn
 structured-fact credit.
 
+A model-free feasibility sweep generated 100 public repetitions of each of the
+six workflows (600 cases) and checked 9,600 identifier, path, actor, kind,
+status, relationship, and expected-text fields. Every scalar satisfied the v1
+single-line rule. This supports the shape but does not substitute for the
+parser and adversarial gates below.
+
 ## Comparable checks
 
 The common score contains only checks available to both representations:
