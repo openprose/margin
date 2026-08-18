@@ -940,6 +940,18 @@ class MarginBenchCoreTests(unittest.TestCase):
         with self.assertRaisesRegex(DiagnosticError, "repeat a candidate/episode pair"):
             diagnose_artifacts([source, source])
 
+        other = PACKAGE_ROOT / "results" / "PRIME_GATE1_CANDIDATE3.json"
+        with self.assertRaisesRegex(DiagnosticError, "explicit focus candidate"):
+            diagnose_artifacts([source, other])
+        focused = diagnose_artifacts(
+            [source, other],
+            focus_candidate="typed-work-guidance-v7",
+        )
+        self.assertEqual(focused["candidateCount"], 2)
+        self.assertEqual(focused["focusCandidateID"], "typed-work-guidance-v7")
+        self.assertEqual(focused["focus"], focused["candidates"][1])
+        self.assertTrue(validate_bytes(canonical_json(focused))["valid"])
+
         broken = dict(report)
         broken["topOpportunity"] = "not-the-ranked-finding"
         invalid = validate_bytes(canonical_json(broken))

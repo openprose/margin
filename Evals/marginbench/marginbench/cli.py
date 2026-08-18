@@ -159,6 +159,10 @@ def main(argv: list[str] | None = None) -> int:
         nargs="+",
         help="validated result, reference run, redacted run, or Prime summary",
     )
+    diagnose.add_argument(
+        "--focus-candidate",
+        help="candidate whose safety and opportunities control the recommendation",
+    )
 
     submission = subparsers.add_parser(
         "submission",
@@ -286,7 +290,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if receipt["valid"] else 65
     if arguments.command == "diagnose":
         try:
-            _write(diagnose_artifacts(arguments.artifact))
+            _write(diagnose_artifacts(
+                arguments.artifact,
+                focus_candidate=arguments.focus_candidate,
+            ))
         except DiagnosticError as error:
             raise SystemExit(str(error)) from error
         return 0

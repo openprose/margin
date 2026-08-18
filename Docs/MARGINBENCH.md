@@ -190,8 +190,10 @@ without changing the model, private cases, role layout, or limits. Reports are
 themselves schema-checked artifacts and contain no source text, prompt, raw
 trace, key, or local artifact path. Safe candidates are directed to a minimum
 20-case matched private comparison; unsafe candidates are directed back to free
-local reproduction. Completed paired Prime studies create this report
-automatically, require it to cover exactly the published redacted runs, and bind
+local reproduction. Multi-candidate reports require an explicit focus, so
+historical baseline failures cannot determine the promotion gate for the new
+candidate. Completed paired Prime studies select that candidate automatically,
+create this report, require it to cover exactly the published redacted runs, and bind
 its digest and top-ranked opportunity into the completion receipt.
 
 ## Leaderboard tracks

@@ -404,7 +404,11 @@ def _group_summary(values: list[dict[str, Any]], name_key: str, name: str) -> di
     }
 
 
-def diagnose_artifacts(paths: Iterable[Path]) -> dict[str, Any]:
+def diagnose_artifacts(
+    paths: Iterable[Path],
+    *,
+    focus_candidate: str | None = None,
+) -> dict[str, Any]:
     inputs = list(paths)
     if not inputs or len(inputs) > MAX_INPUT_ARTIFACTS:
         raise DiagnosticError(
@@ -477,10 +481,24 @@ def diagnose_artifacts(paths: Iterable[Path]) -> dict[str, Any]:
     if len(dimensions) > 32:
         raise DiagnosticError("Diagnostics support at most 32 score dimensions.")
 
-    findings = _findings(episodes)
+    if focus_candidate is None:
+        if len(candidates) != 1:
+            raise DiagnosticError(
+                "Diagnostics with multiple candidates require an explicit focus candidate."
+            )
+        focus_candidate = next(iter(candidates))
+    if focus_candidate not in candidates:
+        raise DiagnosticError("The focus candidate is absent from the diagnostic inputs.")
+    focus_episodes = candidates[focus_candidate]
+    findings = _findings(focus_episodes)
     safety_failures = sum(_is_unsafe(episode) for episode in episodes)
     source_failures = sum(_source_failed(episode) for episode in episodes)
-    next_gate = "local-safety" if safety_failures or source_failures else "matched-private-pairs"
+    focus_summary = _group_summary(focus_episodes, "candidateID", focus_candidate)
+    next_gate = (
+        "local-safety"
+        if focus_summary["safetyFailureCount"] or focus_summary["sourceFailureCount"]
+        else "matched-private-pairs"
+    )
     return {
         "schema": DIAGNOSTIC_SCHEMA,
         "artifactCount": len(artifacts),
@@ -488,6 +506,8 @@ def diagnose_artifacts(paths: Iterable[Path]) -> dict[str, Any]:
         "episodeCount": len(episodes),
         "candidateCount": len(candidates),
         "scenarioCount": len(scenarios),
+        "focusCandidateID": focus_candidate,
+        "focus": focus_summary,
         "scoreSummary": {
             "mean": _mean(episode["score"] for episode in episodes),
             "minimum": min(episode["score"] for episode in episodes),

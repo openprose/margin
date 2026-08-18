@@ -500,7 +500,10 @@ def _finalize(
             raise PrimeStudyError("Generated paid-study submission failed verification.")
         (staging / "verification.json").write_bytes(canonical_json(verification))
         try:
-            diagnostic = diagnose_artifacts([staging / relative for relative in run_relatives])
+            diagnostic = diagnose_artifacts(
+                [staging / relative for relative in run_relatives],
+                focus_candidate=plan["candidate"]["id"],
+            )
         except DiagnosticError as error:
             raise PrimeStudyError("Generated paid-study diagnosis failed.") from error
         diagnostic_raw = canonical_json(diagnostic)

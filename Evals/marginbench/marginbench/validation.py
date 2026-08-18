@@ -532,6 +532,15 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             errors.append("diagnostic report contains duplicate candidate IDs")
         if len(scenario_ids) != len(set(scenario_ids)):
             errors.append("diagnostic report contains duplicate scenario IDs")
+        focus = next(
+            (
+                item for item in payload["candidates"]
+                if item["candidateID"] == payload["focusCandidateID"]
+            ),
+            None,
+        )
+        if focus is None or focus != payload["focus"]:
+            errors.append("diagnostic focus does not match its candidate summary")
         score_summary = payload["scoreSummary"]
         weighted_score = sum(
             item["meanScore"] * item["episodeCount"] for item in payload["candidates"]
@@ -570,12 +579,14 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             errors.append("diagnostic findings are not ranked by severity")
         for finding in findings:
             evidence = finding["evidence"]
-            if evidence["episodeCount"] > payload["episodeCount"]:
-                errors.append("diagnostic finding exceeds the report episode count")
-            if evidence["invalidCommandCount"] > payload["invalidCommandCount"]:
-                errors.append("diagnostic finding exceeds the report invalid-command count")
+            focus_episode_count = focus["episodeCount"] if focus is not None else 0
+            focus_invalid_count = focus["invalidCommandCount"] if focus is not None else 0
+            if evidence["episodeCount"] > focus_episode_count:
+                errors.append("diagnostic finding exceeds the focus episode count")
+            if evidence["invalidCommandCount"] > focus_invalid_count:
+                errors.append("diagnostic finding exceeds the focus invalid-command count")
         experiment = payload["recommendedNextExperiment"]
-        local_gate = payload["safetyFailureCount"] > 0 or payload["sourceFailureCount"] > 0
+        local_gate = focus is None or focus["safetyFailureCount"] > 0 or focus["sourceFailureCount"] > 0
         if experiment["gate"] != ("local-safety" if local_gate else "matched-private-pairs"):
             errors.append("diagnostic experiment gate disagrees with safety totals")
         if experiment["minimumMatchedEpisodes"] != (0 if local_gate else 20):

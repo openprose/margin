@@ -443,8 +443,12 @@ The phase is successful if the repository contains:
   change. Any safety failure blocks paid expansion; an ordinary candidate is
   directed to at least 20 matched private cases. The report retains no document
   text, prompt, raw trace, key, or local artifact path and is itself the 25th
-  schema-checked public format. Earlier valid paid evidence correctly ranks a
-  missing durable result above invalid command forms and excess interaction.
+  schema-checked public format. A historical multi-candidate rehearsal exposed
+  and closed one analysis error: an early unsafe baseline could initially block
+  a later safe candidate. Multi-candidate reports now require an explicit focus;
+  with the newest staged candidate selected, the same evidence ranks command
+  discoverability first and excess interaction second while retaining the full
+  candidate history for comparison.
   Completed paired Prime studies now create this report automatically, prove it
   covers exactly the submission's redacted runs, and bind its digest and first
   opportunity into the completion receipt; tampering makes replay fail before
@@ -453,11 +457,11 @@ The phase is successful if the repository contains:
   source archive passes 44 tests with 20 expected optional/runtime skips. The
   system runtime passes 38 contracts with six Prime-only skips and Prime passes
   all 44. No paid model was called. The implementation digest is
-  `65f11a2e7d9771552c99b0659635e32b7ecb70e0835b760f56cbab65d18ecf72`.
+  `17c88ee581730e3231fd680d6ea3b6cb0d86dc1b1d70629a95c5dda755b556e3`.
   The Linux-verified wheel is
-  `a6ced81d1d5ae5831a09df7fe8eae07a41f8843685d51b93c0d83f24c0a01f11`;
+  `7fee22a178685ec26bfab2b0e0d1cdbc60bec7100577502af2a4c1e0e48baf41`;
   the source archive is
-  `3e923497ad5bd12546f76978cf3ddc9e14c2790dcdf6d89ffbc84fc2523b3550`.
+  `8354f6dbe0cd4e7ed43e45ed58f5e57970002e85e54dbf7ad8c74165fea632cc`.
 
 ## Next statistically useful paid run
 
