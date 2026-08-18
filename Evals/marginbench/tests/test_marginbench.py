@@ -14,10 +14,12 @@ from types import SimpleNamespace
 from marginbench.binary import resolve_margin_binary, validate_packaged_binary
 from marginbench.candidates import CandidateManifest, load_results, paired_compare
 from marginbench.controls import DEFAULT_CONTROL_PROFILE, control_catalog, require_implemented_profile
+from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY
 from marginbench.fake_model import scripted_response
 from marginbench.gateway import MarginGateway
 from marginbench.keys import create_holdout_key
 from marginbench.provenance import implementation_files, implementation_sha256
+from marginbench.reference_study import ReferenceStudyError, run_reference_study
 from marginbench.runner import ReferenceDriver, run_episode
 from marginbench.scenarios import SCENARIO_IDS, generate_episode
 from marginbench.schema import Actor, CommandEvent, EpisodeResult
@@ -25,7 +27,7 @@ from marginbench.scorer import score_episode
 from marginbench.scheduling import build_execution_plan
 from marginbench.studies import build_study_plan
 from marginbench.submission import SubmissionError, build_submission, verify_submission
-from marginbench.validation import validate_artifact, validate_bytes
+from marginbench.validation import submission_identifier, validate_artifact, validate_bytes
 from prime_pilot import (
     _run_manifest,
     _summarize_traces,
@@ -275,7 +277,7 @@ class MarginBenchCoreTests(unittest.TestCase):
             self.assertEqual(payload["$schema"], "https://json-schema.org/draft/2020-12/schema")
             self.assertNotIn(payload["$id"], schemas)
             schemas[payload["$id"]] = payload
-        self.assertEqual(len(schemas), 19)
+        self.assertEqual(len(schemas), 20)
 
         try:
             from jsonschema import Draft202012Validator
@@ -385,6 +387,105 @@ class MarginBenchCoreTests(unittest.TestCase):
             receipt = validate_bytes(json.dumps(plan).encode("utf-8"))
             self.assertFalse(receipt["valid"])
             self.assertTrue(any("ordinals" in item for item in receipt["errors"]))
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_reference_study_runs_both_candidates_and_builds_verified_bundle(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="marginbench-reference-study-") as temporary:
+            root = Path(temporary)
+            baseline = CandidateManifest.create(
+                "baseline",
+                self.binary,
+                settings={"guidance": "baseline"},
+            )
+            candidate = CandidateManifest.create(
+                "candidate",
+                self.binary,
+                settings={"guidance": "candidate"},
+            )
+            study = build_study_plan(
+                baseline=baseline.id,
+                candidate=candidate.id,
+                scenarios=["human_agent_relay"],
+                repetitions=1,
+                key=PUBLIC_DEVELOPMENT_KEY,
+                development_cases=True,
+            )
+            baseline_path = root / "baseline.json"
+            candidate_path = root / "candidate.json"
+            study_path = root / "study.json"
+            baseline_path.write_text(json.dumps(asdict(baseline)), encoding="utf-8")
+            candidate_path.write_text(json.dumps(asdict(candidate)), encoding="utf-8")
+            study_path.write_text(json.dumps(study), encoding="utf-8")
+            execution_path = root / "execution.json"
+            execution_path.write_text(
+                json.dumps(build_execution_plan(study_path)),
+                encoding="utf-8",
+            )
+            output = root / "publication"
+            receipt = run_reference_study(
+                output,
+                study_plan=study_path,
+                execution_plan=execution_path,
+                baseline_manifest=baseline_path,
+                baseline_binary=self.binary,
+                candidate_manifest=candidate_path,
+                candidate_binary=self.binary,
+                package_root=PACKAGE_ROOT,
+            )
+            self.assertTrue(receipt["verified"])
+            self.assertFalse(receipt["paidModelsInvoked"])
+            self.assertEqual(receipt["jobCount"], 2)
+            self.assertEqual(receipt["baselineMinimumScore"], 100)
+            self.assertEqual(receipt["candidateMinimumScore"], 100)
+            self.assertTrue(validate_bytes(json.dumps(receipt).encode("utf-8"))["valid"])
+            verification = verify_submission(output / "submission.json")
+            self.assertTrue(verification["valid"], verification)
+            comparison = json.loads((output / "comparison.json").read_text(encoding="utf-8"))
+            self.assertEqual(comparison["ties"], 1)
+            self.assertFalse(comparison["promotable"])
+            self.assertFalse((output / "raw-traces").exists())
+            cli_output = root / "publication-cli"
+            environment = dict(os.environ)
+            environment["PYTHONPATH"] = str(PACKAGE_ROOT)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "marginbench.cli",
+                    "reference-study",
+                    str(cli_output),
+                    "--study-plan",
+                    str(study_path),
+                    "--execution-plan",
+                    str(execution_path),
+                    "--baseline-manifest",
+                    str(baseline_path),
+                    "--baseline-bin",
+                    str(self.binary),
+                    "--candidate-manifest",
+                    str(candidate_path),
+                    "--candidate-bin",
+                    str(self.binary),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=environment,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+            self.assertTrue(json.loads(completed.stdout)["verified"])
+            self.assertTrue(verify_submission(cli_output / "submission.json")["valid"])
+            with self.assertRaisesRegex(ReferenceStudyError, "new path"):
+                run_reference_study(
+                    output,
+                    study_plan=study_path,
+                    execution_plan=execution_path,
+                    baseline_manifest=baseline_path,
+                    baseline_binary=self.binary,
+                    candidate_manifest=candidate_path,
+                    candidate_binary=self.binary,
+                    package_root=PACKAGE_ROOT,
+                )
 
     def test_control_catalog_gates_unfair_or_unsafe_ablations(self) -> None:
         catalog = control_catalog()
@@ -1132,10 +1233,13 @@ class MarginBenchCoreTests(unittest.TestCase):
                     },
                 }
 
+            (root / "study.json").write_text(json.dumps(study), encoding="utf-8")
+            execution_plan = build_execution_plan(root / "study.json")
             values = {
                 "baseline.json": asdict(baseline_manifest),
                 "candidate.json": asdict(candidate_manifest),
                 "study.json": study,
+                "execution.json": execution_plan,
                 "comparison.json": comparison,
                 "run-baseline.json": run_manifest("run-baseline", baseline_manifest, baseline_result),
                 "run-candidate.json": run_manifest("run-candidate", candidate_manifest, candidate_result),
@@ -1148,6 +1252,7 @@ class MarginBenchCoreTests(unittest.TestCase):
                 baseline_manifest=Path("baseline.json"),
                 candidate_manifest=Path("candidate.json"),
                 study_plan=Path("study.json"),
+                execution_plan=Path("execution.json"),
                 comparison=Path("comparison.json"),
                 runs=[Path("run-baseline.json"), Path("run-candidate.json")],
             )
@@ -1155,7 +1260,7 @@ class MarginBenchCoreTests(unittest.TestCase):
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             receipt = verify_submission(manifest_path)
             self.assertTrue(receipt["valid"], receipt)
-            self.assertEqual(receipt["artifactCount"], 6)
+            self.assertEqual(receipt["artifactCount"], 7)
             self.assertTrue(validate_bytes(json.dumps(receipt).encode("utf-8"))["valid"])
             self.assertEqual(manifest["baseline"]["id"], "baseline")
             self.assertEqual(manifest["candidate"]["id"], "candidate")
@@ -1164,6 +1269,7 @@ class MarginBenchCoreTests(unittest.TestCase):
                 baseline_manifest=Path("baseline.json"),
                 candidate_manifest=Path("candidate.json"),
                 study_plan=Path("study.json"),
+                execution_plan=Path("execution.json"),
                 comparison=Path("comparison.json"),
                 runs=[Path("run-candidate.json"), Path("run-baseline.json")],
             )
@@ -1177,6 +1283,7 @@ class MarginBenchCoreTests(unittest.TestCase):
                     baseline_manifest=Path("baseline-link.json"),
                     candidate_manifest=Path("candidate.json"),
                     study_plan=Path("study.json"),
+                    execution_plan=Path("execution.json"),
                     comparison=Path("comparison.json"),
                     runs=[Path("run-baseline.json"), Path("run-candidate.json")],
                 )
@@ -1194,6 +1301,7 @@ class MarginBenchCoreTests(unittest.TestCase):
                     baseline_manifest=Path("baseline.json"),
                     candidate_manifest=Path("candidate.json"),
                     study_plan=Path("study.json"),
+                    execution_plan=Path("execution.json"),
                     comparison=Path("comparison.json"),
                     runs=[Path("run-baseline.json"), Path("run-candidate.json")],
                 )
@@ -1211,11 +1319,33 @@ class MarginBenchCoreTests(unittest.TestCase):
                     baseline_manifest=Path("baseline.json"),
                     candidate_manifest=Path("candidate.json"),
                     study_plan=Path("study.json"),
+                    execution_plan=Path("execution.json"),
                     comparison=Path("comparison.json"),
                     runs=[Path("run-baseline.json"), Path("run-candidate.json")],
                 )
             (root / "run-candidate.json").write_text(
                 json.dumps(values["run-candidate.json"]),
+                encoding="utf-8",
+            )
+
+            reordered = json.loads(json.dumps(execution_plan))
+            reordered["jobs"] = list(reversed(reordered["jobs"]))
+            for ordinal, job in enumerate(reordered["jobs"]):
+                job["ordinal"] = ordinal
+            reordered["id"] = submission_identifier(reordered)
+            (root / "execution.json").write_text(json.dumps(reordered), encoding="utf-8")
+            with self.assertRaisesRegex(SubmissionError, "deterministic expansion"):
+                build_submission(
+                    root,
+                    baseline_manifest=Path("baseline.json"),
+                    candidate_manifest=Path("candidate.json"),
+                    study_plan=Path("study.json"),
+                    execution_plan=Path("execution.json"),
+                    comparison=Path("comparison.json"),
+                    runs=[Path("run-baseline.json"), Path("run-candidate.json")],
+                )
+            (root / "execution.json").write_text(
+                json.dumps(execution_plan),
                 encoding="utf-8",
             )
 
@@ -1235,6 +1365,8 @@ class MarginBenchCoreTests(unittest.TestCase):
                     "candidate.json",
                     "--study-plan",
                     "study.json",
+                    "--execution-plan",
+                    "execution.json",
                     "--comparison",
                     "comparison.json",
                     "--run",
@@ -1278,6 +1410,7 @@ class MarginBenchCoreTests(unittest.TestCase):
                     baseline_manifest=Path("baseline.json"),
                     candidate_manifest=Path("candidate.json"),
                     study_plan=Path("study.json"),
+                    execution_plan=Path("execution.json"),
                     comparison=Path("comparison.json"),
                     runs=[Path("run-baseline.json"), Path("run-candidate.json")],
                 )
@@ -1307,6 +1440,7 @@ class MarginBenchCoreTests(unittest.TestCase):
                     baseline_manifest=Path("baseline.json"),
                     candidate_manifest=Path("candidate.json"),
                     study_plan=Path("study.json"),
+                    execution_plan=Path("execution.json"),
                     comparison=Path("comparison.json"),
                     runs=[Path("run-baseline.json"), Path("run-candidate.json")],
                 )

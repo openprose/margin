@@ -109,6 +109,7 @@ def _schema_name(payload: Any) -> tuple[str, str]:
         "urn:marginbench:prime-run-summary:v1": "prime-run-summary.schema.json",
         "urn:marginbench:prime-runtime-probe:v1": "runtime-probe.schema.json",
         "urn:marginbench:reference-run:v1": "reference-run.schema.json",
+        "urn:marginbench:reference-study-receipt:v1": "reference-study-receipt.schema.json",
         "urn:marginbench:result:v1": "result.schema.json",
         "urn:marginbench:run:v1": "run-manifest.schema.json",
         "urn:marginbench:study-plan:v1": "study-plan.schema.json",
@@ -596,6 +597,7 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             payload["baseline"],
             payload["candidate"],
             payload["studyPlan"],
+            payload["executionPlan"],
             payload["comparison"],
             *payload["runs"],
         ]

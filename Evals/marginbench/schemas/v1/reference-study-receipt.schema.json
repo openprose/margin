@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:reference-study-receipt:v1",
+  "title": "MarginBench no-model paired reference-study receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "paidModelsInvoked", "output", "episodeCount", "jobCount",
+    "baselineMinimumScore", "candidateMinimumScore", "submissionID", "verified"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:reference-study-receipt:v1"},
+    "paidModelsInvoked": {"const": false},
+    "output": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "episodeCount": {"type": "integer", "minimum": 1, "maximum": 500},
+    "jobCount": {"type": "integer", "minimum": 2, "maximum": 1000},
+    "baselineMinimumScore": {"type": "number", "minimum": 0, "maximum": 100},
+    "candidateMinimumScore": {"type": "number", "minimum": 0, "maximum": 100},
+    "submissionID": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "verified": {"const": true}
+  }
+}

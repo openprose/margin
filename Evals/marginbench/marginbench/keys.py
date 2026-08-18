@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import secrets
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -58,3 +59,34 @@ def create_holdout_key(path: Path) -> dict[str, Any]:
         "mode": "0600",
         "secretPrinted": False,
     }
+
+
+def read_holdout_key(path: Path) -> tuple[bytes, str]:
+    """Read a keygen-compatible secret once without following a final symlink."""
+    target = path.expanduser()
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(target, flags)
+    except OSError as error:
+        raise ValueError("Holdout key could not be read.") from error
+    try:
+        identity = os.fstat(descriptor)
+        raw = os.read(descriptor, 257)
+    finally:
+        os.close(descriptor)
+    if not stat.S_ISREG(identity.st_mode):
+        raise ValueError("Holdout key must be a regular file.")
+    if identity.st_size > 257:
+        raise ValueError("Holdout key file is too large.")
+    if identity.st_mode & 0o077:
+        raise ValueError("Holdout key must not be group- or world-accessible.")
+    value = raw.strip()
+    try:
+        value.decode("ascii")
+    except UnicodeDecodeError as error:
+        raise ValueError("Holdout key must be ASCII.") from error
+    if not 16 <= len(value) <= 256:
+        raise ValueError("Holdout key must contain between 16 and 256 bytes.")
+    return value, "sha256:" + hashlib.sha256(value).hexdigest()

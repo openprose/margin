@@ -151,8 +151,9 @@ signature.
 
 For leaderboard publication, `marginbench submission create` adds the missing
 cross-file guarantee. Its deterministic manifest binds both candidate
-manifests, the study plan, all redacted run manifests, and the reported paired
-comparison by SHA-256. `marginbench submission verify` then checks the complete
+manifests, the study plan, its exact candidate-ordered execution plan, all
+redacted run manifests, and the reported paired comparison by SHA-256.
+`marginbench submission verify` then checks the complete
 episode coverage for both candidates, benchmark/track/control identity,
 candidate, per-episode build, and benchmark-implementation digests, study
 fingerprints and promotion threshold, track-specific fixed execution settings,
@@ -193,6 +194,14 @@ control is role-separated collaboration through Margin alone. Single-agent,
 plain-Markdown, and Margin-plus-shell controls are specified publicly but refuse
 to run until their identity, scoring, and isolation rules are implemented; they
 cannot silently enter the main track.
+
+The same schedule is exercised end to end without a model by
+`marginbench reference-study`. It runs both frozen binaries through the real
+gateway in candidate order, scores every case, creates the two redacted run
+manifests and comparison, assembles the digest-bound publication directory,
+and re-verifies it before atomically exposing the output. That makes scheduling,
+candidate identity, private-key parity, scoring, comparison, and publication a
+single zero-cost CI gate rather than separate assumptions.
 
 ## Contamination policy
 
@@ -253,9 +262,9 @@ x86-64, and Linux arm64. Margin 0.3.2 passes 164 macOS tests and 112 portable
 Linux tests; a repeat x86-64 build is byte-for-byte identical. The Verifiers v1
 adapter completes the whole five-case local fake-agent matrix at 100 with only
 one exposed tool. The installable manylinux wheel and source archive also pass
-their tests in clean containers. The system Python runtime passes 31 benchmark
-contracts with five Prime-only skips; Prime's runtime passes all 36. The wheel
-bundles all 19 schemas.
+their tests in clean containers. The system Python runtime passes 32 benchmark
+contracts with five Prime-only skips; Prime's runtime passes all 37. The wheel
+bundles all 20 schemas.
 
 Real Qwen Flash runs exercised every family. The initial human-relay smoke
 scored 25; successive general CLI guidance improvements reached the exact

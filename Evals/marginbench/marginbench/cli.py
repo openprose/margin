@@ -14,6 +14,7 @@ from .candidates import CandidateManifest, load_results, paired_compare
 from .controls import control_catalog
 from .entropy import PUBLIC_DEVELOPMENT_KEY
 from .keys import create_holdout_key
+from .reference_study import ReferenceStudyError, run_reference_study
 from .runner import ReferenceDriver, run_episode
 from .scheduling import ExecutionPlanError, build_execution_plan
 from .scenarios import SCENARIO_IDS, generate_episode
@@ -117,6 +118,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     execution_plan.add_argument("study_plan", type=Path)
 
+    reference_study = subparsers.add_parser(
+        "reference-study",
+        help="run a complete paired study with the deterministic no-model reference policy",
+    )
+    reference_study.add_argument("output", type=Path)
+    reference_study.add_argument("--study-plan", type=Path, required=True)
+    reference_study.add_argument("--execution-plan", type=Path, required=True)
+    reference_study.add_argument("--baseline-manifest", type=Path, required=True)
+    reference_study.add_argument("--baseline-bin", type=Path, required=True)
+    reference_study.add_argument("--candidate-manifest", type=Path, required=True)
+    reference_study.add_argument("--candidate-bin", type=Path, required=True)
+    reference_study.add_argument("--key-file", type=Path)
+
     subparsers.add_parser(
         "controls",
         help="show implemented and deliberately gated benchmark control profiles",
@@ -147,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
     submission_create.add_argument("--baseline-manifest", type=Path, required=True)
     submission_create.add_argument("--candidate-manifest", type=Path, required=True)
     submission_create.add_argument("--study-plan", type=Path, required=True)
+    submission_create.add_argument("--execution-plan", type=Path, required=True)
     submission_create.add_argument("--comparison", type=Path, required=True)
     submission_create.add_argument("--run", type=Path, action="append", required=True)
     submission_verify = submission_commands.add_parser(
@@ -230,6 +245,23 @@ def main(argv: list[str] | None = None) -> int:
         except ExecutionPlanError as error:
             raise SystemExit(str(error)) from error
         return 0
+    if arguments.command == "reference-study":
+        try:
+            receipt = run_reference_study(
+                arguments.output,
+                study_plan=arguments.study_plan,
+                execution_plan=arguments.execution_plan,
+                baseline_manifest=arguments.baseline_manifest,
+                baseline_binary=arguments.baseline_bin,
+                candidate_manifest=arguments.candidate_manifest,
+                candidate_binary=arguments.candidate_bin,
+                key_file=arguments.key_file,
+                package_root=Path(__file__).resolve().parent.parent,
+            )
+        except ReferenceStudyError as error:
+            raise SystemExit(str(error)) from error
+        _write(receipt)
+        return 0
     if arguments.command == "controls":
         _write(control_catalog())
         return 0
@@ -251,6 +283,7 @@ def main(argv: list[str] | None = None) -> int:
                 baseline_manifest=arguments.baseline_manifest,
                 candidate_manifest=arguments.candidate_manifest,
                 study_plan=arguments.study_plan,
+                execution_plan=arguments.execution_plan,
                 comparison=arguments.comparison,
                 runs=arguments.run,
             )

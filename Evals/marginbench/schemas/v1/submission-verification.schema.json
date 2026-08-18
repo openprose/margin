@@ -13,10 +13,10 @@
     "valid": {"type": "boolean"},
     "submissionID": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
     "manifestSha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
-    "artifactCount": {"type": "integer", "minimum": 0, "maximum": 260},
+    "artifactCount": {"type": "integer", "minimum": 0, "maximum": 261},
     "artifacts": {
       "type": "array",
-      "maxItems": 260,
+      "maxItems": 261,
       "items": {
         "type": "object",
         "additionalProperties": false,

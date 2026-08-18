@@ -14,7 +14,6 @@ import hashlib
 import json
 import os
 import shutil
-import stat
 import subprocess
 import sys
 import time
@@ -32,6 +31,7 @@ from marginbench.controls import DEFAULT_CONTROL_PROFILE, require_implemented_pr
 from marginbench.provenance import implementation_sha256  # noqa: E402
 from marginbench.scenarios import SCENARIO_IDS, generate_episode  # noqa: E402
 from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY  # noqa: E402
+from marginbench.keys import read_holdout_key  # noqa: E402
 from marginbench.validation import MAX_ARTIFACT_BYTES, validate_bytes  # noqa: E402
 
 
@@ -77,32 +77,8 @@ def load_candidate_manifest(
 
 
 def load_holdout_key(path: Path) -> tuple[str, str]:
-    target = path.expanduser()
-    flags = os.O_RDONLY
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    try:
-        descriptor = os.open(target, flags)
-    except OSError as error:
-        raise ValueError("Holdout key could not be read.") from error
-    try:
-        identity = os.fstat(descriptor)
-        raw = os.read(descriptor, 257)
-    finally:
-        os.close(descriptor)
-    if not stat.S_ISREG(identity.st_mode):
-        raise ValueError("Holdout key must be a regular file.")
-    if identity.st_size > 257:
-        raise ValueError("Holdout key file is too large.")
-    if identity.st_mode & 0o077:
-        raise ValueError("Holdout key must not be group- or world-accessible.")
-    try:
-        value = raw.strip().decode("ascii")
-    except UnicodeDecodeError as error:
-        raise ValueError("Holdout key must be ASCII.") from error
-    if not 16 <= len(value.encode("ascii")) <= 256:
-        raise ValueError("Holdout key must contain between 16 and 256 bytes.")
-    return value, "sha256:" + hashlib.sha256(value.encode("ascii")).hexdigest()
+    value, key_id = read_holdout_key(path)
+    return value.decode("ascii"), key_id
 
 
 def _candidate(arguments: argparse.Namespace) -> CandidateManifest:

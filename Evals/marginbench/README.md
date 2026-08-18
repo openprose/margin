@@ -106,7 +106,8 @@ reviewer does not need this source checkout.
 Validating each JSON file separately does not prove that the files belong to
 the same experiment. A publication bundle therefore has one deterministic
 submission manifest that binds the two candidates, private or public study
-plan, every redacted run manifest, and paired comparison by path and digest.
+plan, its deterministic execution plan, every redacted run manifest, and
+paired comparison by path and digest.
 Create it only after all referenced files are in one directory tree:
 
 ```sh
@@ -114,6 +115,7 @@ marginbench submission create publication \
   --baseline-manifest candidate-baseline.json \
   --candidate-manifest candidate-new.json \
   --study-plan study-plan.json \
+  --execution-plan execution-plan.json \
   --comparison comparison.json \
   --run runs/baseline-1.json --run runs/candidate-1.json \
   > publication/submission.json
@@ -280,6 +282,24 @@ skipped on replay rather than charged twice. Supplying `--key-file` to the
 study planner marks the plan as a private holdout; either emitted file contains
 only fingerprints and role names, never the key, fixture text, prompts, or
 oracle.
+
+Before paying for agents, exercise the complete paired pipeline with the
+deterministic reference policy. This follows every scheduled candidate job,
+uses the real binaries and Margin gateway, scores both sides, writes redacted
+run manifests and a paired comparison, then creates and re-verifies the whole
+leaderboard bundle atomically:
+
+```sh
+marginbench reference-study reference-publication \
+  --study-plan study-plan.json --execution-plan execution-plan.json \
+  --baseline-manifest candidate-baseline.json --baseline-bin margin-baseline \
+  --candidate-manifest candidate-new.json --candidate-bin margin-new
+```
+
+The output path must not already exist. Private studies also require
+`--key-file`; public-development studies reject that flag so a mismatched key
+cannot silently generate different cases. This command invokes no model and
+reports `paidModelsInvoked:false`.
 
 Create a rotating private key without placing its value in shell history or
 stdout:

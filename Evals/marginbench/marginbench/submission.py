@@ -170,6 +170,7 @@ def _cross_errors(manifest: dict[str, Any], loaded: dict[str, dict[str, Any]]) -
     baseline = loaded[manifest["baseline"]["path"]]
     candidate = loaded[manifest["candidate"]["path"]]
     study = loaded[manifest["studyPlan"]["path"]]
+    execution_plan = loaded[manifest["executionPlan"]["path"]]
     comparison = loaded[manifest["comparison"]["path"]]
     candidates = {baseline["id"]: baseline, candidate["id"]: candidate}
 
@@ -179,6 +180,23 @@ def _cross_errors(manifest: dict[str, Any], loaded: dict[str, dict[str, Any]]) -
         errors.append("candidate reference does not match its manifest")
     if study["baselineCandidate"] != baseline["id"] or study["candidate"] != candidate["id"]:
         errors.append("study plan candidates do not match the submission")
+    if (
+        execution_plan["studyPlanSha256"] != manifest["studyPlan"]["sha256"]
+        or execution_plan["baselineCandidate"] != baseline["id"]
+        or execution_plan["candidate"] != candidate["id"]
+    ):
+        errors.append("execution plan does not match the submission study and candidates")
+    try:
+        from .scheduling import build_execution_plan_from_study
+
+        expected_execution = build_execution_plan_from_study(
+            study,
+            manifest["studyPlan"]["sha256"],
+        )
+        if expected_execution != execution_plan:
+            errors.append("execution plan is not the deterministic expansion of the study plan")
+    except (KeyError, TypeError, ValueError, RuntimeError) as error:
+        errors.append(f"execution plan could not be recomputed: {str(error)[:400]}")
     if comparison["baselineCandidateID"] != baseline["id"] or comparison["candidateID"] != candidate["id"]:
         errors.append("comparison candidates do not match the submission")
     if comparison["minimumPairsForPromotion"] != study["minimumPairsForPromotion"]:
@@ -336,6 +354,7 @@ def _references(manifest: dict[str, Any]) -> list[tuple[dict[str, Any], str]]:
         (manifest["baseline"], "urn:marginbench:candidate:v1"),
         (manifest["candidate"], "urn:marginbench:candidate:v1"),
         (manifest["studyPlan"], "urn:marginbench:study-plan:v1"),
+        (manifest["executionPlan"], "urn:marginbench:execution-plan:v1"),
         (manifest["comparison"], "urn:marginbench:paired-comparison:v1"),
     ]
     values.extend((item, "urn:marginbench:run:v1") for item in manifest["runs"])
@@ -403,6 +422,7 @@ def build_submission(
     baseline_manifest: Path,
     candidate_manifest: Path,
     study_plan: Path,
+    execution_plan: Path,
     comparison: Path,
     runs: Iterable[Path],
 ) -> dict[str, Any]:
@@ -411,6 +431,7 @@ def build_submission(
         "baseline": _relative_argument(root, baseline_manifest),
         "candidate": _relative_argument(root, candidate_manifest),
         "study": _relative_argument(root, study_plan),
+        "execution": _relative_argument(root, execution_plan),
         "comparison": _relative_argument(root, comparison),
     }
     run_paths = [_relative_argument(root, value) for value in runs]
@@ -422,6 +443,11 @@ def build_submission(
     baseline, baseline_evidence = _load(root, paths["baseline"], "urn:marginbench:candidate:v1")
     candidate, candidate_evidence = _load(root, paths["candidate"], "urn:marginbench:candidate:v1")
     study, study_evidence = _load(root, paths["study"], "urn:marginbench:study-plan:v1")
+    _, execution_evidence = _load(
+        root,
+        paths["execution"],
+        "urn:marginbench:execution-plan:v1",
+    )
     _, comparison_evidence = _load(
         root,
         paths["comparison"],
@@ -472,6 +498,10 @@ def build_submission(
             "sha256": candidate_evidence["sha256"],
         },
         "studyPlan": {"path": paths["study"], "sha256": study_evidence["sha256"]},
+        "executionPlan": {
+            "path": paths["execution"],
+            "sha256": execution_evidence["sha256"],
+        },
         "comparison": {
             "path": paths["comparison"],
             "sha256": comparison_evidence["sha256"],

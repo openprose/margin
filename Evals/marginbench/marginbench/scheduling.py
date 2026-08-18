@@ -43,8 +43,10 @@ def _job_id(study_sha256: str, episode_id: str, candidate_id: str, position: int
     return "sha256:" + sha256_bytes(canonical_json(material))
 
 
-def build_execution_plan(study_path: Path) -> dict[str, Any]:
-    study, study_sha256 = _study_snapshot(study_path)
+def build_execution_plan_from_study(
+    study: dict[str, Any],
+    study_sha256: str,
+) -> dict[str, Any]:
     jobs: list[dict[str, Any]] = []
     for episode in study["episodes"]:
         for position, candidate_id in enumerate(episode["candidateOrder"]):
@@ -83,6 +85,11 @@ def build_execution_plan(study_path: Path) -> dict[str, Any]:
     if not receipt["valid"]:
         raise RuntimeError("Generated execution plan violated its own public contract.")
     return plan
+
+
+def build_execution_plan(study_path: Path) -> dict[str, Any]:
+    study, study_sha256 = _study_snapshot(study_path)
+    return build_execution_plan_from_study(study, study_sha256)
 
 
 def expected_job_id(

@@ -25,6 +25,12 @@ Release date: 2026-08-18
   selection in the Prime adapter, frozen-candidate enforcement, and private-key
   parity between study planning and hosted execution. The private key is
   consumed before agent subprocesses start and never appears in a dry plan.
+  The leaderboard verifier recomputes and binds that schedule to the study, so
+  a submission cannot substitute or omit the declared counterbalancing plan.
+- Adds a zero-model paired reference-study runner that follows the exact job
+  order with both frozen binaries, scores every case through the real gateway,
+  and atomically emits a comparison plus independently verified leaderboard
+  bundle before any paid study is attempted.
 - Adds a read-only, no-secret GitHub Actions gate for the portable Swift core,
   reproducible x86-64 binary, provider-independent tests, Prime adapter,
   fake-model rehearsal, wheel smoke test, and retained validation receipt.
@@ -32,9 +38,9 @@ Release date: 2026-08-18
 ### Verification and artifacts
 
 - All 164 macOS tests and all 112 portable Linux tests pass. The system runtime
-  passes 31 MarginBench tests with five Prime-only skips; Prime's runtime passes
-  all 36. The five-case reference matrix and Prime fake-model rehearsal both
-  score 100 with no paid calls. Nineteen public schemas are bundled in the
+  passes 32 MarginBench tests with five Prime-only skips; Prime's runtime passes
+  all 37. The five-case reference matrix and Prime fake-model rehearsal both
+  score 100 with no paid calls. Twenty public schemas are bundled in the
   installable package. The existing CLI and directory-collaboration evals also
   remain fully green.
 - The final x86-64 Linux binary rebuild is byte-for-byte reproducible. Both
@@ -45,9 +51,9 @@ Release date: 2026-08-18
 - `Margin-0.3.2-macOS-arm64.pkg`: 3,521,281 bytes, SHA-256
   `b374f8411a0ce90c6b2f402d3951796db5efdb0a1acd4b5108154a040d33fe79`.
 - `marginbench-0.1.0-py3-none-manylinux_2_35_x86_64.whl`: SHA-256
-  `7bd7de6b71e57d80dffa84d3cea190a0fe004ec9da82038d3156d1dc5f7af94e`.
+  `8d5b5676d271d6d4929bca8fb6ea7e8c2a9c2a057952fcab190282b4433a81a4`.
 - `marginbench-0.1.0.tar.gz`: SHA-256
-  `3bae868f886143aee060d1e6bcaa7849025ac47961fe3847331a02910b56adb7`.
+  `ad6aacbf35d370a59a29c94c4c7a7f0d7973187590dfa6a0ff09e54872902445`.
 
 ### Performance
 

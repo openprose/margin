@@ -7,7 +7,8 @@
   "required": [
     "schema", "id", "benchmarkVersion", "benchmarkImplementationSha256",
     "taskSet", "track", "developmentCases",
-    "controlProfile", "baseline", "candidate", "studyPlan", "comparison", "runs", "privacy"
+    "controlProfile", "baseline", "candidate", "studyPlan", "executionPlan",
+    "comparison", "runs", "privacy"
   ],
   "properties": {
     "schema": {"const": "urn:marginbench:submission:v1"},
@@ -21,6 +22,7 @@
     "baseline": {"$ref": "#/$defs/candidateReference"},
     "candidate": {"$ref": "#/$defs/candidateReference"},
     "studyPlan": {"$ref": "#/$defs/artifactReference"},
+    "executionPlan": {"$ref": "#/$defs/artifactReference"},
     "comparison": {"$ref": "#/$defs/artifactReference"},
     "runs": {
       "type": "array",
