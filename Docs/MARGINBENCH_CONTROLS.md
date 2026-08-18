@@ -169,6 +169,12 @@ must be disclosed as part of this control and must not reproduce Margin's hidden
 protocol. A parser must deterministically grade it. Free-form semantic judging
 is not acceptable.
 
+The first concrete draft of that fact model, visible Markdown interchange,
+per-scenario projections, and fairness gates is in
+[`MARGINBENCH_NEUTRAL_OUTCOMES.md`](MARGINBENCH_NEUTRAL_OUTCOMES.md). It remains
+design-only; the profile stays gated until both projections and every listed
+adversarial test exist.
+
 Release gates:
 
 - A reference writer and parser cover every scenario without Margin.

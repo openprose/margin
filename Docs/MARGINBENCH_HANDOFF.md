@@ -1,6 +1,6 @@
 # MarginBench build-phase handoff
 
-Status at 2026-08-18 07:35 ET: the primary benchmark track and its
+Status at 2026-08-18 07:37 ET: the primary benchmark track and its
 compute-matched continuing-agent control are implemented, portable, tested,
 packaged, and ready for further no-model development. No
 additional paid run is justified before the next comparison profile passes its
@@ -109,9 +109,10 @@ budget advantage from using fewer processes.
 2. If that plan is clean, propose—but do not automatically run—one public
    matched pair capped at $0.10 total. Use it to calibrate the control, not to
    claim a ranking.
-3. Define representation-neutral scenario outcomes before building the
-   plain-Markdown and no-exchange controls. Do not grade them through
-   Margin-specific annotations.
+3. Implement and adversarially test the representation-neutral fact projection
+   and visible Markdown interchange drafted in
+   `Docs/MARGINBENCH_NEUTRAL_OUTCOMES.md`, then build the plain-Markdown and
+   no-exchange controls. Do not grade them through Margin-specific annotations.
 4. Implement Margin-plus-shell only in disposable remote sandboxes. It must
    never run against the host filesystem or inherit benchmark credentials.
 5. Add an Environment Hub owner handle when public Prime publication is

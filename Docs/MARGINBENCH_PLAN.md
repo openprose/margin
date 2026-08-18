@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 07:35 ET
+Last updated: 2026-08-18 07:37 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -742,6 +742,13 @@ The phase is successful if the repository contains:
   the final 0.3.2 CLI recorded 5.247 ms median / 5.832 ms p95 for help and
   7.441 ms median / 8.119 ms p95 for the 69,995-byte full capability catalog.
   The clean-package rebuild reproduced both published package hashes exactly.
+
+- 2026-08-18 07:37 ET — Froze the first design draft for a fair ordinary-
+  Markdown comparison. It defines a common fact projection, a visible
+  `COLLABORATION.md` interchange, representation-neutral dimensions, exact
+  success conditions for all six workflows, intermediate all-or-none
+  visibility, and the adversarial gates required before the control can run.
+  No paid or model-backed execution was enabled.
 
 ## Next statistically useful paid run
 
