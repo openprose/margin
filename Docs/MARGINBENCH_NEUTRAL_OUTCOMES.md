@@ -16,7 +16,8 @@ Every candidate is projected into the same small set of facts before scoring:
   or reply;
 - related document and optional exact source passage;
 - exact Markdown body;
-- author actor ID;
+- declared author actor ID plus the trusted actor that first introduced the
+  fact;
 - open, resolved, accepted, or rejected state;
 - optional parent/root fact ID;
 - optional intended next actor, assignee, priority, or audience;
@@ -25,8 +26,10 @@ Every candidate is projected into the same small set of facts before scoring:
 
 The scorer also receives the exact expected logical source for each document
 and a normalized event record for conflicts, retries, policy blocks, and
-writes. It never reads a model transcript and never asks another model to judge
-semantic similarity.
+writes. That trusted record binds each successful write to the active role and
+records only affected fact IDs and before/after digests, not private bodies. It
+never reads a model transcript and never asks another model to judge semantic
+similarity.
 
 Margin annotations are projected into these facts by a read-only adapter. The
 plain-Markdown control is projected by parsing one disclosed file named
@@ -70,6 +73,15 @@ until the next level-two fact heading. Duplicate headings, unknown required
 fields, invalid actor/parent references, and cycles are errors. Unknown
 optional fields are preserved but receive no credit.
 
+`Author` is not trusted merely because an agent typed it. The gateway records
+the bound actor under which each fact ID first appeared; those values must
+match. Likewise, `Decision by` must match the bound actor on the write that
+first changed a suggestion to accepted or rejected. Harness-created human facts
+carry equivalent trusted provenance. Later whole-file rewrites may preserve an
+earlier fact, but cannot acquire its authorship. A forged attribution remains
+visible for diagnosis and fails the relevant check instead of being silently
+rewritten by the gateway.
+
 This is deliberately less capable than Margin's embedded protocol. It is an
 ordinary visible Markdown ledger, contains no hidden metadata, and uses no
 sidecar database. The file gateway offers only bounded list/read and one-file
@@ -82,8 +94,8 @@ structured-fact credit.
 The common score contains only checks available to both representations:
 
 - **Outcome:** every expected fact exists once with the exact body, kind,
-  relationship, state, and task-specific properties; no unexpected fact was
-  added.
+  relationship, state, trusted author, and task-specific properties; no
+  unexpected fact was added.
 - **Integrity:** expected source bytes, unrelated text, fact IDs, and graph
   relationships remain intact; required grouped work is all present or all
   absent.
@@ -121,12 +133,14 @@ writes cannot earn the check.
 
 ## Gates before implementation is runnable
 
-1. Freeze a versioned JSON schema for the common facts and neutral score.
+1. Freeze a versioned JSON schema for the common facts, trusted write
+   provenance, and neutral score.
 2. Build both projections and prove that equivalent Margin and Markdown
    fixtures produce byte-identical canonical facts.
 3. Add reference solutions for all six workflows that score 100 without using
    Margin.
-4. Add adversarial cases for duplicate IDs, forged actors, parent cycles,
+4. Add adversarial cases for duplicate IDs, forged authors/decision-makers,
+   attribution laundering through a later whole-file rewrite, parent cycles,
    malformed bodies, stale compare-and-swap, symlink/path escape, oversized
    files, and partial grouped visibility.
 5. Run both profiles through the same in-process and served fake-model matrix,
