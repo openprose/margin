@@ -11,6 +11,7 @@ from pathlib import Path
 
 from marginbench.binary import resolve_margin_binary
 from marginbench.candidates import CandidateManifest
+from marginbench.controls import DEFAULT_CONTROL_PROFILE
 from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY
 from marginbench.prime_study import build_prime_study_plan
 from marginbench.provenance import implementation_sha256
@@ -51,7 +52,14 @@ class PairedPrimeControllerTests(unittest.TestCase):
     def _value(command: list[str], name: str) -> str:
         return command[command.index(name) + 1]
 
-    def _fixture(self, root: Path) -> tuple[argparse.Namespace, dict]:
+    def _fixture(
+        self,
+        root: Path,
+        *,
+        control_profile: str = DEFAULT_CONTROL_PROFILE,
+        scenario: str = "human_agent_relay",
+    ) -> tuple[argparse.Namespace, dict]:
+        root.mkdir(parents=True, exist_ok=True)
         baseline = CandidateManifest.create(
             "baseline",
             self.binary,
@@ -69,10 +77,11 @@ class PairedPrimeControllerTests(unittest.TestCase):
         study = build_study_plan(
             baseline=baseline.id,
             candidate=candidate.id,
-            scenarios=["human_agent_relay"],
+            scenarios=[scenario],
             repetitions=1,
             key=PUBLIC_DEVELOPMENT_KEY,
             development_cases=True,
+            control_profile=control_profile,
         )
         study_path = root / "study.json"
         execution_path = root / "execution.json"
@@ -127,6 +136,29 @@ class PairedPrimeControllerTests(unittest.TestCase):
             clock=lambda: 1_000.0,
         )
         return arguments, plan
+
+    def test_single_agent_plan_matches_compute_with_one_process(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="marginbench-paired-topology-") as temporary:
+            root = Path(temporary)
+            _, separated = self._fixture(
+                root / "separated",
+                scenario="agent_agent_handoff",
+            )
+            _, continuing = self._fixture(
+                root / "continuing",
+                scenario="agent_agent_handoff",
+                control_profile="single-agent-margin-v1",
+            )
+        self.assertEqual(separated["roleProcessCount"], continuing["roleProcessCount"])
+        self.assertEqual(separated["agentProcessCount"], 4)
+        self.assertEqual(continuing["agentProcessCount"], 2)
+        self.assertEqual(
+            separated["budget"]["contractMaximumCostUSD"],
+            continuing["budget"]["contractMaximumCostUSD"],
+        )
+        self.assertTrue(all(job["agentProcessCount"] == 1 for job in continuing["jobs"]))
+        self.assertTrue(all(job["traceSeats"] == ["agent"] for job in continuing["jobs"]))
+        self.assertTrue(validate_bytes(canonical_json(continuing))["valid"])
 
     def _fake_child(self, plan: dict, root: Path):
         candidates = {plan["baseline"]["id"]: plan["baseline"], plan["candidate"]["id"]: plan["candidate"]}

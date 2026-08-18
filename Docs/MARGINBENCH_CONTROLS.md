@@ -1,7 +1,7 @@
 # MarginBench comparison-control contract
 
-Status: design frozen for implementation; only
-`role-separated-margin-only-v1` is currently runnable.
+Status: design frozen for implementation. `role-separated-margin-only-v1` and
+`single-agent-margin-v1` are runnable; the other controls remain gated.
 
 MarginBench needs controls to answer four different questions without mixing
 them together:
@@ -80,17 +80,16 @@ Required implementation changes:
 
 Current progress: study and execution plans now record logical roles separately
 from actual model-process count, trace seats, and phase policy. A
-`single-agent-margin-v1` dry plan therefore uses one `agent` process per episode
-without being executable. The phase-identity primitive and continuing
+`single-agent-margin-v1` plan therefore uses one `agent` process per episode.
+The phase-identity primitive and continuing
 interaction are implemented and tested across the live MCP server: the
 controller advances only in frozen order, writes an atomic mode-0600 binding
 outside the workspace, overrides the static/tool-call identity, and sends each
-existing role brief as a separate turn. A disposable, temporarily enabled
-source snapshot passed all six cases at 100 both in process and through the
-environment server, with one trace per episode and no paid inference. The
-profile remains gated while live limits/costing, logical-actor versus trace-seat
-publication, and permanent served release gates are completed in the real
-runners.
+existing role brief as a separate turn. The permanent in-process and
+environment-server gates pass all six cases at 100, with one trace per episode
+and no paid inference. Live plans charge one process with the sum of the
+logical-role limits, and public artifacts preserve logical actor identities
+separately from the `agent` trace seat. The profile is implemented.
 
 Release gates:
 

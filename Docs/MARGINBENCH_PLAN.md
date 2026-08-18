@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 06:57 ET
+Last updated: 2026-08-18 07:10 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -678,6 +678,26 @@ The phase is successful if the repository contains:
   `402e6a31b46a5ade48febf0abb96b58126297ea347be99c01ea8308c7778174b`;
   its source archive is
   `ee1aaeb9ff08292967981f33d4c46f4f9ae65f1391819d9c452c281b63086160`.
+
+- 2026-08-18 07:10 ET — Completed and promoted the compute-matched continuing
+  agent control. Provider and paired-study accounting now distinguish logical
+  role work from actual model processes: a two-role case receives one process
+  with the sum of both roles' turn and token limits, while retaining the same
+  conservative provider bound as two isolated role processes. Redacted traces
+  and run artifacts publish the original logical actors separately from the
+  single `agent` trace seat, and independent validation rejects altered process,
+  seat, phase, identity, or pricing metadata. The permanent release target ran
+  all six cases both in process and through the environment server: 6/6 at 100,
+  six traces, 59 forwarded fake-model requests, zero rejects or provider-bound
+  violations, and no paid inference in each mode. A paired-plan regression
+  proves equal logical work and equal worst-case cost with half the processes on
+  a two-role case. Both Python runtimes pass 59 contracts; clean source/wheel
+  verification passes. The implementation digest is
+  `bb94ca3053cd8463b484714ea39a35f979aeac2ac179c2b5646415d722fa490e`.
+  The Linux-verified wheel is
+  `57240cbc3b89002c973117c4e8e8a78dd3443686ae7517aa9179e419b88c50e5`;
+  its source archive is
+  `e93405b2256fbe5407b9add3cd391b0d556c6127d9543c4e1e575d1d5c886508`.
 
 ## Next statistically useful paid run
 

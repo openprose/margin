@@ -1,7 +1,8 @@
 # MarginBench build-phase handoff
 
-Status at 2026-08-18 06:57 ET: the primary benchmark track is implemented,
-portable, tested, packaged, and ready for further no-model development. No
+Status at 2026-08-18 07:10 ET: the primary benchmark track and its
+compute-matched continuing-agent control are implemented, portable, tested,
+packaged, and ready for further no-model development. No
 additional paid run is justified before the next comparison profile passes its
 local release gates.
 
@@ -23,7 +24,8 @@ local release gates.
   dependencies.
 - A public control contract for role-separated Margin, a single continuing
   Margin agent, confined plain Markdown, remote Margin-plus-shell, and a
-  no-exchange floor. Only the fully tested first profile can execute.
+  no-exchange floor. The first two profiles are fully tested and can execute;
+  the representation and shell controls remain gated.
 
 ## Reproducible evidence
 
@@ -31,10 +33,10 @@ local release gates.
 | --- | --- |
 | macOS protocol correctness | 164 Swift tests passed |
 | Linux protocol correctness | 112 tests passed in an architecture-pinned Swift container |
-| Benchmark contracts | 57 passed in system Python and 57 passed in Prime's Python runtime |
+| Benchmark contracts | 59 passed in system Python and 59 passed in Prime's Python runtime |
 | Deterministic reference quality | 6/6 scenarios scored 100 with safety passing |
-| Hosted-boundary rehearsal | 6/6 passed in process and 6/6 through the environment server; 59 requests each, zero rejects, zero provider-bound violations, no paid inference |
-| Clean distributable | Extracted source discovered 57 tests and passed every available test with eight expected Prime-only skips; installed Intel Linux wheel passed self-test; package and CI reject sensitive/generated archive paths |
+| Hosted-boundary rehearsal | Both the role-separated and continuing-agent profiles passed 6/6 in process and 6/6 through the environment server; 59 requests per run, zero rejects, zero provider-bound violations, no paid inference |
+| Clean distributable | Extracted source discovered 59 tests and passed every available test with eight expected Prime-only skips; installed Intel Linux wheel passed self-test; package and CI reject sensitive/generated archive paths |
 | macOS responsiveness | App warm launch median 288.431 ms, p95 326.421 ms; CLI help median 5.132 ms, p95 5.800 ms |
 | Paid calibration | 17 attempts, 16 completed runs, 193 model calls, $0.0374 observed debit; $199.9487 remains |
 
@@ -49,15 +51,15 @@ make marginbench-package
 ```
 
 The current benchmark implementation digest is
-`5cef878ec960ebdaf6bdfddf398f765d94caf6b6afe3112f76873bf734433f46`.
+`bb94ca3053cd8463b484714ea39a35f979aeac2ac179c2b5646415d722fa490e`.
 
 Current benchmark packages:
 
 - `build/marginbench-package/marginbench-0.1.0-py3-none-manylinux_2_35_x86_64.whl`
   — SHA-256
-  `402e6a31b46a5ade48febf0abb96b58126297ea347be99c01ea8308c7778174b`
+  `57240cbc3b89002c973117c4e8e8a78dd3443686ae7517aa9179e419b88c50e5`
 - `build/marginbench-package/marginbench-0.1.0.tar.gz` — SHA-256
-  `ee1aaeb9ff08292967981f33d4c46f4f9ae65f1391819d9c452c281b63086160`
+  `e93405b2256fbe5407b9add3cd391b0d556c6127d9543c4e1e575d1d5c886508`
 
 Current macOS packages:
 
@@ -83,29 +85,19 @@ profile gives that pair a useful scientific question.
 
 ## Next work, in order
 
-1. Finish `single-agent-margin-v1` locally. Its static topology plan is now
-   implemented: logical roles remain visible while each episode records one
-   continuing model process, one `agent` trace seat, and serial role phases. It
-   reuses the exact Margin representation and scorer, and therefore gives the
-   cleanest next answer:
-   whether splitting one collaboration task across isolated agents adds value
-   versus one continuing agent with matched compute. A trusted atomic
-   phase-identity controller and promptless continuing interaction are also
-   implemented and tested through the live tool server. A disposable gated
-   snapshot passed all six fake-model cases in both process modes.
-2. Finish topology-aware live limits/cost accounting and publish logical actors
-   separately from the single `agent` trace seat. Then promote the disposable
-   six-case checks into permanent release gates before changing the profile's
-   status. `marginbench controls` is the machine-readable checklist.
-3. If those gates pass, propose—but do not automatically run—one public
-   calibration cell capped at $0.02. Use the result to repair the environment,
-   not to claim a ranking.
-4. Define representation-neutral scenario outcomes before building the
+1. Use the now-runnable `single-agent-margin-v1` control to prepare a matched,
+   no-spend comparison plan against the role-separated profile. Keep the tracks
+   separate and verify equal logical work, identities, case fingerprints,
+   sampling settings, and worst-case provider cost before proposing inference.
+2. If that plan is clean, propose—but do not automatically run—one public
+   matched pair capped at $0.10 total. Use it to calibrate the control, not to
+   claim a ranking.
+3. Define representation-neutral scenario outcomes before building the
    plain-Markdown and no-exchange controls. Do not grade them through
    Margin-specific annotations.
-5. Implement Margin-plus-shell only in disposable remote sandboxes. It must
+4. Implement Margin-plus-shell only in disposable remote sandboxes. It must
    never run against the host filesystem or inherit benchmark credentials.
-6. Add an Environment Hub owner handle when public Prime publication is
+5. Add an Environment Hub owner handle when public Prime publication is
    desired, then publish the already Hub-ready package. Local and packaged
    execution do not depend on that account setting.
 

@@ -6,7 +6,7 @@ BUILD_SCRATCH_PATH ?= $(SCRATCH_ROOT)/command-line-tools
 TEST_SCRATCH_PATH ?= $(SCRATCH_ROOT)/xcode-15.4
 OUTPUT_DIR ?= $(PROJECT_DIR)/build
 
-.PHONY: debug test test-linux marginbench-test marginbench-preflight marginbench-remote-plan marginbench-linux-binary marginbench-package release package installer install smoke benchmark eval eval-preflight eval-collaboration clean
+.PHONY: debug test test-linux marginbench-test marginbench-preflight marginbench-control-preflight marginbench-remote-plan marginbench-linux-binary marginbench-package release package installer install smoke benchmark eval eval-preflight eval-collaboration clean
 
 debug:
 	DEVELOPER_DIR="$(BUILD_DEVELOPER_DIR)" \
@@ -42,6 +42,14 @@ marginbench-preflight: release
 		"$(PROJECT_DIR)/Evals/marginbench/preflight.py" --margin-bin "$(OUTPUT_DIR)/margin"
 	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(PROJECT_DIR)/Evals/marginbench" \
 		"$(PROJECT_DIR)/Evals/marginbench/preflight.py" --margin-bin "$(OUTPUT_DIR)/margin" --server
+
+marginbench-control-preflight: release
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(PROJECT_DIR)/Evals/marginbench" \
+		"$(PROJECT_DIR)/Evals/marginbench/preflight.py" --margin-bin "$(OUTPUT_DIR)/margin" \
+		--control-profile single-agent-margin-v1
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(PROJECT_DIR)/Evals/marginbench" \
+		"$(PROJECT_DIR)/Evals/marginbench/preflight.py" --margin-bin "$(OUTPUT_DIR)/margin" \
+		--control-profile single-agent-margin-v1 --server
 
 marginbench-remote-plan:
 	PYTHONDONTWRITEBYTECODE=1 \

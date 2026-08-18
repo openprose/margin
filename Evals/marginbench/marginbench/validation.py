@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .candidates import CandidateManifest
-from .controls import planned_topology
+from .controls import per_agent_compute_multiplier, planned_topology
 
 
 VALIDATION_SCHEMA = "urn:marginbench:validation:v1"
@@ -364,6 +364,10 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         roles = payload["execution"]["roles"]
         if len(roles) != len(set(roles)):
             errors.append("run execution contains duplicate roles")
+        published_logical_roles: set[str] = set()
+        published_trace_seats: set[str] = set()
+        published_agent_processes = 0
+        published_topology_episodes = 0
         for episode in episodes:
             expected = f"{episode['scenario']}:{episode['repetition']}:{episode['fingerprint'][:12]}"
             if episode["id"] != expected:
@@ -381,6 +385,52 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                     not episode["safetyPassed"] or not episode["sourcePreserved"]
                 ) and episode["score"] > 25:
                     errors.append(f"unsafe or source-corrupt run score exceeds 25: {episode['id']}")
+            topology_fields = (
+                "controlProfile",
+                "logicalActors",
+                "agentProcessCount",
+                "traceSeats",
+                "phasePolicy",
+            )
+            topology_present = [field in episode for field in topology_fields]
+            if any(topology_present) and not all(topology_present):
+                errors.append(f"run episode has incomplete topology metadata: {episode['id']}")
+            elif all(topology_present):
+                logical_roles = [actor["seat"] for actor in episode["logicalActors"]]
+                if len(logical_roles) != len(set(logical_roles)):
+                    errors.append(f"run episode contains duplicate logical actors: {episode['id']}")
+                try:
+                    topology = planned_topology(episode["controlProfile"], logical_roles)
+                except ValueError as error:
+                    errors.append(str(error))
+                else:
+                    if any(episode[field] != topology[field] for field in topology):
+                        errors.append(f"run episode topology is inconsistent: {episode['id']}")
+                if episode["controlProfile"] != payload["execution"].get("controlProfile"):
+                    errors.append(f"run episode control differs from execution: {episode['id']}")
+                published_logical_roles.update(logical_roles)
+                published_trace_seats.update(episode["traceSeats"])
+                published_agent_processes += episode["agentProcessCount"]
+                published_topology_episodes += 1
+        if published_topology_episodes and published_topology_episodes != len(episodes):
+            errors.append("run mixes episodes with and without topology metadata")
+        if published_logical_roles and set(roles) != published_logical_roles:
+            errors.append("run execution roles differ from published logical actors")
+        if published_trace_seats:
+            if set(payload["execution"].get("traceSeats", ())) != published_trace_seats:
+                errors.append("run execution trace seats differ from episode traces")
+            if payload["execution"].get("agentProcessCount") != published_agent_processes:
+                errors.append("run execution process count differs from its episodes")
+            phase_policies = {
+                episode["phasePolicy"]
+                for episode in episodes
+                if "phasePolicy" in episode
+            }
+            if (
+                len(phase_policies) != 1
+                or payload["execution"].get("phasePolicy") not in phase_policies
+            ):
+                errors.append("run execution phase policy differs from its episodes")
         trace_cost = round(sum(item["usage"]["reportedCostUSD"] for item in episodes), 6)
         cost = payload["cost"]
         if not _close(trace_cost, cost["traceReported"]):
@@ -468,6 +518,33 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                     errors.append(
                         f"unsafe or source-corrupt Prime score exceeds 25: {episode['episodeID']}"
                     )
+            topology_fields = (
+                "controlProfile",
+                "logicalActors",
+                "agentProcessCount",
+                "traceSeats",
+                "phasePolicy",
+            )
+            topology_present = [field in episode for field in topology_fields]
+            if any(topology_present) and not all(topology_present):
+                errors.append(
+                    f"Prime episode has incomplete topology metadata: {episode['episodeID']}"
+                )
+            elif all(topology_present):
+                logical_roles = [actor["seat"] for actor in episode["logicalActors"]]
+                if len(logical_roles) != len(set(logical_roles)):
+                    errors.append(
+                        f"Prime episode contains duplicate logical actors: {episode['episodeID']}"
+                    )
+                try:
+                    topology = planned_topology(episode["controlProfile"], logical_roles)
+                except ValueError as error:
+                    errors.append(str(error))
+                else:
+                    if any(episode[field] != topology[field] for field in topology):
+                        errors.append(
+                            f"Prime episode topology is inconsistent: {episode['episodeID']}"
+                        )
             if "scenario" in episode:
                 expected = (
                     f"{episode['scenario']}:{episode['repetition']}:"
@@ -824,6 +901,7 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                     errors.append(f"Prime study job topology is inconsistent: {job['ordinal']}")
             attempts = (
                 job["agentProcessCount"]
+                * per_agent_compute_multiplier(payload["controlProfile"], job["roles"])
                 * limits["maxTurns"]
                 * limits["upstreamAttemptsPerTurn"]
             )

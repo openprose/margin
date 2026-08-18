@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .candidates import CandidateManifest
-from .controls import require_implemented_profile
+from .controls import per_agent_compute_multiplier, planned_topology, require_implemented_profile
 from .entropy import PUBLIC_DEVELOPMENT_KEY
 from .keys import read_holdout_key
 from .provenance import implementation_sha256
@@ -104,9 +104,16 @@ def _nonnegative_number(values: dict[str, Any], name: str) -> float:
     return float(value)
 
 
-def _job_cost(role_count: int, limits: dict[str, Any], pricing: dict[str, Any]) -> float:
+def _job_cost(
+    control_profile: str,
+    logical_roles: list[str],
+    limits: dict[str, Any],
+    pricing: dict[str, Any],
+) -> float:
+    topology = planned_topology(control_profile, logical_roles)
     attempts = (
-        role_count
+        topology["agentProcessCount"]
+        * per_agent_compute_multiplier(control_profile, logical_roles)
         * _positive_integer(limits, "maxTurns")
         * _positive_integer(limits, "upstreamAttemptsPerTurn")
     )
@@ -270,7 +277,12 @@ def build_prime_study_plan(
         planned = expected_episodes[job["episodeID"]]
         if job["roles"] != planned["roles"]:
             raise PrimeStudyError("Execution job roles differ from the frozen study plan.")
-        contract_job_cost = _job_cost(job["agentProcessCount"], limits, pricing)
+        contract_job_cost = _job_cost(
+            study["controlProfile"],
+            job["roles"],
+            limits,
+            pricing,
+        )
         live_job_cap = round(min(
             contract_job_cost,
             live_proxy_cap_per_job_usd
@@ -433,6 +445,16 @@ def validate_prime_job_outputs(
         errors.append("run process count differs from the scheduled roles")
     if set(run["execution"]["roles"]) != set(job["roles"]):
         errors.append("run roles differ from the scheduled job")
+    if (
+        "traceSeats" in run["execution"]
+        and run["execution"]["traceSeats"] != job["traceSeats"]
+    ):
+        errors.append("run trace seats differ from the scheduled job")
+    if (
+        "phasePolicy" in run["execution"]
+        and run["execution"]["phasePolicy"] != job["phasePolicy"]
+    ):
+        errors.append("run phase policy differs from the scheduled job")
     if len(summary["episodes"]) != 1 or len(run["episodes"]) != 1:
         errors.append("a scheduled job must publish exactly one episode")
     else:
@@ -471,6 +493,11 @@ def validate_prime_job_outputs(
             ("checks", "checks"),
             ("dimensions", "dimensions"),
             ("usage", "usage"),
+            ("controlProfile", "controlProfile"),
+            ("logicalActors", "logicalActors"),
+            ("agentProcessCount", "agentProcessCount"),
+            ("traceSeats", "traceSeats"),
+            ("phasePolicy", "phasePolicy"),
         ):
             if summary_episode.get(summary_name) != run_episode.get(run_name):
                 errors.append(f"summary and run disagree on {summary_name}")
@@ -491,7 +518,10 @@ def validate_prime_job_outputs(
     expected_basis = {
         "inputTokenCeilingPerCall": plan["limits"]["inputTokenCeilingPerCall"],
         "outputTokenCeilingPerCall": plan["limits"]["maxTokensPerCall"],
-        "modelCallsPerAgentAtMost": plan["limits"]["maxTurns"],
+        "modelCallsPerAgentAtMost": (
+            plan["limits"]["maxTurns"]
+            * per_agent_compute_multiplier(plan["controlProfile"], job["roles"])
+        ),
         "upstreamAttemptsPerTurnAtMost": plan["limits"]["upstreamAttemptsPerTurn"],
         "inputPricePerMillion": plan["pricing"]["inputPricePerMillion"],
         "outputPricePerMillion": plan["pricing"]["outputPricePerMillion"],

@@ -14,7 +14,7 @@ from verifiers.v1.mcp import serve_shared
 from verifiers.v1.runtimes import runtime_is_local
 
 from .binary import resolve_margin_binary
-from .controls import DEFAULT_CONTROL_PROFILE, require_implemented_profile
+from .controls import DEFAULT_CONTROL_PROFILE, planned_topology, require_implemented_profile
 from .entropy import PUBLIC_DEVELOPMENT_KEY
 from .phase_identity import PhaseIdentityController
 from .runner import apply_harness_event
@@ -320,7 +320,23 @@ class MarginBenchEnv(vf.Env[MarginBenchEnvConfig]):
                 "dimensions": result.dimensions,
                 "checks": result.checks,
                 "marginSha256": result.margin_sha256,
+                "controlProfile": task.data.control_profile,
+                "logicalActors": [
+                    {
+                        "seat": role.seat,
+                        "phase": role.phase,
+                        "id": role.actor.id,
+                        "name": role.actor.name,
+                        "type": role.actor.type,
+                    }
+                    for role in sorted(episode.roles, key=lambda item: item.phase)
+                ],
             }
+            topology = planned_topology(
+                task.data.control_profile,
+                [role.seat for role in episode.roles],
+            )
+            public_result.update(topology)
             for trace in traces:
                 trace.record_reward("marginbench", result.score / 100.0)
                 for name, value in result.dimensions.items():

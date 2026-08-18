@@ -25,7 +25,7 @@ _PROFILES: tuple[dict[str, Any], ...] = (
     },
     {
         "id": "single-agent-margin-v1",
-        "status": "specified-not-runnable",
+        "status": "implemented",
         "agentTopology": "single-context",
         "transcriptSharing": "all-phases",
         "durableSurface": "margin",
@@ -34,24 +34,7 @@ _PROFILES: tuple[dict[str, Any], ...] = (
         "isolationRequirement": "actor-preserving-phase-controller",
         "scoreComparability": "outcome-integrity-efficiency",
         "purpose": "Measure the cost or benefit of splitting one task across collaborators.",
-        "blockingGates": [
-            {
-                "id": "continuing-interaction",
-                "requirement": "Run every role phase in one promptless continuing model interaction.",
-            },
-            {
-                "id": "phase-bound-identity",
-                "requirement": "Bind each phase to its trusted actor identity outside model control.",
-            },
-            {
-                "id": "topology-aware-accounting",
-                "requirement": "Separate logical roles, model processes, traces, and compute-matched cost limits.",
-            },
-            {
-                "id": "served-reference-gates",
-                "requirement": "Pass local and served reference, adversarial, privacy, and budget gates.",
-            },
-        ],
+        "blockingGates": [],
     },
     {
         "id": "role-separated-plain-markdown-v1",
@@ -193,6 +176,16 @@ def planned_topology(identifier: str, logical_roles: list[str]) -> dict[str, Any
             else "scenario-defined"
         ),
     }
+
+
+def per_agent_compute_multiplier(identifier: str, logical_roles: list[str]) -> int:
+    """Scale per-role limits when one process performs several logical roles."""
+    topology = planned_topology(identifier, logical_roles)
+    if identifier == "single-agent-margin-v1":
+        return len(logical_roles)
+    if topology["agentProcessCount"] != len(logical_roles):
+        raise ValueError(f"Control profile {identifier!r} has no compute policy.")
+    return 1
 
 
 def require_implemented_profile(identifier: str) -> dict[str, Any]:

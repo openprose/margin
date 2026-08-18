@@ -30,7 +30,12 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 
 from marginbench.candidates import CandidateManifest  # noqa: E402
 from marginbench.budget_proxy import InferenceBudgetPolicy, InferenceBudgetProxy  # noqa: E402
-from marginbench.controls import DEFAULT_CONTROL_PROFILE, require_implemented_profile  # noqa: E402
+from marginbench.controls import (  # noqa: E402
+    DEFAULT_CONTROL_PROFILE,
+    per_agent_compute_multiplier,
+    planned_topology,
+    require_implemented_profile,
+)
 from marginbench.provenance import implementation_sha256  # noqa: E402
 from marginbench.scenarios import SCENARIO_IDS, generate_episode  # noqa: E402
 from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY  # noqa: E402
@@ -175,12 +180,51 @@ def agent_process_count(
     scenarios: list[str],
     repetitions: int,
     repetition_ids: list[int] | None = None,
+    control_profile: str = DEFAULT_CONTROL_PROFILE,
 ) -> int:
     return sum(
-        len(generate_episode(scenario, PUBLIC_DEVELOPMENT_KEY, repetition).roles)
+        planned_topology(
+            control_profile,
+            [
+                role.seat
+                for role in generate_episode(
+                    scenario,
+                    PUBLIC_DEVELOPMENT_KEY,
+                    repetition,
+                ).roles
+            ],
+        )["agentProcessCount"]
         for repetition in _repetition_values(repetitions, repetition_ids)
         for scenario in scenarios
     )
+
+
+def _selection_compute_multiplier(
+    scenarios: list[str],
+    repetitions: int,
+    repetition_ids: list[int] | None,
+    control_profile: str,
+) -> int:
+    multipliers = {
+        per_agent_compute_multiplier(
+            control_profile,
+            [
+                role.seat
+                for role in generate_episode(
+                    scenario,
+                    PUBLIC_DEVELOPMENT_KEY,
+                    repetition,
+                ).roles
+            ],
+        )
+        for repetition in _repetition_values(repetitions, repetition_ids)
+        for scenario in scenarios
+    }
+    if len(multipliers) != 1:
+        raise ValueError(
+            "A continuing-agent invocation must select episodes with one logical-role count."
+        )
+    return next(iter(multipliers))
 
 
 def estimate_maximum_cost(
@@ -194,6 +238,7 @@ def estimate_maximum_cost(
     output_price_per_million: float,
     billing_overhead_usd_per_call: float,
     repetition_ids: list[int] | None = None,
+    control_profile: str = DEFAULT_CONTROL_PROFILE,
 ) -> float:
     """Bound provider charges without mistaking Verifiers' soft caps for billing caps.
 
@@ -203,9 +248,23 @@ def estimate_maximum_cost(
     asserted maximum billable prompt size for *each* possible model call.
     ``max_tokens_per_call`` is the hard sampling ceiling for each response.
     """
-    role_runs = agent_process_count(scenarios, repetitions, repetition_ids)
-    billable_call_attempts = max_turns * upstream_attempts_per_turn
-    value = role_runs * billable_call_attempts * (
+    billable_call_attempts = sum(
+        planned_topology(control_profile, logical_roles)["agentProcessCount"]
+        * per_agent_compute_multiplier(control_profile, logical_roles)
+        * max_turns
+        * upstream_attempts_per_turn
+        for repetition in _repetition_values(repetitions, repetition_ids)
+        for scenario in scenarios
+        for logical_roles in [[
+            role.seat
+            for role in generate_episode(
+                scenario,
+                PUBLIC_DEVELOPMENT_KEY,
+                repetition,
+            ).roles
+        ]]
+    )
+    value = billable_call_attempts * (
         input_token_ceiling_per_call * input_price_per_million / 1_000_000
         + max_tokens_per_call * output_price_per_million / 1_000_000
         + billing_overhead_usd_per_call
@@ -298,6 +357,12 @@ def build_eval_command(
     if (client_base_url is None) != (client_api_key_var is None):
         raise ValueError("client base URL and API-key variable must be supplied together")
     repetition_ids = getattr(arguments, "repetition_id", None) or []
+    compute_multiplier = _selection_compute_multiplier(
+        arguments.scenario,
+        arguments.repetitions,
+        repetition_ids,
+        arguments.control_profile,
+    )
     task_count = len(arguments.scenario) * len(
         _repetition_values(arguments.repetitions, repetition_ids)
     )
@@ -321,11 +386,16 @@ def build_eval_command(
     if repetition_ids:
         command += ["--env.taskset.repetition-ids", *(str(value) for value in repetition_ids)]
     for role in ("author", "reviewer"):
+        scale = (
+            compute_multiplier
+            if arguments.control_profile == "single-agent-margin-v1" and role == "author"
+            else 1
+        )
         command += [
-            f"--env.{role}.max-turns", str(arguments.max_turns),
-            f"--env.{role}.max-input-tokens", str(arguments.max_input_tokens),
-            f"--env.{role}.max-output-tokens", str(arguments.max_output_tokens),
-            f"--env.{role}.max-total-tokens", str(arguments.max_total_tokens),
+            f"--env.{role}.max-turns", str(arguments.max_turns * scale),
+            f"--env.{role}.max-input-tokens", str(arguments.max_input_tokens * scale),
+            f"--env.{role}.max-output-tokens", str(arguments.max_output_tokens * scale),
+            f"--env.{role}.max-total-tokens", str(arguments.max_total_tokens * scale),
             f"--env.{role}.timeout.rollout", str(arguments.rollout_timeout_seconds),
         ]
     if client_base_url is not None and client_api_key_var is not None:
@@ -377,6 +447,15 @@ def _summarize_traces(output: Path) -> dict[str, Any]:
             "checks": marginbench.get("checks"),
             "dimensions": marginbench.get("dimensions"),
         }
+        for topology_field in (
+            "controlProfile",
+            "logicalActors",
+            "agentProcessCount",
+            "traceSeats",
+            "phasePolicy",
+        ):
+            if topology_field in marginbench:
+                immutable_result[topology_field] = marginbench[topology_field]
         if episode_id not in episodes:
             episodes[episode_id] = {
                 "episodeID": episode_id,
@@ -461,16 +540,34 @@ def _run_manifest(
                 for name, count in sorted(stop_conditions.items())
             ],
             "usage": episode["usage"],
+            **{
+                name: episode[name]
+                for name in (
+                    "controlProfile",
+                    "logicalActors",
+                    "agentProcessCount",
+                    "traceSeats",
+                    "phasePolicy",
+                )
+                if name in episode
+            },
         })
     trace_reported = round(
         sum(float(episode["usage"]["reportedCostUSD"]) for episode in episode_values),
         6,
     )
-    roles = sorted({
+    trace_seats = sorted({
         role["seat"]
         for episode in trace_summary["episodes"]
         for role in episode["roleRuns"]
     })
+    logical_actors = [
+        actor
+        for episode in trace_summary["episodes"]
+        for actor in episode.get("logicalActors", [])
+    ]
+    roles = sorted({actor["seat"] for actor in logical_actors} or set(trace_seats))
+    topology = planned_topology(arguments.control_profile, roles)
     manifest_status = "completed" if status == "completed" else "infrastructure-error"
     contract_bound = estimate_maximum_cost(
         arguments.scenario,
@@ -483,6 +580,13 @@ def _run_manifest(
         arguments.output_price_per_million,
         arguments.billing_overhead_usd_per_call,
         getattr(arguments, "repetition_id", None),
+        arguments.control_profile,
+    )
+    compute_multiplier = _selection_compute_multiplier(
+        arguments.scenario,
+        arguments.repetitions,
+        getattr(arguments, "repetition_id", None),
+        arguments.control_profile,
     )
     run_id = hashlib.sha256(canonical({
         "candidate": candidate.digest(),
@@ -529,8 +633,11 @@ def _run_manifest(
                 arguments.scenario,
                 arguments.repetitions,
                 getattr(arguments, "repetition_id", None),
+                arguments.control_profile,
             ),
             "roles": roles,
+            "traceSeats": trace_seats,
+            "phasePolicy": topology["phasePolicy"],
             "startedAt": started_at,
             "durationMs": duration_ms,
             "limits": {
@@ -578,7 +685,7 @@ def _run_manifest(
             "boundBasis": {
                 "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
                 "outputTokenCeilingPerCall": arguments.max_tokens_per_call,
-                "modelCallsPerAgentAtMost": arguments.max_turns,
+                "modelCallsPerAgentAtMost": arguments.max_turns * compute_multiplier,
                 "upstreamAttemptsPerTurnAtMost": arguments.upstream_attempts_per_turn,
                 "inputPricePerMillion": arguments.input_price_per_million,
                 "outputPricePerMillion": arguments.output_price_per_million,
@@ -790,6 +897,7 @@ def main() -> int:
         arguments.output_price_per_million,
         arguments.billing_overhead_usd_per_call,
         repetition_ids,
+        arguments.control_profile,
     )
     estimate = round(min(contract_estimate, live_proxy_cost_cap), 6)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -822,6 +930,7 @@ def main() -> int:
             arguments.scenario,
             arguments.repetitions,
             repetition_ids,
+            arguments.control_profile,
         ),
         "estimatedMaximumCostUSD": estimate,
         "contractMaximumCostUSD": contract_estimate,

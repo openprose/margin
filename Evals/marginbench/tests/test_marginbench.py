@@ -48,6 +48,7 @@ from prime_pilot import (
     _summarize_traces,
     _require_fresh_output_targets,
     _write_new_artifact,
+    agent_process_count,
     build_eval_command,
     claim_paid_start,
     estimate_maximum_cost,
@@ -343,6 +344,120 @@ class MarginBenchCoreTests(unittest.TestCase):
         schema = json.loads((SCHEMA_ROOT / "run-manifest.schema.json").read_text(encoding="utf-8"))
         Draft202012Validator(schema).validate(manifest)
 
+    def test_single_agent_accounting_preserves_logical_actors_and_sums_limits(self) -> None:
+        episode = generate_episode("agent_agent_handoff", KEY, 0)
+        result = {
+            "episodeID": episode.public_id,
+            "score": 100.0,
+            "safetyPassed": True,
+            "sourcePreserved": True,
+            "commandCount": 4,
+            "invalidCommandCount": 0,
+            "durationMs": 10.0,
+            "marginSha256": CandidateManifest.create("single", self.binary).margin_sha256,
+            "checks": {"valid_documents": True},
+            "dimensions": {"outcome": 100.0},
+            "controlProfile": "single-agent-margin-v1",
+            "logicalActors": [
+                {
+                    "seat": role.seat,
+                    "phase": role.phase,
+                    "id": role.actor.id,
+                    "name": role.actor.name,
+                    "type": role.actor.type,
+                }
+                for role in episode.roles
+            ],
+            **planned_topology(
+                "single-agent-margin-v1",
+                [role.seat for role in episode.roles],
+            ),
+        }
+        trace = {
+            "task": {"data": {
+                "name": f"{episode.public_id}:agent",
+                "scenario_id": episode.scenario_id,
+                "repetition": episode.repetition,
+                "fingerprint": episode.fingerprint,
+            }},
+            "calls": [],
+            "info": {"marginbench": result},
+            "stop_condition": "agent_completed",
+        }
+        with tempfile.TemporaryDirectory(prefix="marginbench-single-summary-") as temporary:
+            output = Path(temporary)
+            (output / "traces.jsonl").write_text(
+                json.dumps({"traces": [trace]}) + "\n",
+                encoding="utf-8",
+            )
+            summary = _summarize_traces(output)
+
+        self.assertEqual(summary["traceCount"], 1)
+        self.assertEqual(summary["episodes"][0]["traceSeats"], ["agent"])
+        self.assertEqual(
+            [actor["seat"] for actor in summary["episodes"][0]["logicalActors"]],
+            [role.seat for role in episode.roles],
+        )
+        arguments = SimpleNamespace(
+            candidate="single",
+            margin_bin=self.binary,
+            track="interface",
+            model="test/model",
+            max_concurrent=1,
+            max_input_tokens=1000,
+            max_output_tokens=500,
+            max_total_tokens=1500,
+            input_token_ceiling_per_call=4096,
+            upstream_attempts_per_turn=3,
+            billing_overhead_usd_per_call=0.0002,
+            max_tokens_per_call=250,
+            max_turns=4,
+            rollout_timeout_seconds=30.0,
+            temperature=0.0,
+            prior_infrastructure_attempts=0,
+            scenario=[episode.scenario_id],
+            repetitions=1,
+            input_price_per_million=0.03,
+            output_price_per_million=0.13,
+            max_cost_usd=1.0,
+            control_profile="single-agent-margin-v1",
+        )
+        manifest = _run_manifest(
+            arguments,
+            summary,
+            status="completed",
+            started_at="2026-08-18T00:00:00Z",
+            duration_ms=10,
+            observed_wallet_debit=0,
+        )
+        self.assertEqual(manifest["execution"]["agentProcessCount"], 1)
+        self.assertEqual(manifest["execution"]["roles"], ["author", "reviewer"])
+        self.assertEqual(manifest["execution"]["traceSeats"], ["agent"])
+        self.assertEqual(manifest["cost"]["boundBasis"]["modelCallsPerAgentAtMost"], 8)
+        self.assertTrue(validate_bytes(canonical_json(manifest))["valid"])
+        tampered = json.loads(json.dumps(manifest))
+        tampered["episodes"][0]["agentProcessCount"] = 2
+        receipt = validate_bytes(canonical_json(tampered))
+        self.assertFalse(receipt["valid"])
+        self.assertTrue(any("topology is inconsistent" in item for item in receipt["errors"]))
+        tampered = json.loads(json.dumps(manifest))
+        tampered["execution"]["agentProcessCount"] = 2
+        receipt = validate_bytes(canonical_json(tampered))
+        self.assertFalse(receipt["valid"])
+        self.assertTrue(any("process count differs" in item for item in receipt["errors"]))
+
+        command = build_eval_command(arguments, Path("/prime/eval"), Path("/output"))
+        self.assertEqual(command[command.index("--env.author.max-turns") + 1], "8")
+        self.assertEqual(command[command.index("--env.reviewer.max-turns") + 1], "4")
+        self.assertEqual(
+            agent_process_count(
+                [episode.scenario_id],
+                1,
+                control_profile="single-agent-margin-v1",
+            ),
+            1,
+        )
+
     def test_implementation_digest_is_stable_and_excludes_generated_or_private_data(self) -> None:
         files = implementation_files(PACKAGE_ROOT)
         relative = [path.relative_to(PACKAGE_ROOT).as_posix() for path in files]
@@ -433,7 +548,7 @@ class MarginBenchCoreTests(unittest.TestCase):
         schema = json.loads((SCHEMA_ROOT / "study-plan.schema.json").read_text(encoding="utf-8"))
         Draft202012Validator(schema).validate(plan)
 
-    def test_single_agent_control_can_be_planned_but_not_executed(self) -> None:
+    def test_single_agent_control_is_compute_matched_and_runnable(self) -> None:
         profile = "single-agent-margin-v1"
         plan = build_study_plan(
             baseline="baseline",
@@ -453,8 +568,7 @@ class MarginBenchCoreTests(unittest.TestCase):
             self.assertEqual(episode["traceSeats"], ["agent"])
             self.assertEqual(episode["phasePolicy"], "serial-stable-role-order")
         self.assertTrue(validate_bytes(canonical_json(plan))["valid"])
-        with self.assertRaisesRegex(ValueError, "not safely runnable"):
-            require_implemented_profile(profile)
+        self.assertEqual(require_implemented_profile(profile)["blockingGates"], [])
         self.assertEqual(
             planned_topology(profile, ["author", "reviewer"]),
             {
@@ -489,19 +603,6 @@ class MarginBenchCoreTests(unittest.TestCase):
         cli_plan = json.loads(completed.stdout)
         self.assertEqual(cli_plan["agentProcessesPerCandidate"], 1)
         self.assertEqual(cli_plan["episodes"][0]["traceSeats"], ["agent"])
-        preflight = subprocess.run(
-            [
-                sys.executable, str(PACKAGE_ROOT / "preflight.py"),
-                "--margin-bin", str(self.binary), "--control-profile", profile,
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=environment,
-            check=False,
-        )
-        self.assertNotEqual(preflight.returncode, 0)
-        self.assertEqual(preflight.stdout, b"")
-        self.assertIn(b"not safely runnable", preflight.stderr)
 
     @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
     def test_execution_plan_flattens_study_order_deterministically(self) -> None:
@@ -650,10 +751,13 @@ class MarginBenchCoreTests(unittest.TestCase):
         catalog = control_catalog()
         self.assertEqual(catalog["default"], DEFAULT_CONTROL_PROFILE)
         implemented = [item for item in catalog["profiles"] if item["status"] == "implemented"]
-        self.assertEqual([item["id"] for item in implemented], [DEFAULT_CONTROL_PROFILE])
+        self.assertEqual(
+            [item["id"] for item in implemented],
+            [DEFAULT_CONTROL_PROFILE, "single-agent-margin-v1"],
+        )
         self.assertEqual(implemented[0]["toolSurface"], ["margin"])
         self.assertFalse(implemented[0]["shellAccess"])
-        self.assertEqual(implemented[0]["blockingGates"], [])
+        self.assertTrue(all(not item["blockingGates"] for item in implemented))
         gated = [item for item in catalog["profiles"] if item["status"] != "implemented"]
         self.assertTrue(gated)
         for profile in gated:
@@ -665,8 +769,10 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(shell["status"], "specified-not-runnable")
         self.assertIn("remote-sandbox", shell["isolationRequirement"])
         self.assertEqual(require_implemented_profile(DEFAULT_CONTROL_PROFILE), implemented[0])
-        with self.assertRaisesRegex(ValueError, "not safely runnable"):
-            require_implemented_profile("single-agent-margin-v1")
+        self.assertEqual(
+            require_implemented_profile("single-agent-margin-v1")["status"],
+            "implemented",
+        )
         no_exchange = next(
             item for item in catalog["profiles"]
             if item["id"] == "role-separated-no-exchange-v1"

@@ -399,11 +399,11 @@ out-of-order/replayed/concurrent advances fail and that one running tool server
 switches from author to reviewer. A promptless continuing interaction now sends
 the original role briefs as separate turns, retains one transcript, serializes
 same-phase roles in generated order, and preserves scripted-event boundaries.
-In a disposable source snapshot, both complete in-process and environment-server
-fake-model matrices passed 6/6 at 100 with one trace per episode and all 59
-requests accounted for. The checked-in profile remains gated until live
-per-process limits/costing and logical-actor versus trace-seat publication are
-finished and tested.
+Both permanent in-process and environment-server fake-model matrices pass 6/6
+at 100 with one trace per episode and all 59 requests accounted for. Live plans
+sum the logical-role limits onto the one continuing process, preserve each
+logical actor separately from the `agent` trace seat, and validate topology and
+pricing. The profile is implemented.
 
 Four repetitions across all six workflows produce the default 24 matching
 episodes, exceeding the 20-episode promotion minimum. The execution plan

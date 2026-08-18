@@ -91,6 +91,12 @@ jobs:
             --margin-bin "$MARGINBENCH_BINARY"
           PYTHONPATH="$MARGINBENCH_ROOT" "$MARGINBENCH_ROOT/preflight.py" \
             --margin-bin "$MARGINBENCH_BINARY" --server
+          PYTHONPATH="$MARGINBENCH_ROOT" "$MARGINBENCH_ROOT/preflight.py" \
+            --margin-bin "$MARGINBENCH_BINARY" \
+            --control-profile single-agent-margin-v1
+          PYTHONPATH="$MARGINBENCH_ROOT" "$MARGINBENCH_ROOT/preflight.py" \
+            --margin-bin "$MARGINBENCH_BINARY" --server \
+            --control-profile single-agent-margin-v1
           mkdir -p build/ci-marginbench-private
           cleanup_private_key() {
             if [ -f build/ci-marginbench-private/holdout.key ]; then
