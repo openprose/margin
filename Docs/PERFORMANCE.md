@@ -93,16 +93,17 @@ ms (0.2%)**, and median RSS by **0.507 MiB (0.3%)**. Those distributions
 show no meaningful launch or sampled-memory regression. The real source editor
 is visible at the measurement boundary—there is no placeholder window.
 
-The v0.3 app bundle is 5,682,493 logical bytes and its main executable is
-2,790,528 bytes; the standalone release CLI is 2,556,424 bytes. The larger
+The final v0.3.2 app bundle is 5,732,157 logical bytes and its main executable
+is 2,790,704 bytes; the standalone release CLI is 2,609,168 bytes. The larger
 artifact contains the shared collaboration, transaction, recovery,
 reconciliation, and merge engine, but none of that work executes before the
 first window. Directory contexts, actor aggregation, stage loading, semantic
 previews, filename indexing, and reader construction remain explicitly
 on-demand.
 
-The exact CLI release candidate also completed the strict collaboration
-preflight with static help at 5.422 ms cold / 6.311 ms warm p95 and the full
-68,881-byte capability contract at 8.746 ms p95. Workflow projections are
-6.9–20.1 KB and stay filesystem-free. These CLI timings are separate from the
-AppKit window-visible probe above.
+The exact final CLI also completed the strict collaboration preflight. In a
+fresh 100-process sample after three warmups, static help measured 5.247 ms
+median / 5.832 ms p95 and the full 69,995-byte capability contract measured
+7.441 ms median / 8.119 ms p95. Workflow projections are 7.0–18.8 KB and stay
+filesystem-free. These CLI timings are separate from the AppKit window-visible
+probe above.
