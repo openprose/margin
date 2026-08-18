@@ -192,6 +192,14 @@ Evals/marginbench/prime_pilot.py \
   --summary-file SUMMARY.json --run-manifest-file RUN.json
 ```
 
+For a frozen comparison, pass `--candidate-manifest CANDIDATE.json` so the
+wrapper refuses a binary or candidate-ID mismatch. `--repetition-id N` selects
+the exact planned case instead of implicitly starting at zero; the flag may be
+repeated. Private runs additionally take `--holdout-key-file KEY`. The file must
+be a regular mode-0600 file. Its value is placed only in the evaluation
+taskset's environment and is consumed before any agent subprocess starts; the
+dry plan and public result contain only its one-way key ID.
+
 `--input-token-ceiling-per-call` must come from the provider/model contract. It
 is deliberately separate from Verifiers' `max-input-tokens`: Verifiers counts a
 deduplicated conversation graph and checks it between turns, while the provider
@@ -259,12 +267,19 @@ order without exposing prompts or answers:
 ```sh
 marginbench study-plan --baseline released --candidate compact-guidance \
   --repetitions 4 > study-plan.json
+
+marginbench execution-plan study-plan.json > execution-plan.json
 ```
 
 Four repetitions across all five workflows produce the default 20 matching
-episodes required for promotion. Supplying `--key-file` marks the plan as a
-private holdout; the emitted file contains only public fingerprints and role
-names, never the key, fixture text, prompts, or oracle.
+episodes required for promotion. The execution plan deterministically flattens
+each study pair into 40 candidate-ordered jobs, preserving the exact 10 AB / 10
+BA order and assigning every job a digest-derived retry identity. Its default
+failure rule stops after an incomplete job; a completed job is verified and
+skipped on replay rather than charged twice. Supplying `--key-file` to the
+study planner marks the plan as a private holdout; either emitted file contains
+only fingerprints and role names, never the key, fixture text, prompts, or
+oracle.
 
 Create a rotating private key without placing its value in shell history or
 stdout:

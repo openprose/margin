@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import os
 import tempfile
 import time
@@ -25,13 +24,16 @@ from .servers.gateway import MarginGatewayConfig, MarginGatewayToolset
 
 
 def _generation_key(environment_name: str) -> bytes:
-    value = os.environ.get(environment_name)
+    # Consume the private value before any agent subprocess is started. The
+    # taskset retains the bytes in its own process; descendant runtimes must not
+    # inherit the holdout key through their environment.
+    value = os.environ.pop(environment_name, None)
     if value is None:
         return PUBLIC_DEVELOPMENT_KEY
     encoded = value.encode("utf-8")
     if len(encoded) < 16:
         raise ValueError(f"{environment_name} must contain at least 16 bytes.")
-    return hashlib.sha256(encoded).digest()
+    return encoded
 
 
 class MarginBenchData(vf.TaskData):
@@ -68,6 +70,7 @@ class MarginBenchTask(vf.Task[MarginBenchData, vf.State, vf.TaskConfig]):
 class MarginBenchTasksetConfig(vf.TasksetConfig):
     scenario_ids: list[str] = Field(default_factory=lambda: list(SCENARIO_IDS))
     repetitions: int = Field(1, ge=1, le=100)
+    repetition_ids: list[int] = Field(default_factory=list)
     holdout_key_env: str = "MARGINBENCH_HOLDOUT_KEY"
     margin_binary: str = ""
     control_profile: str = DEFAULT_CONTROL_PROFILE
@@ -76,9 +79,18 @@ class MarginBenchTasksetConfig(vf.TasksetConfig):
 class MarginBenchTaskset(vf.Taskset[MarginBenchTask, MarginBenchTasksetConfig]):
     def load(self):
         require_implemented_profile(self.config.control_profile)
-        key = _generation_key(self.config.holdout_key_env)
+        if not hasattr(self, "_marginbench_generation_key"):
+            self._marginbench_generation_key = _generation_key(self.config.holdout_key_env)
+        key = self._marginbench_generation_key
+        repetitions = self.config.repetition_ids or list(range(self.config.repetitions))
+        if (
+            len(repetitions) > 100
+            or len(repetitions) != len(set(repetitions))
+            or any(value < 0 or value >= 100 for value in repetitions)
+        ):
+            raise ValueError("MarginBench repetition IDs must be unique values from 0 through 99.")
         index = 0
-        for repetition in range(self.config.repetitions):
+        for repetition in repetitions:
             for scenario_id in self.config.scenario_ids:
                 if scenario_id not in SCENARIO_IDS:
                     raise ValueError(f"Unknown MarginBench scenario: {scenario_id}")

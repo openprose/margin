@@ -62,6 +62,44 @@ class PrimeAdapterTests(unittest.TestCase):
             generate_episode("human_agent_relay", PUBLIC_DEVELOPMENT_KEY, 0).fingerprint,
         )
 
+    def test_taskset_selects_exact_private_repetitions_without_leaking_key(self) -> None:
+        from marginbench.prime import MarginBenchTaskset, MarginBenchTasksetConfig
+        from marginbench.scenarios import generate_episode
+
+        environment_name = "MARGINBENCH_TEST_HOLDOUT_KEY"
+        secret = "0123456789abcdef" * 4
+        config = MarginBenchTasksetConfig(
+            id="marginbench",
+            scenario_ids=["human_agent_relay"],
+            repetitions=1,
+            repetition_ids=[3, 1],
+            holdout_key_env=environment_name,
+        )
+        with patch.dict(os.environ, {environment_name: secret}):
+            taskset = MarginBenchTaskset(config)
+            tasks = list(taskset)
+            self.assertNotIn(environment_name, os.environ)
+            repeated = list(taskset)
+        self.assertEqual([task.data.repetition for task in tasks], [3, 1])
+        self.assertEqual(
+            [task.episode.fingerprint for task in tasks],
+            [
+                generate_episode("human_agent_relay", secret.encode("utf-8"), repetition).fingerprint
+                for repetition in (3, 1)
+            ],
+        )
+        self.assertEqual(
+            [task.episode.fingerprint for task in repeated],
+            [task.episode.fingerprint for task in tasks],
+        )
+
+        invalid = MarginBenchTaskset(MarginBenchTasksetConfig(
+            id="marginbench",
+            repetition_ids=[2, 2],
+        ))
+        with self.assertRaisesRegex(ValueError, "unique values"):
+            list(invalid)
+
     def test_mcp_tool_adapter_runs_the_real_confined_gateway(self) -> None:
         from marginbench.servers.gateway import MarginGatewayConfig, MarginGatewayToolset
 

@@ -14,9 +14,11 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import time
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,7 @@ from marginbench.controls import DEFAULT_CONTROL_PROFILE, require_implemented_pr
 from marginbench.provenance import implementation_sha256  # noqa: E402
 from marginbench.scenarios import SCENARIO_IDS, generate_episode  # noqa: E402
 from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY  # noqa: E402
+from marginbench.validation import MAX_ARTIFACT_BYTES, validate_bytes  # noqa: E402
 
 
 CONFIRMATION = "RUN_PAID_MARGINBENCH"
@@ -49,10 +52,93 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def agent_process_count(scenarios: list[str], repetitions: int) -> int:
+def load_candidate_manifest(
+    path: Path,
+    *,
+    binary: Path,
+    candidate_id: str,
+) -> CandidateManifest:
+    target = path.expanduser().resolve()
+    try:
+        with target.open("rb") as handle:
+            raw = handle.read(MAX_ARTIFACT_BYTES + 1)
+    except OSError as error:
+        raise ValueError("Candidate manifest could not be read.") from error
+    receipt = validate_bytes(raw)
+    if not receipt["valid"] or receipt["artifactSchema"] != "urn:marginbench:candidate:v1":
+        details = "; ".join(receipt.get("errors", ())[:3])
+        raise ValueError(details or "Candidate manifest is invalid.")
+    value = CandidateManifest(**json.loads(raw))
+    if value.id != candidate_id:
+        raise ValueError("Candidate manifest ID does not match --candidate.")
+    if value.margin_sha256 != sha256(binary):
+        raise ValueError("Candidate manifest Margin digest does not match --margin-bin.")
+    return value
+
+
+def load_holdout_key(path: Path) -> tuple[str, str]:
+    target = path.expanduser()
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(target, flags)
+    except OSError as error:
+        raise ValueError("Holdout key could not be read.") from error
+    try:
+        identity = os.fstat(descriptor)
+        raw = os.read(descriptor, 257)
+    finally:
+        os.close(descriptor)
+    if not stat.S_ISREG(identity.st_mode):
+        raise ValueError("Holdout key must be a regular file.")
+    if identity.st_size > 257:
+        raise ValueError("Holdout key file is too large.")
+    if identity.st_mode & 0o077:
+        raise ValueError("Holdout key must not be group- or world-accessible.")
+    try:
+        value = raw.strip().decode("ascii")
+    except UnicodeDecodeError as error:
+        raise ValueError("Holdout key must be ASCII.") from error
+    if not 16 <= len(value.encode("ascii")) <= 256:
+        raise ValueError("Holdout key must contain between 16 and 256 bytes.")
+    return value, "sha256:" + hashlib.sha256(value.encode("ascii")).hexdigest()
+
+
+def _candidate(arguments: argparse.Namespace) -> CandidateManifest:
+    frozen = getattr(arguments, "frozen_candidate", None)
+    if frozen is not None:
+        return frozen
+    repository = PACKAGE_ROOT.parent.parent
+    manual = repository / "Sources" / "MarginCLI" / "MarginManual.swift"
+    candidate_settings = {
+        "adapter": "prime-verifiers-v1",
+        "benchmarkVersion": BENCHMARK_VERSION,
+        "gatewayAdapterSha256": sha256(PACKAGE_ROOT / "marginbench" / "servers" / "gateway.py"),
+        "scenarioProtocolSha256": sha256(PACKAGE_ROOT / "marginbench" / "scenarios.py"),
+        "toolSurface": ["margin"],
+        "controlProfile": arguments.control_profile,
+    }
+    return CandidateManifest.create(
+        arguments.candidate,
+        arguments.margin_bin,
+        manual=manual if manual.is_file() else None,
+        settings=candidate_settings,
+    )
+
+
+def _repetition_values(repetitions: int, repetition_ids: list[int] | None = None) -> list[int]:
+    return list(repetition_ids) if repetition_ids else list(range(repetitions))
+
+
+def agent_process_count(
+    scenarios: list[str],
+    repetitions: int,
+    repetition_ids: list[int] | None = None,
+) -> int:
     return sum(
         len(generate_episode(scenario, PUBLIC_DEVELOPMENT_KEY, repetition).roles)
-        for repetition in range(repetitions)
+        for repetition in _repetition_values(repetitions, repetition_ids)
         for scenario in scenarios
     )
 
@@ -67,6 +153,7 @@ def estimate_maximum_cost(
     input_price_per_million: float,
     output_price_per_million: float,
     billing_overhead_usd_per_call: float,
+    repetition_ids: list[int] | None = None,
 ) -> float:
     """Bound provider charges without mistaking Verifiers' soft caps for billing caps.
 
@@ -76,7 +163,7 @@ def estimate_maximum_cost(
     asserted maximum billable prompt size for *each* possible model call.
     ``max_tokens_per_call`` is the hard sampling ceiling for each response.
     """
-    role_runs = agent_process_count(scenarios, repetitions)
+    role_runs = agent_process_count(scenarios, repetitions, repetition_ids)
     billable_call_attempts = max_turns * upstream_attempts_per_turn
     value = role_runs * billable_call_attempts * (
         input_token_ceiling_per_call * input_price_per_million / 1_000_000
@@ -126,7 +213,10 @@ def claim_paid_start(path: Path, *, now: float, minimum_interval_seconds: float)
 
 
 def build_eval_command(arguments: argparse.Namespace, v1_eval: Path, output: Path) -> list[str]:
-    task_count = len(arguments.scenario) * arguments.repetitions
+    repetition_ids = getattr(arguments, "repetition_id", None) or []
+    task_count = len(arguments.scenario) * len(
+        _repetition_values(arguments.repetitions, repetition_ids)
+    )
     command = [
         str(v1_eval),
         "marginbench",
@@ -144,6 +234,8 @@ def build_eval_command(arguments: argparse.Namespace, v1_eval: Path, output: Pat
         "--sampling.temperature", str(arguments.temperature),
         "--sampling.max-tokens", str(arguments.max_tokens_per_call),
     ]
+    if repetition_ids:
+        command += ["--env.taskset.repetition-ids", *(str(value) for value in repetition_ids)]
     for role in ("author", "reviewer"):
         command += [
             f"--env.{role}.max-turns", str(arguments.max_turns),
@@ -252,22 +344,7 @@ def _run_manifest(
     duration_ms: int,
     observed_wallet_debit: float,
 ) -> dict[str, Any]:
-    repository = PACKAGE_ROOT.parent.parent
-    manual = repository / "Sources" / "MarginCLI" / "MarginManual.swift"
-    candidate_settings = {
-        "adapter": "prime-verifiers-v1",
-        "benchmarkVersion": BENCHMARK_VERSION,
-        "gatewayAdapterSha256": sha256(PACKAGE_ROOT / "marginbench" / "servers" / "gateway.py"),
-        "scenarioProtocolSha256": sha256(PACKAGE_ROOT / "marginbench" / "scenarios.py"),
-        "toolSurface": ["margin"],
-        "controlProfile": arguments.control_profile,
-    }
-    candidate = CandidateManifest.create(
-        arguments.candidate,
-        arguments.margin_bin,
-        manual=manual if manual.is_file() else None,
-        settings=candidate_settings,
-    )
+    candidate = _candidate(arguments)
     episode_values = []
     for episode in trace_summary["episodes"]:
         episode_values.append({
@@ -306,6 +383,7 @@ def _run_manifest(
         arguments.input_price_per_million,
         arguments.output_price_per_million,
         arguments.billing_overhead_usd_per_call,
+        getattr(arguments, "repetition_id", None),
     )
     run_id = hashlib.sha256(canonical({
         "candidate": candidate.digest(),
@@ -321,8 +399,12 @@ def _run_manifest(
         "benchmark": {
             "name": "MarginBench",
             "version": BENCHMARK_VERSION,
-            "taskSet": "public-development-v1",
-            "developmentCases": True,
+            "taskSet": (
+                "private-holdout-v1"
+                if getattr(arguments, "holdout_key_file", None)
+                else "public-development-v1"
+            ),
+            "developmentCases": not bool(getattr(arguments, "holdout_key_file", None)),
             "implementationSha256": implementation_sha256(PACKAGE_ROOT),
         },
         "candidate": {
@@ -341,6 +423,7 @@ def _run_manifest(
             "agentProcessCount": agent_process_count(
                 arguments.scenario,
                 arguments.repetitions,
+                getattr(arguments, "repetition_id", None),
             ),
             "roles": roles,
             "startedAt": started_at,
@@ -394,6 +477,12 @@ def main() -> int:
     parser.add_argument("--model", required=True)
     parser.add_argument("--scenario", action="append", choices=SCENARIO_IDS, required=True)
     parser.add_argument("--repetitions", type=int, default=1)
+    parser.add_argument(
+        "--repetition-id",
+        type=int,
+        action="append",
+        help="run an exact repetition index; repeat this flag to select more than one",
+    )
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--max-tokens-per-call", type=int, default=1200)
     parser.add_argument("--max-turns", type=int, default=12)
@@ -429,6 +518,16 @@ def main() -> int:
     parser.add_argument("--output-price-per-million", type=float, required=True)
     parser.add_argument("--max-cost-usd", type=float, default=2.0)
     parser.add_argument("--candidate", default="baseline")
+    parser.add_argument(
+        "--candidate-manifest",
+        type=Path,
+        help="frozen candidate manifest whose ID and Margin digest must match this run",
+    )
+    parser.add_argument(
+        "--holdout-key-file",
+        type=Path,
+        help="mode-0600 private generation key; passed only to the taskset process",
+    )
     parser.add_argument("--control-profile", default=DEFAULT_CONTROL_PROFILE)
     parser.add_argument("--track", choices=("model", "interface", "team", "open-systems"), default="interface")
     parser.add_argument("--prior-infrastructure-attempts", type=int, default=0)
@@ -449,6 +548,15 @@ def main() -> int:
         raise SystemExit("Margin executable is unavailable.")
     if arguments.repetitions < 1 or arguments.repetitions > 20:
         raise SystemExit("repetitions must be between 1 and 20")
+    repetition_ids = arguments.repetition_id or []
+    if (
+        len(repetition_ids) > 100
+        or len(repetition_ids) != len(set(repetition_ids))
+        or any(value < 0 or value >= 100 for value in repetition_ids)
+    ):
+        raise SystemExit("repetition-id values must be unique and between 0 and 99")
+    if repetition_ids and arguments.repetitions != 1:
+        raise SystemExit("use either repetitions or repetition-id, not both")
     numeric_limits = [
         arguments.max_tokens_per_call,
         arguments.max_turns,
@@ -473,6 +581,25 @@ def main() -> int:
         raise SystemExit(f"max-cost-usd must be above zero and at most {HARD_MAX_COST_USD}")
     if not (0 <= arguments.minimum_start_interval_seconds <= 3_600):
         raise SystemExit("minimum-start-interval-seconds must be between 0 and 3600")
+    try:
+        arguments.frozen_candidate = (
+            load_candidate_manifest(
+                arguments.candidate_manifest,
+                binary=arguments.margin_bin,
+                candidate_id=arguments.candidate,
+            )
+            if arguments.candidate_manifest
+            else _candidate(arguments)
+        )
+        if arguments.holdout_key_file:
+            arguments.holdout_key_value, arguments.holdout_key_id = load_holdout_key(
+                arguments.holdout_key_file
+            )
+        else:
+            arguments.holdout_key_value = None
+            arguments.holdout_key_id = None
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
 
     prime_name = shutil.which("prime")
     if not prime_name:
@@ -492,6 +619,7 @@ def main() -> int:
         arguments.input_price_per_million,
         arguments.output_price_per_million,
         arguments.billing_overhead_usd_per_call,
+        repetition_ids,
     )
     if estimate > arguments.max_cost_usd:
         raise SystemExit(
@@ -505,13 +633,22 @@ def main() -> int:
         "execute": arguments.execute,
         "model": arguments.model,
         "candidate": arguments.candidate,
+        "candidateManifest": {
+            "digest": arguments.frozen_candidate.digest(),
+            **asdict(arguments.frozen_candidate),
+        },
         "track": arguments.track,
         "controlProfile": arguments.control_profile,
+        "taskSet": "private-holdout-v1" if arguments.holdout_key_id else "public-development-v1",
+        "developmentCases": arguments.holdout_key_id is None,
+        "holdoutKeyID": arguments.holdout_key_id,
         "scenarios": arguments.scenario,
-        "repetitions": arguments.repetitions,
+        "repetitions": len(_repetition_values(arguments.repetitions, repetition_ids)),
+        "repetitionIDs": _repetition_values(arguments.repetitions, repetition_ids),
         "agentProcessCount": agent_process_count(
             arguments.scenario,
             arguments.repetitions,
+            repetition_ids,
         ),
         "estimatedMaximumCostUSD": estimate,
         "costBoundBasis": {
@@ -564,6 +701,8 @@ def main() -> int:
     before = wallet(prime)
     environment = os.environ.copy()
     environment.update({"PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(PACKAGE_ROOT)})
+    if arguments.holdout_key_value is not None:
+        environment["MARGINBENCH_HOLDOUT_KEY"] = arguments.holdout_key_value
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     started = time.perf_counter()
     timed_out = False
@@ -606,7 +745,7 @@ def main() -> int:
         "model": arguments.model,
         "candidate": arguments.candidate,
         "scenarios": arguments.scenario,
-        "repetitions": arguments.repetitions,
+        "repetitions": len(_repetition_values(arguments.repetitions, repetition_ids)),
         "marginSha256": plan["marginSha256"],
         "durationMs": duration_ms,
         "exitCode": exit_code,

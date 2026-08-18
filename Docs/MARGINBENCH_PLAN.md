@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 02:27 ET
+Last updated: 2026-08-18 02:43 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -305,6 +305,23 @@ The phase is successful if the repository contains:
   `0b6677be94d6e49c17dc55b303d15e96a3b84dc000c78d3ba64c526614f28d71`;
   the source archive is
   `133084d01f376eafcd4e92823e3dc772ee57eb4a408e57d4999f9056f45c52e8`.
+- 2026-08-18 02:43 ET — Closed the gap between a counterbalanced study and the
+  hosted task selector. A deterministic execution-plan artifact expands the
+  default study into 40 digest-identified jobs in exact AB/BA order; Prime can
+  now select arbitrary repetition IDs rather than always beginning at zero.
+  Frozen candidate manifests are checked against the candidate ID and exact
+  executable before a run. Private study planning and hosted generation now use
+  identical key bytes, and the taskset consumes the mode-0600 secret from its
+  environment before any agent subprocess starts. A real no-model private-plan
+  rehearsal selected repetition 7, matched the one-way key ID, and confirmed
+  that the secret was absent from output. The system runtime passes 31 tests
+  with five Prime-only skips and Prime passes all 36; no paid call was made.
+  The frozen benchmark implementation digest is
+  `11527727e146e830bee35d6bad0de51d079fbcae5d2da798a1e75133d3fcca94`.
+  The clean-Linux verified wheel is
+  `7bd7de6b71e57d80dffa84d3cea190a0fe004ec9da82038d3156d1dc5f7af94e`;
+  the source archive is
+  `3bae868f886143aee060d1e6bcaa7849025ac47961fe3847331a02910b56adb7`.
 
 ## Next statistically useful paid run
 

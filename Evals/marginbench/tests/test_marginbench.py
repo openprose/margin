@@ -22,10 +22,19 @@ from marginbench.runner import ReferenceDriver, run_episode
 from marginbench.scenarios import SCENARIO_IDS, generate_episode
 from marginbench.schema import Actor, CommandEvent, EpisodeResult
 from marginbench.scorer import score_episode
+from marginbench.scheduling import build_execution_plan
 from marginbench.studies import build_study_plan
 from marginbench.submission import SubmissionError, build_submission, verify_submission
 from marginbench.validation import validate_artifact, validate_bytes
-from prime_pilot import _run_manifest, _summarize_traces, claim_paid_start, estimate_maximum_cost
+from prime_pilot import (
+    _run_manifest,
+    _summarize_traces,
+    build_eval_command,
+    claim_paid_start,
+    estimate_maximum_cost,
+    load_candidate_manifest,
+    load_holdout_key,
+)
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -266,7 +275,7 @@ class MarginBenchCoreTests(unittest.TestCase):
             self.assertEqual(payload["$schema"], "https://json-schema.org/draft/2020-12/schema")
             self.assertNotIn(payload["$id"], schemas)
             schemas[payload["$id"]] = payload
-        self.assertEqual(len(schemas), 18)
+        self.assertEqual(len(schemas), 19)
 
         try:
             from jsonschema import Draft202012Validator
@@ -334,6 +343,49 @@ class MarginBenchCoreTests(unittest.TestCase):
         schema = json.loads((SCHEMA_ROOT / "study-plan.schema.json").read_text(encoding="utf-8"))
         Draft202012Validator(schema).validate(plan)
 
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_execution_plan_flattens_study_order_deterministically(self) -> None:
+        study = build_study_plan(
+            baseline="baseline",
+            candidate="candidate-v2",
+            scenarios=list(SCENARIO_IDS),
+            repetitions=4,
+            key=KEY,
+            development_cases=False,
+        )
+        with tempfile.TemporaryDirectory(prefix="marginbench-execution-plan-") as temporary:
+            path = Path(temporary) / "study.json"
+            path.write_text(json.dumps(study), encoding="utf-8")
+            plan = build_execution_plan(path)
+            self.assertEqual(plan, build_execution_plan(path))
+            self.assertEqual(plan["episodeCount"], 20)
+            self.assertEqual(plan["jobCount"], 40)
+            self.assertEqual(plan["roleProcessCount"], study["totalRoleRuns"])
+            first = [job["candidateID"] for job in plan["jobs"] if job["candidatePosition"] == 0]
+            self.assertEqual(first.count("baseline"), 10)
+            self.assertEqual(first.count("candidate-v2"), 10)
+            self.assertTrue(validate_bytes(json.dumps(plan).encode("utf-8"))["valid"])
+            encoded = json.dumps(plan)
+            self.assertNotIn("oracle", encoded)
+            self.assertNotIn("prompt", encoded)
+
+            environment = dict(os.environ)
+            environment["PYTHONPATH"] = str(PACKAGE_ROOT)
+            completed = subprocess.run(
+                [sys.executable, "-m", "marginbench.cli", "execution-plan", str(path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=environment,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+            self.assertEqual(json.loads(completed.stdout), plan)
+
+            plan["jobs"][0]["ordinal"] = 1
+            receipt = validate_bytes(json.dumps(plan).encode("utf-8"))
+            self.assertFalse(receipt["valid"])
+            self.assertTrue(any("ordinals" in item for item in receipt["errors"]))
+
     def test_control_catalog_gates_unfair_or_unsafe_ablations(self) -> None:
         catalog = control_catalog()
         self.assertEqual(catalog["default"], DEFAULT_CONTROL_PROFILE)
@@ -365,6 +417,9 @@ class MarginBenchCoreTests(unittest.TestCase):
             self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
             self.assertFalse(receipt["secretPrinted"])
             self.assertNotIn(secret, json.dumps(receipt))
+            loaded, key_id = load_holdout_key(path)
+            self.assertEqual(loaded, secret)
+            self.assertEqual(key_id, receipt["keyID"])
             original = path.read_bytes()
             with self.assertRaisesRegex(ValueError, "Refusing to replace"):
                 create_holdout_key(path)
@@ -375,6 +430,9 @@ class MarginBenchCoreTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Refusing to replace"):
                 create_holdout_key(linked)
             self.assertFalse(target.exists())
+            path.chmod(0o644)
+            with self.assertRaisesRegex(ValueError, "group- or world-accessible"):
+                load_holdout_key(path)
 
     def test_paid_plan_costs_every_role_and_stays_conservative(self) -> None:
         one_role = estimate_maximum_cost(
@@ -385,8 +443,42 @@ class MarginBenchCoreTests(unittest.TestCase):
         )
         self.assertEqual(one_role, 0.089211)
         self.assertEqual(two_roles, 0.178422)
+        selected = estimate_maximum_cost(
+            ["human_agent_relay"],
+            1,
+            12,
+            3,
+            65_536,
+            2_400,
+            0.03,
+            0.13,
+            0.0002,
+            [3, 7],
+        )
+        self.assertEqual(selected, one_role * 2)
         observed_stage_cost = 0.0044
         self.assertGreater(two_roles, observed_stage_cost)
+
+        arguments = SimpleNamespace(
+            scenario=["human_agent_relay"],
+            repetitions=1,
+            repetition_id=[3, 7],
+            model="test/model",
+            max_concurrent=1,
+            margin_bin=self.binary,
+            control_profile=DEFAULT_CONTROL_PROFILE,
+            temperature=0.0,
+            max_tokens_per_call=100,
+            max_turns=2,
+            max_input_tokens=1000,
+            max_output_tokens=500,
+            max_total_tokens=1200,
+            rollout_timeout_seconds=30.0,
+        )
+        command = build_eval_command(arguments, Path("/prime/eval"), Path("/output"))
+        self.assertEqual(command[command.index("--num-tasks") + 1], "2")
+        repetition_flag = command.index("--env.taskset.repetition-ids")
+        self.assertEqual(command[repetition_flag + 1:repetition_flag + 3], ["3", "7"])
 
     def test_paid_start_gate_serializes_and_enforces_cooldown(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-paid-gate-") as temporary:
@@ -623,6 +715,20 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(first.digest(), repeated.digest())
         self.assertEqual(len(first.margin_sha256), 64)
         self.assertEqual(len(first.manual_sha256 or ""), 64)
+        if JSONSCHEMA_AVAILABLE:
+            with tempfile.TemporaryDirectory(prefix="marginbench-candidate-load-") as temporary:
+                path = Path(temporary) / "candidate.json"
+                path.write_text(json.dumps(asdict(first)), encoding="utf-8")
+                self.assertEqual(
+                    load_candidate_manifest(
+                        path,
+                        binary=self.binary,
+                        candidate_id="read-receipts-v1",
+                    ),
+                    first,
+                )
+                with self.assertRaisesRegex(ValueError, "does not match --candidate"):
+                    load_candidate_manifest(path, binary=self.binary, candidate_id="other")
         with self.assertRaises(ValueError):
             CandidateManifest(
                 id="broken",

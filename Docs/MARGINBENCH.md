@@ -183,10 +183,16 @@ gains must be confirmed on a private rotating test set.
 The default study planner freezes four repetitions of all five workflows and
 counterbalances candidate order to exactly 10 AB and 10 BA episodes. It emits
 only case fingerprints, roles, and candidate order—not private prompts, answers,
-or the holdout key. The runnable primary control is role-separated collaboration
-through Margin alone. Single-agent, plain-Markdown, and Margin-plus-shell
-controls are specified publicly but refuse to run until their identity, scoring,
-and isolation rules are implemented; they cannot silently enter the main track.
+or the holdout key. The deterministic execution planner expands those pairs to
+40 ordered candidate jobs with digest-derived identities and fail-closed resume
+rules. Prime can select each exact repetition rather than regenerating index
+zero, and a frozen candidate manifest must match the executable. For private
+runs, the taskset consumes the mode-0600 holdout key from its environment before
+agent subprocesses start; only its one-way ID is published. The runnable primary
+control is role-separated collaboration through Margin alone. Single-agent,
+plain-Markdown, and Margin-plus-shell controls are specified publicly but refuse
+to run until their identity, scoring, and isolation rules are implemented; they
+cannot silently enter the main track.
 
 ## Contamination policy
 
@@ -247,9 +253,9 @@ x86-64, and Linux arm64. Margin 0.3.2 passes 164 macOS tests and 112 portable
 Linux tests; a repeat x86-64 build is byte-for-byte identical. The Verifiers v1
 adapter completes the whole five-case local fake-agent matrix at 100 with only
 one exposed tool. The installable manylinux wheel and source archive also pass
-their tests in clean containers. The system Python runtime passes 30 benchmark
-contracts with four Prime-only skips; Prime's runtime passes all 34. The wheel
-bundles all 18 schemas.
+their tests in clean containers. The system Python runtime passes 31 benchmark
+contracts with five Prime-only skips; Prime's runtime passes all 36. The wheel
+bundles all 19 schemas.
 
 Real Qwen Flash runs exercised every family. The initial human-relay smoke
 scored 25; successive general CLI guidance improvements reached the exact

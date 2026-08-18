@@ -15,6 +15,7 @@ from .controls import control_catalog
 from .entropy import PUBLIC_DEVELOPMENT_KEY
 from .keys import create_holdout_key
 from .runner import ReferenceDriver, run_episode
+from .scheduling import ExecutionPlanError, build_execution_plan
 from .scenarios import SCENARIO_IDS, generate_episode
 from .schema import canonical_json
 from .studies import build_study_plan
@@ -109,6 +110,12 @@ def main(argv: list[str] | None = None) -> int:
     study.add_argument("--scenario", action="append", choices=SCENARIO_IDS)
     study.add_argument("--repetitions", type=int, default=4)
     study.add_argument("--key-file")
+
+    execution_plan = subparsers.add_parser(
+        "execution-plan",
+        help="flatten a paired study into deterministic candidate-ordered jobs",
+    )
+    execution_plan.add_argument("study_plan", type=Path)
 
     subparsers.add_parser(
         "controls",
@@ -216,6 +223,12 @@ def main(argv: list[str] | None = None) -> int:
             key=_key(arguments.key_file),
             development_cases=arguments.key_file is None,
         ))
+        return 0
+    if arguments.command == "execution-plan":
+        try:
+            _write(build_execution_plan(arguments.study_plan))
+        except ExecutionPlanError as error:
+            raise SystemExit(str(error)) from error
         return 0
     if arguments.command == "controls":
         _write(control_catalog())

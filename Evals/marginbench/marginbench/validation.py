@@ -104,6 +104,7 @@ def _schema_name(payload: Any) -> tuple[str, str]:
         "urn:marginbench:candidate:v1": "candidate.schema.json",
         "urn:marginbench:control-catalog:v1": "control-catalog.schema.json",
         "urn:marginbench:experiment-ledger:v1": "experiment-ledger.schema.json",
+        "urn:marginbench:execution-plan:v1": "execution-plan.schema.json",
         "urn:marginbench:paired-comparison:v1": "paired-comparison.schema.json",
         "urn:marginbench:prime-run-summary:v1": "prime-run-summary.schema.json",
         "urn:marginbench:prime-runtime-probe:v1": "runtime-probe.schema.json",
@@ -524,6 +525,68 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             )
             if not _close(round(hourly * hours, 6), payload["failureBoundUSD"]):
                 errors.append("runtime probe failure bound does not match resources and pricing")
+    elif schema_name == "execution-plan.schema.json":
+        if payload["id"] != submission_identifier(payload):
+            errors.append("execution plan id does not match its canonical content")
+        if payload["baselineCandidate"] == payload["candidate"]:
+            errors.append("execution plan must identify two distinct candidates")
+        jobs = payload["jobs"]
+        if payload["jobCount"] != len(jobs) or payload["jobCount"] != payload["episodeCount"] * 2:
+            errors.append("execution plan job totals are inconsistent")
+        if [item["ordinal"] for item in jobs] != list(range(len(jobs))):
+            errors.append("execution plan ordinals are not contiguous")
+        if payload["roleProcessCount"] != sum(len(item["roles"]) for item in jobs):
+            errors.append("execution plan role-process total is inconsistent")
+        job_ids = [item["id"] for item in jobs]
+        if len(job_ids) != len(set(job_ids)):
+            errors.append("execution plan contains duplicate job ids")
+        candidates = {payload["baselineCandidate"], payload["candidate"]}
+        episodes: dict[str, list[dict[str, Any]]] = {}
+        for job in jobs:
+            expected_episode = (
+                f"{job['scenario']}:{job['repetition']}:"
+                f"{job['fingerprint'][:12]}"
+            )
+            if job["episodeID"] != expected_episode:
+                errors.append(f"execution job episode identity is inconsistent: {job['ordinal']}")
+            material = {
+                "candidateID": job["candidateID"],
+                "episodeID": job["episodeID"],
+                "position": job["candidatePosition"],
+                "studyPlanSha256": payload["studyPlanSha256"],
+            }
+            expected_job = "sha256:" + hashlib.sha256(
+                json.dumps(
+                    material,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+            if job["id"] != expected_job:
+                errors.append(f"execution job id is inconsistent: {job['ordinal']}")
+            episodes.setdefault(job["episodeID"], []).append(job)
+        if len(episodes) != payload["episodeCount"]:
+            errors.append("execution plan episode total is inconsistent")
+        first_positions = {payload["baselineCandidate"]: 0, payload["candidate"]: 0}
+        for episode_id, pair in episodes.items():
+            if len(pair) != 2:
+                errors.append(f"execution episode does not contain exactly two jobs: {episode_id[:200]}")
+                continue
+            ordered = sorted(pair, key=lambda item: item["candidatePosition"])
+            if (
+                {item["candidateID"] for item in pair} != candidates
+                or [item["candidatePosition"] for item in ordered] != [0, 1]
+            ):
+                errors.append(f"execution episode does not cover both candidates once: {episode_id[:200]}")
+            immutable = ("scenario", "repetition", "fingerprint", "roles")
+            if any(ordered[0][field] != ordered[1][field] for field in immutable):
+                errors.append(f"execution episode pair metadata differs: {episode_id[:200]}")
+            first = ordered[0]["candidateID"]
+            if first in first_positions:
+                first_positions[first] += 1
+        if abs(first_positions[payload["baselineCandidate"]] - first_positions[payload["candidate"]]) > 1:
+            errors.append("execution plan candidate-first order is not counterbalanced")
     elif schema_name == "submission.schema.json":
         if payload["id"] != submission_identifier(payload):
             errors.append("submission id does not match its canonical manifest")
