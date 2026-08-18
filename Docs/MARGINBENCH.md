@@ -222,9 +222,11 @@ zero, and a frozen candidate manifest must match the executable. For private
 runs, the taskset consumes the mode-0600 holdout key from its environment before
 agent subprocesses start; only its one-way ID is published. The runnable primary
 control is role-separated collaboration through Margin alone. Single-agent,
-plain-Markdown, and Margin-plus-shell controls are specified publicly but refuse
-to run until their identity, scoring, and isolation rules are implemented; they
-cannot silently enter the main track.
+plain-Markdown, Margin-plus-shell, and no-exchange controls are specified
+publicly but refuse to run until their identity, scoring, and isolation rules
+are implemented; they cannot silently enter the main track. `marginbench
+controls` reports their remaining release gates in structured form. Their exact
+fairness and release contract is in `Docs/MARGINBENCH_CONTROLS.md`.
 
 The same schedule is exercised end to end without a model by
 `marginbench reference-study`. It runs both frozen binaries through the real
@@ -305,9 +307,9 @@ Verifiers v1 adapter completes the whole six-case local fake-agent matrix at
 100 with one exposed tool, both in process and through its real environment
 server. Both 59-request rehearsals pass through the live spend proxy with no
 rejections or paid calls. The installable manylinux wheel and source archive
-pass clean-container verification. The system Python runtime passes all 48
+pass clean-container verification. The system Python runtime passes all 51
 benchmark contracts with six intentional Prime-only skips; Prime's runtime
-passes all 48. The wheel bundles all 25 schemas.
+passes all 51. The wheel bundles all 25 schemas.
 
 Real Qwen Flash runs now cover all six families. The earlier human-relay,
 handoff, concurrent-review, suggestion-decision, and stale multi-file runs

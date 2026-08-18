@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import http.client
 import json
 import os
 import subprocess
@@ -8,6 +9,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -17,7 +19,7 @@ from unittest.mock import patch
 import httpx
 
 from marginbench.binary import resolve_margin_binary, validate_packaged_binary
-from marginbench.budget_proxy import InferenceBudgetPolicy, InferenceBudgetProxy
+from marginbench.budget_proxy import InferenceBudgetGate, InferenceBudgetPolicy, InferenceBudgetProxy
 from marginbench.candidates import CandidateManifest, load_results, paired_compare
 from marginbench.controls import DEFAULT_CONTROL_PROFILE, control_catalog, require_implemented_profile
 from marginbench.diagnostics import DiagnosticError, diagnose_artifacts
@@ -281,6 +283,18 @@ class MarginBenchCoreTests(unittest.TestCase):
             manifest["cost"]["hardAdmissionCap"],
         )
         self.assertEqual(manifest["cost"]["liveBudget"], live_budget)
+        self.assertTrue(validate_bytes(canonical_json(manifest))["valid"])
+        violating_manifest = json.loads(json.dumps(manifest))
+        violating_manifest["cost"]["liveBudget"].update({
+            "providerBoundViolationCount": 1,
+            "latchedClosed": True,
+        })
+        violation_receipt = validate_bytes(canonical_json(violating_manifest))
+        self.assertFalse(violation_receipt["valid"])
+        self.assertTrue(any(
+            "provider reported usage outside" in error
+            for error in violation_receipt["errors"]
+        ))
         partial = json.loads(json.dumps(summary))
         partial["episodes"][0]["roleRuns"] = partial["episodes"][0]["roleRuns"][:1]
         partial_manifest = _run_manifest(
@@ -536,14 +550,33 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in implemented], [DEFAULT_CONTROL_PROFILE])
         self.assertEqual(implemented[0]["toolSurface"], ["margin"])
         self.assertFalse(implemented[0]["shellAccess"])
+        self.assertEqual(implemented[0]["blockingGates"], [])
+        gated = [item for item in catalog["profiles"] if item["status"] != "implemented"]
+        self.assertTrue(gated)
+        for profile in gated:
+            blockers = profile["blockingGates"]
+            self.assertTrue(blockers, profile["id"])
+            blocker_ids = [item["id"] for item in blockers]
+            self.assertEqual(len(blocker_ids), len(set(blocker_ids)), profile["id"])
         shell = next(item for item in catalog["profiles"] if item["shellAccess"])
         self.assertEqual(shell["status"], "specified-not-runnable")
         self.assertIn("remote-sandbox", shell["isolationRequirement"])
         self.assertEqual(require_implemented_profile(DEFAULT_CONTROL_PROFILE), implemented[0])
         with self.assertRaisesRegex(ValueError, "not safely runnable"):
             require_implemented_profile("single-agent-margin-v1")
+        no_exchange = next(
+            item for item in catalog["profiles"]
+            if item["id"] == "role-separated-no-exchange-v1"
+        )
+        self.assertEqual(no_exchange["durableSurface"], "none")
+        self.assertEqual(no_exchange["status"], "specified-not-runnable")
         episode = generate_episode("human_agent_relay", KEY, 0)
         self.assertEqual(episode.public_manifest()["controls"], [DEFAULT_CONTROL_PROFILE])
+        mutated = control_catalog()
+        mutated["profiles"][0]["blockingGates"].append(
+            {"id": "caller-mutation", "requirement": "must not escape"}
+        )
+        self.assertEqual(control_catalog()["profiles"][0]["blockingGates"], [])
         try:
             from jsonschema import Draft202012Validator
         except ImportError:
@@ -739,6 +772,16 @@ class MarginBenchCoreTests(unittest.TestCase):
                     streaming = client.post(endpoint, headers=headers, json={**payload, "stream": True})
                     self.assertEqual(streaming.status_code, 400)
                     self.assertEqual(streaming.json()["error"]["code"], "BUDGET_PROXY_STREAMING")
+                    numeric_streaming = client.post(
+                        endpoint,
+                        headers=headers,
+                        json={**payload, "stream": 1},
+                    )
+                    self.assertEqual(numeric_streaming.status_code, 400)
+                    self.assertEqual(
+                        numeric_streaming.json()["error"]["code"],
+                        "BUDGET_PROXY_STREAMING",
+                    )
                     wrong_model = client.post(
                         endpoint,
                         headers=headers,
@@ -766,6 +809,26 @@ class MarginBenchCoreTests(unittest.TestCase):
                         boolean_output.json()["error"]["code"],
                         "BUDGET_PROXY_OUTPUT_LIMIT",
                     )
+                    conflicting_output = client.post(
+                        endpoint,
+                        headers=headers,
+                        json={**payload, "max_completion_tokens": 20, "max_tokens": 101},
+                    )
+                    self.assertEqual(conflicting_output.status_code, 400)
+                    self.assertEqual(
+                        conflicting_output.json()["error"]["code"],
+                        "BUDGET_PROXY_OUTPUT_LIMIT",
+                    )
+                    duplicate_model = client.post(
+                        endpoint,
+                        headers={**headers, "content-type": "application/json"},
+                        content=(
+                            b'{"model":"test/model","model":"test/model",'
+                            b'"messages":[],"max_tokens":20}'
+                        ),
+                    )
+                    self.assertEqual(duplicate_model.status_code, 400)
+                    self.assertEqual(duplicate_model.json()["error"]["code"], "BUDGET_PROXY_JSON")
                     nonfinite = client.post(
                         endpoint,
                         headers={**headers, "content-type": "application/json"},
@@ -786,6 +849,24 @@ class MarginBenchCoreTests(unittest.TestCase):
                     oversized = client.post(endpoint, headers=headers, content=b"x" * 513)
                     self.assertEqual(oversized.status_code, 413)
                     self.assertEqual(oversized.json()["error"]["code"], "BUDGET_PROXY_REQUEST_LIMIT")
+                    parsed_endpoint = httpx.URL(endpoint)
+                    framed = http.client.HTTPConnection(
+                        parsed_endpoint.host,
+                        parsed_endpoint.port,
+                        timeout=5,
+                    )
+                    framed.putrequest("POST", parsed_endpoint.raw_path.decode("ascii"))
+                    framed.putheader("authorization", f"Bearer {proxy.client_token}")
+                    framed.putheader("content-length", "2")
+                    framed.putheader("content-length", "2")
+                    framed.endheaders(b"{}")
+                    framed_response = framed.getresponse()
+                    self.assertEqual(framed_response.status, 400)
+                    self.assertEqual(
+                        json.loads(framed_response.read())["error"]["code"],
+                        "BUDGET_PROXY_FRAMING",
+                    )
+                    framed.close()
                     exhausted = client.post(endpoint, headers=headers, json=payload)
                     self.assertEqual(exhausted.status_code, 429)
                     self.assertEqual(exhausted.json()["error"]["code"], "BUDGET_PROXY_COST_LIMIT")
@@ -800,11 +881,86 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(observed[0]["authorization"], "Bearer actual-upstream-secret")
         self.assertEqual(observed[0]["team"], "team-test")
         self.assertEqual(report["forwardedRequestCount"], 1)
-        self.assertEqual(report["rejectedRequestCount"], 9)
+        self.assertEqual(report["rejectedRequestCount"], 13)
         self.assertEqual(report["policy"]["allowedModel"], "test/model")
         self.assertEqual(report["reportedPromptTokens"], 10)
         self.assertEqual(report["reportedCompletionTokens"], 5)
+        self.assertEqual(report["providerBoundViolationCount"], 0)
+        self.assertFalse(report["latchedClosed"])
         self.assertLessEqual(report["reservedCostUpperBoundUSD"], 0.0004)
+
+    def test_inference_budget_policy_and_upstream_url_reject_ambiguous_types(self) -> None:
+        values = {
+            "allowed_model": "test/model",
+            "max_request_bytes": 512,
+            "template_token_allowance": 32,
+            "input_token_ceiling": 1000,
+            "max_output_tokens": 100,
+            "input_price_per_million": 1.0,
+            "output_price_per_million": 1.0,
+            "billing_overhead_usd_per_call": 0.0,
+            "max_total_cost_usd": 0.01,
+        }
+        for field, invalid in (
+            ("max_request_bytes", True),
+            ("template_token_allowance", False),
+            ("input_price_per_million", True),
+            ("max_total_cost_usd", float("nan")),
+        ):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                InferenceBudgetPolicy(**{**values, field: invalid})
+        policy = InferenceBudgetPolicy(**values)
+        with self.assertRaisesRegex(ValueError, "must be HTTPS"):
+            InferenceBudgetProxy(
+                "https://embedded:credential@inference.example/api/v1",
+                "upstream-secret",
+                policy,
+            )
+
+    def test_inference_budget_gate_serializes_simultaneous_reservations(self) -> None:
+        gate = InferenceBudgetGate(InferenceBudgetPolicy(
+            allowed_model="test/model",
+            max_request_bytes=64,
+            template_token_allowance=0,
+            input_token_ceiling=1000,
+            max_output_tokens=10,
+            input_price_per_million=1.0,
+            output_price_per_million=0.0,
+            billing_overhead_usd_per_call=0.0,
+            max_total_cost_usd=0.0001,
+        ))
+        with ThreadPoolExecutor(max_workers=32) as pool:
+            reservations = list(pool.map(lambda _: gate.reserve(10, 1), range(32)))
+        self.assertEqual(sum(value is not None for value in reservations), 5)
+        report = gate.report()
+        self.assertEqual(report["forwardedRequestCount"], 5)
+        self.assertEqual(report["rejectedRequestCount"], 27)
+        self.assertEqual(report["reservedCostUpperBoundUSD"], 0.0001)
+
+    def test_inference_budget_gate_latches_closed_after_provider_bound_violation(self) -> None:
+        gate = InferenceBudgetGate(InferenceBudgetPolicy(
+            allowed_model="test/model",
+            max_request_bytes=64,
+            template_token_allowance=0,
+            input_token_ceiling=1000,
+            max_output_tokens=10,
+            input_price_per_million=1.0,
+            output_price_per_million=1.0,
+            billing_overhead_usd_per_call=0.0,
+            max_total_cost_usd=0.001,
+        ))
+        reservation = gate.reserve(10, 5)
+        self.assertIsNotNone(reservation)
+        gate.record_response(
+            {"usage": {"prompt_tokens": 21, "completion_tokens": 5}},
+            reservation,
+        )
+        self.assertIsNone(gate.reserve(1, 1))
+        report = gate.report()
+        self.assertEqual(report["providerBoundViolationCount"], 1)
+        self.assertTrue(report["latchedClosed"])
+        self.assertEqual(report["forwardedRequestCount"], 1)
+        self.assertEqual(report["rejectedRequestCount"], 1)
 
     def test_paid_start_gate_serializes_and_enforces_cooldown(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-paid-gate-") as temporary:

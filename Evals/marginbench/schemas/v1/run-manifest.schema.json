@@ -170,6 +170,8 @@
         "reportedPromptTokens": {"type": "integer", "minimum": 0},
         "reportedCompletionTokens": {"type": "integer", "minimum": 0},
         "reportedTokenCostUSD": {"type": "number", "minimum": 0},
+        "providerBoundViolationCount": {"type": "integer", "minimum": 0},
+        "latchedClosed": {"type": "boolean"},
         "policy": {
           "type": "object",
           "additionalProperties": false,

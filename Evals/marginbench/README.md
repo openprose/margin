@@ -232,9 +232,11 @@ episode result, and can emit a schema-validated public run manifest. Paid
 execution also routes every inference request through a loopback-only spend
 gate. The child receives only an ephemeral local capability; the actual Prime
 key remains in the parent. The gate pins the priced model and chat-completion
-route, rejects streaming, unbounded output, oversized requests, and cumulative
-reservations above the run cap before forwarding, and retains only counts and
-costs:
+route; rejects ambiguous HTTP framing, duplicate JSON keys, streaming,
+conflicting or unbounded output, oversized requests, and cumulative reservations
+above the run cap before forwarding; and retains only counts and costs. If the
+provider reports usage beyond a request's reservation, the gate latches closed
+for the rest of the run and the publication validator rejects the result:
 
 ```sh
 Evals/marginbench/prime_pilot.py \
@@ -362,7 +364,9 @@ development case can diagnose a failure but can never be labeled promotable.
 CLI/manual changes, model changes, team-layout changes, and prompt changes
 should be reported as separate tracks rather than mixed into one claim.
 
-`marginbench controls` publishes the frozen control catalog. The primary
+`marginbench controls` publishes the frozen control catalog. Every unfinished
+profile includes stable, machine-readable `blockingGates`, so automation can
+show what evidence is still missing without attempting a run. The primary
 role-separated, Margin-only profile is runnable. Single-context, plain-Markdown,
 and Margin-plus-shell controls are specified but fail closed until their
 identity, task-neutral scoring, and disposable-sandbox requirements are

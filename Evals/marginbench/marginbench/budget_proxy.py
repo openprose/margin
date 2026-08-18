@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import secrets
 import threading
 from dataclasses import dataclass
@@ -14,6 +15,25 @@ import httpx
 
 
 MAX_UPSTREAM_RESPONSE_BYTES = 16 * 1024 * 1024
+
+
+def _decode_unique_json(raw: bytes) -> object:
+    def object_without_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate JSON key")
+            result[key] = value
+        return result
+
+    def reject_nonfinite(value: str) -> object:
+        raise ValueError(f"non-finite JSON number: {value}")
+
+    return json.loads(
+        raw,
+        object_pairs_hook=object_without_duplicates,
+        parse_constant=reject_nonfinite,
+    )
 
 
 @dataclass(frozen=True)
@@ -29,28 +49,57 @@ class InferenceBudgetPolicy:
     max_total_cost_usd: float
 
     def __post_init__(self) -> None:
+        try:
+            model_bytes = len(self.allowed_model.encode("utf-8"))
+        except (AttributeError, UnicodeEncodeError):
+            model_bytes = 0
         if (
             not isinstance(self.allowed_model, str)
-            or not self.allowed_model
-            or len(self.allowed_model) > 512
+            or not 1 <= model_bytes <= 512
         ):
-            raise ValueError("allowed_model must contain between 1 and 512 characters")
-        if not 1 <= self.max_request_bytes <= 16 * 1024 * 1024:
+            raise ValueError("allowed_model must contain between 1 and 512 UTF-8 bytes")
+        if (
+            not isinstance(self.max_request_bytes, int)
+            or isinstance(self.max_request_bytes, bool)
+            or not 1 <= self.max_request_bytes <= 16 * 1024 * 1024
+        ):
             raise ValueError("max_request_bytes must be between 1 and 16777216")
-        if not 0 <= self.template_token_allowance <= 1_000_000:
+        if (
+            not isinstance(self.template_token_allowance, int)
+            or isinstance(self.template_token_allowance, bool)
+            or not 0 <= self.template_token_allowance <= 1_000_000
+        ):
             raise ValueError("template_token_allowance must be between 0 and 1000000")
-        if not 1 <= self.input_token_ceiling <= 4_000_000:
+        if (
+            not isinstance(self.input_token_ceiling, int)
+            or isinstance(self.input_token_ceiling, bool)
+            or not 1 <= self.input_token_ceiling <= 4_000_000
+        ):
             raise ValueError("input_token_ceiling must be between 1 and 4000000")
-        if not 1 <= self.max_output_tokens <= 1_000_000:
+        if (
+            not isinstance(self.max_output_tokens, int)
+            or isinstance(self.max_output_tokens, bool)
+            or not 1 <= self.max_output_tokens <= 1_000_000
+        ):
             raise ValueError("max_output_tokens must be between 1 and 1000000")
         for name, value in (
             ("input_price_per_million", self.input_price_per_million),
             ("output_price_per_million", self.output_price_per_million),
             ("billing_overhead_usd_per_call", self.billing_overhead_usd_per_call),
         ):
-            if not 0 <= value <= 1_000:
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+                or not 0 <= value <= 1_000
+            ):
                 raise ValueError(f"{name} must be between 0 and 1000")
-        if not 0 < self.max_total_cost_usd <= 1_000:
+        if (
+            not isinstance(self.max_total_cost_usd, (int, float))
+            or isinstance(self.max_total_cost_usd, bool)
+            or not math.isfinite(self.max_total_cost_usd)
+            or not 0 < self.max_total_cost_usd <= 1_000
+        ):
             raise ValueError("max_total_cost_usd must be between 0 and 1000")
 
     def input_token_upper_bound(self, request_bytes: int) -> int:
@@ -73,6 +122,13 @@ class InferenceBudgetPolicy:
         )
 
 
+@dataclass(frozen=True)
+class InferenceReservation:
+    cost_upper_usd: float
+    input_tokens_upper: int
+    output_tokens_upper: int
+
+
 class InferenceBudgetGate:
     def __init__(self, policy: InferenceBudgetPolicy) -> None:
         self.policy = policy
@@ -83,24 +139,30 @@ class InferenceBudgetGate:
         self._reported_prompt_tokens = 0
         self._reported_completion_tokens = 0
         self._reported_cost_usd = 0.0
+        self._provider_bound_violations = 0
+        self._latched_closed = False
 
-    def reserve(self, request_bytes: int, output_tokens: int) -> float | None:
+    def reserve(self, request_bytes: int, output_tokens: int) -> InferenceReservation | None:
+        input_tokens = self.policy.input_token_upper_bound(request_bytes)
         upper = self.policy.request_cost_upper_bound(request_bytes, output_tokens)
         with self._lock:
-            if self._reserved_upper_usd + upper > self.policy.max_total_cost_usd + 1e-12:
+            if (
+                self._latched_closed
+                or self._reserved_upper_usd + upper > self.policy.max_total_cost_usd + 1e-12
+            ):
                 self._rejected += 1
                 return None
             # Reservations are never released, including after provider errors.
             # This makes the cumulative cap pessimistic rather than optimistic.
             self._reserved_upper_usd += upper
             self._forwarded += 1
-        return upper
+        return InferenceReservation(upper, input_tokens, output_tokens)
 
     def reject(self) -> None:
         with self._lock:
             self._rejected += 1
 
-    def record_response(self, payload: object) -> None:
+    def record_response(self, payload: object, reservation: InferenceReservation) -> None:
         if not isinstance(payload, dict):
             return
         usage = payload.get("usage")
@@ -121,10 +183,19 @@ class InferenceBudgetGate:
             prompt * self.policy.input_price_per_million / 1_000_000
             + completion * self.policy.output_price_per_million / 1_000_000
         )
+        violation = (
+            prompt > reservation.input_tokens_upper
+            or completion > reservation.output_tokens_upper
+            or not math.isfinite(cost)
+            or cost > reservation.cost_upper_usd + 1e-12
+        )
         with self._lock:
             self._reported_prompt_tokens += prompt
             self._reported_completion_tokens += completion
             self._reported_cost_usd += cost
+            if violation:
+                self._provider_bound_violations += 1
+                self._latched_closed = True
 
     def report(self) -> dict[str, Any]:
         with self._lock:
@@ -136,6 +207,8 @@ class InferenceBudgetGate:
                 "reportedPromptTokens": self._reported_prompt_tokens,
                 "reportedCompletionTokens": self._reported_completion_tokens,
                 "reportedTokenCostUSD": round(self._reported_cost_usd, 6),
+                "providerBoundViolationCount": self._provider_bound_violations,
+                "latchedClosed": self._latched_closed,
                 "policy": {
                     "allowedModel": self.policy.allowed_model,
                     "maxRequestBytes": self.policy.max_request_bytes,
@@ -167,6 +240,8 @@ class InferenceBudgetProxy:
         if (
             (parsed.scheme != "https" and not test_loopback)
             or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
             or parsed.query
             or parsed.fragment
         ):
@@ -216,21 +291,35 @@ class InferenceBudgetProxy:
                 self.close_connection = True
 
             def do_POST(self) -> None:  # noqa: N802
-                authorization = self.headers.get("authorization", "")
+                authorizations = self.headers.get_all("authorization", failobj=[])
                 expected = f"Bearer {owner.client_token}"
-                if not secrets.compare_digest(authorization, expected):
+                if (
+                    len(authorizations) != 1
+                    or not secrets.compare_digest(authorizations[0], expected)
+                ):
                     owner.gate.reject()
                     self._json_error(401, "BUDGET_PROXY_UNAUTHORIZED", "Invalid local proxy capability.")
                     return
                 request_url = urlsplit(self.path)
                 allowed_path = owner.upstream_path + "/chat/completions"
-                if request_url.path != allowed_path or request_url.query or request_url.fragment:
+                if (
+                    request_url.scheme
+                    or request_url.netloc
+                    or request_url.path != allowed_path
+                    or request_url.query
+                    or request_url.fragment
+                ):
                     owner.gate.reject()
                     self._json_error(404, "BUDGET_PROXY_ROUTE", "Unsupported inference route.")
                     return
-                length_value = self.headers.get("content-length")
+                content_lengths = self.headers.get_all("content-length", failobj=[])
+                transfer_encodings = self.headers.get_all("transfer-encoding", failobj=[])
+                if len(content_lengths) != 1 or transfer_encodings:
+                    owner.gate.reject()
+                    self._json_error(400, "BUDGET_PROXY_FRAMING", "Ambiguous request framing is unsupported.")
+                    return
                 try:
-                    length = int(length_value or "")
+                    length = int(content_lengths[0])
                 except ValueError:
                     length = -1
                 if length < 0 or length > owner.gate.policy.max_request_bytes:
@@ -243,12 +332,14 @@ class InferenceBudgetProxy:
                     self._json_error(400, "BUDGET_PROXY_TRUNCATED", "Inference request body is incomplete.")
                     return
                 try:
-                    payload = json.loads(raw)
-                except (UnicodeDecodeError, json.JSONDecodeError):
+                    payload = _decode_unique_json(raw)
+                except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
                     owner.gate.reject()
                     self._json_error(400, "BUDGET_PROXY_JSON", "Inference request is not valid JSON.")
                     return
-                if not isinstance(payload, dict) or payload.get("stream") is True:
+                if not isinstance(payload, dict) or (
+                    "stream" in payload and payload["stream"] is not False
+                ):
                     owner.gate.reject()
                     self._json_error(400, "BUDGET_PROXY_STREAMING", "Only bounded non-streaming requests are supported.")
                     return
@@ -256,15 +347,21 @@ class InferenceBudgetProxy:
                     owner.gate.reject()
                     self._json_error(400, "BUDGET_PROXY_MODEL", "Inference model differs from the priced model.")
                     return
-                output_tokens = payload.get("max_completion_tokens", payload.get("max_tokens"))
-                if (
-                    not isinstance(output_tokens, int)
-                    or isinstance(output_tokens, bool)
-                    or not 1 <= output_tokens <= owner.gate.policy.max_output_tokens
+                output_limits = [
+                    payload[name]
+                    for name in ("max_completion_tokens", "max_tokens")
+                    if name in payload
+                ]
+                if not output_limits or any(
+                    not isinstance(value, int)
+                    or isinstance(value, bool)
+                    or not 1 <= value <= owner.gate.policy.max_output_tokens
+                    for value in output_limits
                 ):
                     owner.gate.reject()
                     self._json_error(400, "BUDGET_PROXY_OUTPUT_LIMIT", "A bounded output-token limit is required.")
                     return
+                output_tokens = max(output_limits)
                 try:
                     upstream_body = json.dumps(
                         payload,
@@ -272,11 +369,16 @@ class InferenceBudgetProxy:
                         allow_nan=False,
                         separators=(",", ":"),
                     ).encode("utf-8")
-                except (TypeError, ValueError):
+                except (TypeError, UnicodeEncodeError, ValueError):
                     owner.gate.reject()
                     self._json_error(400, "BUDGET_PROXY_JSON", "Inference request is not canonical JSON.")
                     return
-                if owner.gate.reserve(length, output_tokens) is None:
+                if len(upstream_body) > owner.gate.policy.max_request_bytes:
+                    owner.gate.reject()
+                    self._json_error(413, "BUDGET_PROXY_REQUEST_LIMIT", "Inference request exceeds its byte limit.")
+                    return
+                reservation = owner.gate.reserve(len(upstream_body), output_tokens)
+                if reservation is None:
                     self._json_error(429, "BUDGET_PROXY_COST_LIMIT", "Cumulative inference cost bound exhausted.")
                     return
 
@@ -291,7 +393,7 @@ class InferenceBudgetProxy:
                 try:
                     with owner._client.stream(
                         "POST",
-                        owner.upstream_origin + self.path,
+                        owner.upstream_origin + allowed_path,
                         content=upstream_body,
                         headers=headers,
                     ) as response:
@@ -313,18 +415,23 @@ class InferenceBudgetProxy:
                     self._json_error(502, "BUDGET_PROXY_UPSTREAM", "Inference provider request failed.")
                     return
                 try:
-                    owner.gate.record_response(json.loads(response_content))
-                except (UnicodeDecodeError, json.JSONDecodeError):
+                    owner.gate.record_response(
+                        _decode_unique_json(response_content),
+                        reservation,
+                    )
+                except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
                     pass
                 self.send_response(response_status)
                 self.send_header("content-type", response_type)
                 self.send_header("content-length", str(len(response_content)))
+                self.send_header("connection", "close")
                 if response_request_id is not None:
                     self.send_header("x-request-id", response_request_id)
                 if response_retry_after is not None:
                     self.send_header("retry-after", response_retry_after)
                 self.end_headers()
                 self.wfile.write(response_content)
+                self.close_connection = True
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self._server.daemon_threads = True

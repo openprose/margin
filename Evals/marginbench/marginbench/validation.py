@@ -232,6 +232,12 @@ def _live_budget_semantics(report: dict[str, Any], prefix: str, errors: list[str
         errors.append(f"{prefix}: reported prompt tokens exceed the request-byte bound")
     if report["reportedCompletionTokens"] > maximum_completion_tokens:
         errors.append(f"{prefix}: reported completion tokens exceed the output bound")
+    violations = report.get("providerBoundViolationCount", 0)
+    latched = report.get("latchedClosed", violations > 0)
+    if latched != (violations > 0):
+        errors.append(f"{prefix}: closed latch disagrees with provider-bound violations")
+    if violations > 0:
+        errors.append(f"{prefix}: provider reported usage outside the reserved bound")
 
 
 def _result_semantics(result: dict[str, Any], prefix: str, errors: list[str]) -> None:

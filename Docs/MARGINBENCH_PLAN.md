@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 05:10 ET
+Last updated: 2026-08-18 06:17 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -86,11 +86,14 @@ Rules:
 - [x] Score exact outcomes, source preservation, all-or-none transactions,
   attribution, recovery, calls, tokens, latency, human attention, and cost.
 - [ ] Add single-agent, no-collaboration, and unconstrained-shell controls.
+- [x] Freeze the fairness, identity, cost, isolation, and release contract for
+  those controls in `Docs/MARGINBENCH_CONTROLS.md`; none is marked runnable
+  before its complete gate lands.
 - [x] Add reference, idle, spam, fake-agent, and adversarial tests with no paid
   model calls. The remaining control variants are benchmark breadth, not a
   correctness blocker.
   The control catalog and fail-closed execution gates are now frozen; only the
-  primary Margin-only profile is marked runnable until the other three meet
+  primary Margin-only profile is marked runnable until the other four meet
   their identity, task-neutral scoring, and remote-isolation requirements.
 
 ### 4. Add the Prime Verifiers adapter
@@ -545,7 +548,7 @@ The phase is successful if the repository contains:
   HTTP client dependency, performs a real Intel Linux wheel smoke, and runs all
   extracted-source tests on a pinned native Python image with the matching
   manifest-verified Margin binary. The CI workflow uses the same supported
-  Python and dependency boundary. Final package digests are
+  Python and dependency boundary. The then-current package digests were
   `45d3c91c3c6f9b858e4d9ed5e1432e07fc4bdbbe82dc8481841d433644dd3d06`
   for the wheel and
   `4a1c30a416db0a173e85ad18d0d25859603cd7cdcc2bb2ece9946b4a6946bb2e`
@@ -558,6 +561,47 @@ The phase is successful if the repository contains:
   100-process checks measured terminal help at 5.132 ms median / 5.800 ms p95
   and staging guidance at 6.139 ms median / 7.440 ms p95. No app or CLI launch
   source changed in this phase, and no further model credit was spent.
+
+- 2026-08-18 06:05 ET — Adversarially hardened the live spend boundary without
+  calling a model. The proxy now rejects duplicate JSON keys and content-length
+  headers, transfer encoding, absolute-form routes, credential-bearing upstream
+  URLs, non-Boolean streaming values, conflicting output limits, Boolean or
+  non-finite policy numbers, and a canonicalized body that exceeds the request
+  limit. Successful connections close explicitly, and only the validated route
+  is forwarded. Reservations remain serialized under simultaneous requests.
+  Provider-reported usage is now checked against each exact reservation; an
+  excess permanently closes the gate for that run, is published as a bounded
+  counter, and makes validation fail. Historic artifacts remain valid because
+  the new evidence fields are backward-compatible. Both complete 59-request
+  fake-model rehearsals pass with zero rejects, zero provider-bound violations,
+  and an open latch. The benchmark now passes 51 contracts in both Python
+  runtimes; the ordinary runtime retains six intentional Prime-only skips. The
+  implementation digest is
+  `f23fd21a19b2162238111ff3898108e1ef38f33a380e36d3742c0174e46f74b3`.
+  The hardened Linux-verified wheel is
+  `41aa1811cf420256e60a61322af5f62fabff86044590b5288505c3bfb673b1d7`;
+  its source archive is
+  `6d692b15541825bd3b9bf1ef91e96446a8c4a41e9a7b30aa1dbd08891ccc3e4b`.
+
+- 2026-08-18 06:17 ET — Turned the comparison-control contract into progressive,
+  machine-readable release guidance without weakening its fail-closed boundary.
+  `marginbench controls` now catalogs the single-agent, plain-Markdown,
+  Margin-plus-shell, and no-exchange tracks alongside the primary track. Only
+  `role-separated-margin-only-v1` is runnable; every unfinished profile carries
+  stable `blockingGates` describing the evidence it still needs, and the schema
+  requires runnable profiles to have no blockers and gated profiles to have at
+  least one. Catalog values are deep-copied so a caller cannot mutate later
+  results. The complete benchmark again passes 51 contracts in both Python
+  runtimes, all six deterministic scenarios at 100, and both 59-request
+  fake-model rehearsals with zero rejects or provider-bound violations. A clean
+  extracted source package passes its 51 available tests with six intentional
+  Prime-only skips, and the installed Intel Linux wheel passes self-test. No
+  paid call was made. The implementation digest is
+  `1f70155a6cada26b8c51ecbb4c7e59dbb476ffb9552ef3a9cb7e616c096e0c8e`.
+  The final Linux-verified wheel is
+  `d6b57497a55a9b8cef6718ff3afa156297e936e9ff83849f26a44294ce5f2f76`;
+  its source archive is
+  `ecd8065c151dd4a4a1e00ca81378dde5bcd4a3a83e4ec18f9cfa11402d9a9457`.
 
 ## Next statistically useful paid run
 

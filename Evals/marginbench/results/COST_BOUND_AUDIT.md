@@ -72,11 +72,18 @@ Inference. The parent process keeps the real Prime key; the child receives only
 a random, short-lived local capability. Before forwarding a request, the proxy:
 
 1. accepts only the priced model and exact non-streaming chat-completion route;
-2. requires finite output tokens and rejects an oversized encoded request;
+2. rejects duplicate JSON keys, ambiguous HTTP framing, non-Boolean streaming,
+   conflicting or unbounded output limits, and oversized encoded requests;
 3. reserves a conservative token-and-overhead cost under a locked cumulative
    cap, never releasing a reservation after a provider error; and
 4. forwards only minimal headers, bounds the provider response, and retains no
    prompt, response, document, key, or raw trace content.
+
+Reservations are serialized under concurrency. Provider-reported usage is
+checked against the exact request reservation; any excess latches the gate
+closed for the rest of the run and makes the redacted publication artifact
+invalid. This detects a provider-contract violation before another request can
+be forwarded, while retaining the already conservative reservation.
 
 Its redacted report publishes policy, forwarded/rejected counts, conservative
 reservations, and provider-reported token totals. Schema validation recomputes
