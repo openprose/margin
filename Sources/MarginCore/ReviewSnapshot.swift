@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 /// Hard ceilings for the machine-facing projection. `ReviewLimits` can make a
@@ -515,9 +514,7 @@ public struct ReviewService: Sendable {
     private static func boundedIdentifier(_ value: String) -> String {
         let limit = ReviewProjectionBounds.identifierUTF8Bytes
         guard value.utf8.count > limit else { return value }
-        let digest = SHA256.hash(data: Data(value.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
+        let digest = MarginSHA256.hexDigest(of: Data(value.utf8))
         let suffix = "…#sha256:\(digest)"
         let prefixBytes = max(0, limit - suffix.utf8.count)
         return utf8Prefix(value, maxBytes: prefixBytes) + suffix

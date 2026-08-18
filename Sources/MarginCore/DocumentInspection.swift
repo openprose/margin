@@ -1,11 +1,10 @@
-import CryptoKit
 import Foundation
 
 public struct DocumentRevision: Codable, Hashable, Sendable, CustomStringConvertible {
     public let sha256: String
 
     public init(data: Data) {
-        sha256 = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        sha256 = MarginSHA256.hexDigest(of: data)
     }
 
     public init(text: String) {

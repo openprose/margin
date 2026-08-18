@@ -1,5 +1,14 @@
-import Darwin
+#if os(Linux)
+@preconcurrency import Foundation
+#else
 import Foundation
+#endif
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 public struct CollaborationContextLimits: Codable, Hashable, Sendable {
     public static let `default` = CollaborationContextLimits()
@@ -848,9 +857,11 @@ public struct CollaborationStageStore: Sendable {
         do {
             try FileManager.default.removeItem(at: url)
             try Self.syncDirectory(url.deletingLastPathComponent())
-        } catch CocoaError.fileNoSuchFile {
-            return
         } catch {
+            // Foundation on Linux does not consistently bridge a missing path
+            // to the CocoaError pattern used on Darwin. Removal is deliberately
+            // idempotent on every platform.
+            if !FileManager.default.fileExists(atPath: url.path) { return }
             throw CollaborationError.io("Could not remove stage '\(stageID)': \(error.localizedDescription)")
         }
     }
@@ -899,7 +910,7 @@ public struct CollaborationStageStore: Sendable {
             ".\(url.deletingPathExtension().lastPathComponent).\(UUID().uuidString).tmp",
             isDirectory: false
         )
-        let descriptor = Darwin.open(temporary.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
+        let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
         guard descriptor >= 0 else {
             throw CollaborationError.io("Could not create temporary stage: \(String(cString: strerror(errno))).")
         }
@@ -911,7 +922,7 @@ public struct CollaborationStageStore: Sendable {
             guard var base = buffer.baseAddress else { return data.isEmpty }
             var remaining = buffer.count
             while remaining > 0 {
-                let count = Darwin.write(descriptor, base, remaining)
+                let count = marginPOSIXWrite(descriptor, base, remaining)
                 if count < 0 {
                     if errno == EINTR { continue }
                     return false
@@ -946,7 +957,7 @@ public struct CollaborationStageStore: Sendable {
     }
 
     private static func syncDirectory(_ url: URL) throws {
-        let descriptor = Darwin.open(url.path, O_RDONLY)
+        let descriptor = open(url.path, O_RDONLY)
         guard descriptor >= 0 else {
             throw CollaborationError.io("Could not open directory '\(url.path)' for synchronization.")
         }
@@ -1084,12 +1095,14 @@ public struct CollaborationWorkspaceService: Sendable {
         let marginDirectory = canonical.appendingPathComponent(".margin", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: marginDirectory, withIntermediateDirectories: false)
-        } catch CocoaError.fileWriteFileExists {
-            guard try CollaborationPathResolver.kind(of: marginDirectory) == .directory else {
-                throw CollaborationError.symlinkNotAllowed(marginDirectory.path)
-            }
         } catch {
-            throw CollaborationError.io("Could not create workspace metadata: \(error.localizedDescription)")
+            if FileManager.default.fileExists(atPath: marginDirectory.path) {
+                guard try CollaborationPathResolver.kind(of: marginDirectory) == .directory else {
+                    throw CollaborationError.symlinkNotAllowed(marginDirectory.path)
+                }
+            } else {
+                throw CollaborationError.io("Could not create workspace metadata: \(error.localizedDescription)")
+            }
         }
         guard try CollaborationPathResolver.kind(of: marginDirectory) == .directory else {
             throw CollaborationError.symlinkNotAllowed(marginDirectory.path)
@@ -1104,7 +1117,7 @@ public struct CollaborationWorkspaceService: Sendable {
         )
         let data = try CollaborationCanonicalJSON.encode(manifest)
         let destination = marginDirectory.appendingPathComponent("workspace.json", isDirectory: false)
-        let descriptor = Darwin.open(destination.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
+        let descriptor = open(destination.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
         if descriptor < 0 {
             guard errno == EEXIST else {
                 throw CollaborationError.io("Could not create workspace manifest: \(String(cString: strerror(errno))).")
@@ -1152,7 +1165,7 @@ public struct CollaborationWorkspaceService: Sendable {
             guard var pointer = buffer.baseAddress else { return data.isEmpty }
             var remaining = buffer.count
             while remaining > 0 {
-                let count = Darwin.write(descriptor, pointer, remaining)
+                let count = marginPOSIXWrite(descriptor, pointer, remaining)
                 if count < 0 {
                     if errno == EINTR { continue }
                     return false
@@ -1183,7 +1196,7 @@ public struct CollaborationWorkspaceService: Sendable {
     }
 
     private static func syncDirectory(_ url: URL) throws {
-        let descriptor = Darwin.open(url.path, O_RDONLY)
+        let descriptor = open(url.path, O_RDONLY)
         guard descriptor >= 0 else {
             throw CollaborationError.io("Could not open '\(url.path)' for synchronization.")
         }
@@ -1200,7 +1213,7 @@ public struct CollaborationWorkspaceService: Sendable {
         catch { throw CollaborationError.io("Could not create workspace initialization locks: \(error.localizedDescription)") }
         let digest = CollaborationCanonicalJSON.sha256(of: Data(directory.path.utf8))
         let lockURL = lockDirectory.appendingPathComponent("\(digest).lock", isDirectory: false)
-        let descriptor = Darwin.open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        let descriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
         guard descriptor >= 0 else {
             throw CollaborationError.io("Could not open workspace initialization lock.")
         }

@@ -1,6 +1,11 @@
-import Darwin
 import Foundation
 import MarginCore
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 enum MarginCommand {
     static let version = "0.3.1"

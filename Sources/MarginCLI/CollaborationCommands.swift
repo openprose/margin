@@ -1,6 +1,11 @@
-import Darwin
 import Foundation
 import MarginCore
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 enum CollaborationCLICommand: String, CaseIterable {
     case workspace
@@ -1631,7 +1636,7 @@ enum CollaborationCLI {
               parentIsDirectory.boolValue else {
             throw CLIError.notFound("The merge output parent directory does not exist: \(parent.path)")
         }
-        let descriptor = Darwin.open(
+        let descriptor = open(
             url.path,
             O_WRONLY | O_CREAT | O_EXCL,
             S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH
@@ -1652,14 +1657,14 @@ enum CollaborationCLI {
         }
         var completed = false
         defer {
-            _ = Darwin.close(descriptor)
-            if !completed { _ = Darwin.unlink(url.path) }
+            _ = close(descriptor)
+            if !completed { _ = unlink(url.path) }
         }
         let wrote = data.withUnsafeBytes { buffer -> Bool in
             guard var pointer = buffer.baseAddress else { return data.isEmpty }
             var remaining = buffer.count
             while remaining > 0 {
-                let count = Darwin.write(descriptor, pointer, remaining)
+                let count = marginCLIPOSIXWrite(descriptor, pointer, remaining)
                 if count < 0 {
                     if errno == EINTR { continue }
                     return false
@@ -1669,14 +1674,14 @@ enum CollaborationCLI {
             }
             return true
         }
-        guard wrote, Darwin.fsync(descriptor) == 0 else {
+        guard wrote, fsync(descriptor) == 0 else {
             throw CLIError("OUTPUT_WRITE_FAILED", "Could not durably write merge output.", exit: .io)
         }
         completed = true
-        let parentDescriptor = Darwin.open(parent.path, O_RDONLY)
+        let parentDescriptor = open(parent.path, O_RDONLY)
         if parentDescriptor >= 0 {
-            _ = Darwin.fsync(parentDescriptor)
-            _ = Darwin.close(parentDescriptor)
+            _ = fsync(parentDescriptor)
+            _ = close(parentDescriptor)
         }
     }
 

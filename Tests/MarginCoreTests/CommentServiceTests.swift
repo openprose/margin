@@ -1,6 +1,11 @@
-import Darwin
 import XCTest
 @testable import MarginCore
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 final class CommentServiceTests: XCTestCase {
     private let human = MarginActor(id: "urn:person:alice", type: .person, name: "Alice")

@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 public enum CollaborationCanonicalJSON {
@@ -34,7 +33,7 @@ public enum CollaborationCanonicalJSON {
     }
 
     public static func sha256(of data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        MarginSHA256.hexDigest(of: data)
     }
 }
 

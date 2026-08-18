@@ -1,8 +1,13 @@
 import Foundation
 import MarginCore
 import XCTest
-import Darwin
 @testable import MarginCLI
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 final class CLICommandContractTests: XCTestCase {
     func testCapabilitiesAreVersionedBoundedAndInternallyConsistent() throws {
@@ -1031,6 +1036,7 @@ final class CLICommandContractTests: XCTestCase {
         )
     }
 
+#if canImport(Darwin)
     func testStaticLocalHelpLookupPerformance() {
         measure(metrics: [XCTClockMetric()]) {
             for _ in 0..<1_000 {
@@ -1067,6 +1073,7 @@ final class CLICommandContractTests: XCTestCase {
             }
         }
     }
+#endif
 
     private func runSilently(_ arguments: [String]) -> Int32 {
         let null = FileHandle(forWritingAtPath: "/dev/null")!

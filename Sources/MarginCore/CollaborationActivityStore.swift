@@ -1,5 +1,14 @@
-import Darwin
+#if os(Linux)
+@preconcurrency import Foundation
+#else
 import Foundation
+#endif
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 public enum CollaborationActivityWriteDisposition: String, Codable, Sendable {
     case created
@@ -48,7 +57,7 @@ public struct CollaborationActivityStore: Sendable {
         // A healthy store is pruned after every creation. Stop before writing if
         // externally supplied metadata already exceeds that invariant.
         _ = try recordURLs(in: directory, maximumCount: maximumRecords)
-        let descriptor = Darwin.open(destination.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
+        let descriptor = open(destination.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
         if descriptor < 0 {
             guard errno == EEXIST else {
                 throw CollaborationError.io("Could not create activity record: \(String(cString: strerror(errno))).")
@@ -271,7 +280,7 @@ public struct CollaborationActivityStore: Sendable {
             guard var pointer = buffer.baseAddress else { return data.isEmpty }
             var remaining = buffer.count
             while remaining > 0 {
-                let count = Darwin.write(descriptor, pointer, remaining)
+                let count = marginPOSIXWrite(descriptor, pointer, remaining)
                 if count < 0 {
                     if errno == EINTR { continue }
                     return false
@@ -284,7 +293,7 @@ public struct CollaborationActivityStore: Sendable {
     }
 
     private static func syncDirectory(_ url: URL) throws {
-        let descriptor = Darwin.open(url.path, O_RDONLY)
+        let descriptor = open(url.path, O_RDONLY)
         guard descriptor >= 0 else {
             throw CollaborationError.io("Could not open activity directory for synchronization.")
         }

@@ -6,6 +6,7 @@ enum AppLauncher {
     }
 
     static func open(_ items: [URL], wait: Bool, appOverride: String?) throws {
+#if os(macOS)
         let app = try locateApp(override: appOverride)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
@@ -20,6 +21,16 @@ enum AppLauncher {
         guard process.terminationStatus == 0 else {
             throw CLIError("APP_LAUNCH_FAILED", "The macOS open service could not launch Margin.", exit: .io)
         }
+#else
+        _ = items
+        _ = wait
+        _ = appOverride
+        throw CLIError(
+            "APP_UNAVAILABLE",
+            "Margin's graphical application is available on macOS. This Linux build provides the complete collaboration CLI.",
+            exit: .unavailable
+        )
+#endif
     }
 
     static func launchArguments(app: URL, items: [URL], wait: Bool) -> [String] {

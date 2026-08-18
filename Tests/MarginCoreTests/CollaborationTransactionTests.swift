@@ -1,7 +1,12 @@
-import Darwin
 import Foundation
 import XCTest
 @testable import MarginCore
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 final class CollaborationTransactionTests: XCTestCase {
     func testCrossFileSubmitAndRetryAreAtomicAndIdempotent() throws {
@@ -57,6 +62,7 @@ final class CollaborationTransactionTests: XCTestCase {
         XCTAssertTrue(try recoveryJSON(in: fixture.state).isEmpty)
     }
 
+#if canImport(Darwin)
     func testCommitAndRollbackPreserveModeAndExtendedAttributes() throws {
         let attribute = "com.margin.tests.collaboration"
 
@@ -108,6 +114,47 @@ final class CollaborationTransactionTests: XCTestCase {
             XCTAssertEqual(try aclText(at: file), aclBefore)
         }
     }
+#else
+    func testCommitAndRollbackPreserveMode() throws {
+        do {
+            let fixture = try makeFixture()
+            defer { fixture.remove() }
+            let file = fixture.file("a.md")
+            XCTAssertEqual(chmod(file.path, 0o640), 0)
+            let changeSet = try makeChangeSet(
+                fixture: fixture,
+                replacements: ["a.md": "committed with metadata"],
+                identity: "metadata-commit"
+            )
+
+            XCTAssertEqual(try fixture.engine().submit(changeSet).disposition, .applied)
+            XCTAssertEqual(try permissions(of: file), 0o640)
+        }
+
+        do {
+            let fixture = try makeFixture()
+            defer { fixture.remove() }
+            let file = fixture.file("a.md")
+            XCTAssertEqual(chmod(file.path, 0o604), 0)
+            let changeSet = try makeChangeSet(
+                fixture: fixture,
+                replacements: ["a.md": "temporary a", "nested/b.md": "temporary b"],
+                identity: "metadata-rollback"
+            )
+            struct Injected: Error {}
+            let engine = CollaborationTransactionEngine(
+                stateDirectory: fixture.state,
+                faultInjector: { phase, index, _ in
+                    if case .afterInstall = phase, index == 0 { throw Injected() }
+                }
+            )
+
+            XCTAssertThrowsError(try engine.submit(changeSet))
+            XCTAssertEqual(try String(contentsOf: file), "old a\n")
+            XCTAssertEqual(try permissions(of: file), 0o604)
+        }
+    }
+#endif
 
     func testCrashJournalRecoversExactOriginalsAndCleansMaterial() throws {
         let fixture = try makeFixture()
@@ -678,6 +725,7 @@ final class CollaborationTransactionTests: XCTestCase {
         return UInt16(value.st_mode & 0o777)
     }
 
+#if canImport(Darwin)
     private func setExtendedAttribute(_ data: Data, name: String, at url: URL) throws {
         let result = data.withUnsafeBytes { bytes in
             setxattr(url.path, name, bytes.baseAddress, bytes.count, 0, 0)
@@ -727,6 +775,7 @@ final class CollaborationTransactionTests: XCTestCase {
         defer { acl_free(text) }
         return String(cString: text)
     }
+#endif
 }
 
 private struct Fixture: @unchecked Sendable {

@@ -1,13 +1,13 @@
 # MarginBench build plan
 
-Last updated: 2026-08-17 21:25 ET
+Last updated: 2026-08-17 22:01 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
 benchmark core belongs to Margin, not to any model provider. Prime Intellect is
 the first hosted adapter, evaluation venue, and possible training backend.
 
-This document is the live checklist for the build phase ending at 09:00 ET on
+This document is the live checklist for the build phase ending at 08:00 ET on
 2026-08-18. Update the status and evidence here as each gate is crossed.
 
 ## Non-negotiable constraints
@@ -29,7 +29,7 @@ Available Prime Intellect credit: **$200.00**.
 
 | Gate | Maximum cumulative spend | Purpose | Status |
 | --- | ---: | --- | --- |
-| 0 | $0 | Install, login, local tests, container builds, dry runs | In progress |
+| 0 | $0 | Install, login, local tests, container builds, dry runs | Complete |
 | 1 | $2 | One tiny end-to-end hosted smoke test | Not started |
 | 2 | $15 | Cheap-model calibration on a small public-development slice | Not started |
 | 3 | $50 | Paired comparisons of promising CLI/manual variants | Not started |
@@ -55,20 +55,20 @@ Rules:
 - [x] Confirm the repository starts clean at commit `9e1b95c`.
 - [x] Confirm the supplied screenshot shows an active Prime API key expiring
   2026-11-04; do not create or expose another key unless authentication fails.
-- [ ] Install the official Prime CLI and verify account access without spending
+- [x] Install the official Prime CLI and verify account access without spending
   credits.
-- [ ] Record exact local tool versions and a redacted authentication check.
+- [x] Record exact local tool versions and a redacted authentication check.
 
 ### 2. Make the Margin engine portable
 
-- [ ] Separate the AppKit application product from the platform-neutral core and
+- [x] Separate the AppKit application product from the platform-neutral core and
   CLI products in the package manifest.
-- [ ] Replace Darwin-only imports and file primitives with audited Darwin/Linux
+- [x] Replace Darwin-only imports and file primitives with audited Darwin/Linux
   implementations behind a small compatibility layer.
-- [ ] Preserve locks, atomic replacement, permissions, crash recovery, and
+- [x] Preserve locks, atomic replacement, permissions, crash recovery, and
   embedded-comment behavior on both platforms.
-- [ ] Build and run the core/CLI tests in a Linux container.
-- [ ] Re-run all macOS tests, package checks, and startup measurements; reject a
+- [x] Build and run the core/CLI tests in a Linux container.
+- [x] Re-run all macOS tests, package checks, and startup measurements; reject a
   material regression.
 
 ### 3. Build the provider-independent benchmark core
@@ -125,7 +125,7 @@ Rules:
 - [ ] Draft a benchmark card covering scope, limits, metrics, reproducibility,
   security, and leaderboard submission rules.
 
-## Acceptance gates for 09:00 ET
+## Acceptance gates for 08:00 ET
 
 The phase is successful if the repository contains:
 
@@ -147,6 +147,25 @@ The phase is successful if the repository contains:
   the separate Prime Environments CLI is not yet installed.
 - 2026-08-17 21:25 ET — Screenshot review found one active API key. No secret
   value was requested, copied, printed, or stored.
+- 2026-08-17 21:30 ET — Installed Prime CLI 0.6.24 (including Verifiers 0.3.0)
+  and downloaded the official Swift 5.10 Jammy container image.
+- 2026-08-17 21:31 ET — Browser challenge authentication succeeded. Selected
+  the OpenProse team context; authenticated Environment Hub access works and the
+  read-only wallet balance was $199.9861. No paid job was launched.
+- 2026-08-17 21:41 ET — MarginCore and `margin-cli` compile in the clean Linux
+  container. Portable SHA-256, POSIX file operations, Linux watch behavior, and
+  Linux transaction mode preservation are under full-suite verification.
+- 2026-08-17 22:00 ET — The reproducible Linux gate passed all 112 portable
+  core/CLI tests in Swift 5.10 Jammy. Tests run as isolated XCTest processes in
+  one disposable container after a single build, avoiding a known SwiftPM 5.10
+  repeated-planning stall without masking per-suite timeouts.
+- 2026-08-17 22:00 ET — The complete macOS suite passed 164/164, and the signed
+  release smoke test passed bundle, CLI, document-inspection, and visible-window
+  launch checks.
+- 2026-08-17 22:01 ET — Warm macOS launch measurement improved to 304.169 ms
+  median / 341.175 ms p95, with 159.219 MiB median / 159.641 MiB p95 RSS. This
+  is better than the pre-port candidate's 331.928 ms median and 161.875 MiB
+  median RSS; no startup or memory regression was introduced.
 
 ## Decisions still to earn with evidence
 

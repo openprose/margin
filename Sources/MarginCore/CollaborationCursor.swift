@@ -1,5 +1,10 @@
-import Darwin
 import Foundation
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 public struct CollaborationDiscoveryLimits: Codable, Hashable, Sendable {
     public static let `default` = CollaborationDiscoveryLimits()
@@ -446,7 +451,11 @@ enum CollaborationPathResolver {
             throw CollaborationError.invalidRoot("The directory root is no longer a directory.")
         }
 
-        let target = rootURL.appendingPathComponent(relativePath, isDirectory: false).standardizedFileURL
+        // The relative path validator already rejects dot and traversal
+        // components. Keep this append lexical: some Foundation builds resolve
+        // the final symlink during URL standardization, which would turn a
+        // precise symlink rejection into a generic root-escape result.
+        let target = rootURL.appendingPathComponent(relativePath, isDirectory: false)
         guard contains(rootURL, target), target.path != rootURL.path else {
             throw CollaborationError.pathEscapesRoot(relativePath)
         }
@@ -474,10 +483,11 @@ enum CollaborationPathResolver {
     }
 
     static func contains(_ root: URL, _ target: URL) -> Bool {
-        let rootComponents = root.standardizedFileURL.pathComponents
-        let targetComponents = target.standardizedFileURL.pathComponents
-        return targetComponents.count >= rootComponents.count &&
-            Array(targetComponents.prefix(rootComponents.count)) == rootComponents
+        var rootPath = root.path
+        while rootPath.count > 1, rootPath.hasSuffix("/") { rootPath.removeLast() }
+        let targetPath = target.path
+        if rootPath == "/" { return targetPath.hasPrefix("/") }
+        return targetPath.hasPrefix(rootPath + "/")
     }
 
     static func kind(of url: URL) throws -> CollaborationFileKind {

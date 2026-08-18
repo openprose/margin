@@ -1,5 +1,14 @@
-import Darwin
+#if os(Linux)
+@preconcurrency import Foundation
+#else
 import Foundation
+#endif
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 public struct PreparedOpenTarget: Equatable, Sendable {
     public let url: URL
@@ -52,13 +61,13 @@ public enum OpenTargetPreparer {
             throw OpenTargetPreparationError.parentNotDirectory(parent.path)
         }
 
-        let descriptor = Darwin.open(
+        let descriptor = open(
             url.path,
             O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC,
             S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH
         )
         if descriptor >= 0 {
-            guard Darwin.close(descriptor) == 0 else {
+            guard close(descriptor) == 0 else {
                 let reason = String(cString: strerror(errno))
                 throw OpenTargetPreparationError.cannotCreate(path: url.path, reason: reason)
             }

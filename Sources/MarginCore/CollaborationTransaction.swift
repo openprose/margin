@@ -1,5 +1,10 @@
-import Darwin
 import Foundation
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 public enum CollaborationTransactionDisposition: String, Codable, Sendable {
     case applied
@@ -1070,7 +1075,7 @@ public struct CollaborationTransactionEngine: @unchecked Sendable {
         let ordered = Dictionary(grouping: urls, by: { $0.standardizedFileURL.path }).keys
             .sorted(by: CollaborationValidation.pathLess)
         for path in ordered {
-            let descriptor = Darwin.open(path, O_RDONLY)
+            let descriptor = open(path, O_RDONLY)
             guard descriptor >= 0 else {
                 throw CollaborationError.io("Could not open '\(path)' for directory synchronization.")
             }
@@ -1108,6 +1113,7 @@ public struct CollaborationTransactionEngine: @unchecked Sendable {
     /// hostile symlinks fail closed. The destination is fsynced before its path is
     /// admitted to a durable journal.
     private static func copyNewFile(from source: URL, to destination: URL) throws {
+#if canImport(Darwin)
         let flags = copyfile_flags_t(COPYFILE_ALL | COPYFILE_EXCL | COPYFILE_NOFOLLOW)
         guard copyfile(source.path, destination.path, nil, flags) == 0 else {
             let code = errno
@@ -1123,7 +1129,7 @@ public struct CollaborationTransactionEngine: @unchecked Sendable {
         guard try CollaborationPathResolver.kind(of: destination) == .regularFile else {
             throw CollaborationError.symlinkNotAllowed(destination.path)
         }
-        let descriptor = Darwin.open(destination.path, O_RDONLY | O_NOFOLLOW)
+        let descriptor = open(destination.path, O_RDONLY | O_NOFOLLOW)
         guard descriptor >= 0 else {
             throw CollaborationError.io("Could not open copied transaction metadata for synchronization.")
         }
@@ -1132,6 +1138,68 @@ public struct CollaborationTransactionEngine: @unchecked Sendable {
             throw CollaborationError.io("Could not durably synchronize copied transaction metadata.")
         }
         shouldRemove = false
+#else
+        let sourceDescriptor = open(source.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard sourceDescriptor >= 0 else {
+            throw CollaborationError.io(
+                "Could not open transaction source '\(source.path)': \(String(cString: strerror(errno)))."
+            )
+        }
+        defer { _ = close(sourceDescriptor) }
+
+        var sourceInfo = stat()
+        guard fstat(sourceDescriptor, &sourceInfo) == 0,
+              sourceInfo.st_mode & S_IFMT == S_IFREG else {
+            throw CollaborationError.io("Transaction source is not a regular file.")
+        }
+        let destinationDescriptor = open(
+            destination.path,
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+            sourceInfo.st_mode & 0o7777
+        )
+        guard destinationDescriptor >= 0 else {
+            throw CollaborationError.io(
+                "Could not create transaction copy '\(destination.path)': \(String(cString: strerror(errno)))."
+            )
+        }
+        var shouldRemove = true
+        defer {
+            _ = close(destinationDescriptor)
+            if shouldRemove { _ = unlink(destination.path) }
+        }
+
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        let copied = buffer.withUnsafeMutableBytes { storage -> Bool in
+            guard let base = storage.baseAddress else { return true }
+            while true {
+                let readCount = marginPOSIXRead(sourceDescriptor, base, storage.count)
+                if readCount == 0 { return true }
+                if readCount < 0 {
+                    if errno == EINTR { continue }
+                    return false
+                }
+                var written = 0
+                while written < readCount {
+                    let writeCount = marginPOSIXWrite(
+                        destinationDescriptor,
+                        base.advanced(by: written),
+                        readCount - written
+                    )
+                    if writeCount < 0 {
+                        if errno == EINTR { continue }
+                        return false
+                    }
+                    written += writeCount
+                }
+            }
+        }
+        guard copied,
+              fchmod(destinationDescriptor, sourceInfo.st_mode & 0o7777) == 0,
+              fsync(destinationDescriptor) == 0 else {
+            throw CollaborationError.io("Could not durably copy transaction data and permissions.")
+        }
+        shouldRemove = false
+#endif
     }
 
     /// Replaces only a copied artifact's data fork. Metadata inherited from the
@@ -1141,7 +1209,7 @@ public struct CollaborationTransactionEngine: @unchecked Sendable {
         with data: Data,
         permissions: UInt16?
     ) throws {
-        let descriptor = Darwin.open(url.path, O_WRONLY | O_NOFOLLOW)
+        let descriptor = open(url.path, O_WRONLY | O_NOFOLLOW)
         guard descriptor >= 0 else {
             throw CollaborationError.io("Could not open copied stage '\(url.path)'.")
         }
@@ -1153,7 +1221,7 @@ public struct CollaborationTransactionEngine: @unchecked Sendable {
             guard var pointer = buffer.baseAddress else { return data.isEmpty }
             var remaining = buffer.count
             while remaining > 0 {
-                let count = Darwin.write(descriptor, pointer, remaining)
+                let count = marginPOSIXWrite(descriptor, pointer, remaining)
                 if count < 0 {
                     if errno == EINTR { continue }
                     return false
@@ -1175,7 +1243,7 @@ public struct CollaborationTransactionEngine: @unchecked Sendable {
     }
 
     private static func writeNewFile(_ data: Data, to url: URL, permissions: UInt16) throws {
-        let descriptor = Darwin.open(url.path, O_WRONLY | O_CREAT | O_EXCL, mode_t(permissions))
+        let descriptor = open(url.path, O_WRONLY | O_CREAT | O_EXCL, mode_t(permissions))
         guard descriptor >= 0 else {
             throw CollaborationError.io("Could not stage '\(url.path)': \(String(cString: strerror(errno))).")
         }
@@ -1188,7 +1256,7 @@ public struct CollaborationTransactionEngine: @unchecked Sendable {
             guard var pointer = buffer.baseAddress else { return data.isEmpty }
             var remaining = buffer.count
             while remaining > 0 {
-                let count = Darwin.write(descriptor, pointer, remaining)
+                let count = marginPOSIXWrite(descriptor, pointer, remaining)
                 if count < 0 {
                     if errno == EINTR { continue }
                     return false
@@ -1205,7 +1273,7 @@ public struct CollaborationTransactionEngine: @unchecked Sendable {
     }
 
     private static func acquireLock(at url: URL, timeout: TimeInterval) throws -> Int32 {
-        let descriptor = Darwin.open(url.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        let descriptor = open(url.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
         guard descriptor >= 0 else {
             throw CollaborationError.io("Could not open collaboration lock '\(url.path)'.")
         }

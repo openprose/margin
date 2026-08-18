@@ -1,6 +1,10 @@
-import CryptoKit
-import Darwin
 import Foundation
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 public struct AtomicDocumentMutation<Result> {
     public var data: Data
@@ -81,11 +85,9 @@ public struct AtomicDocumentStore: Sendable {
             throw CommentProtocolError.io("Could not create Margin's lock directory: \(error.localizedDescription)")
         }
 
-        let digest = SHA256.hash(data: Data(documentURL.path.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
+        let digest = MarginSHA256.hexDigest(of: Data(documentURL.path.utf8))
         let lockURL = lockDirectory.appendingPathComponent("\(digest).lock", isDirectory: false)
-        let descriptor = Darwin.open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        let descriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
         guard descriptor >= 0 else {
             throw CommentProtocolError.io(
                 "Could not open Margin's lock file: \(String(cString: strerror(errno)))."
@@ -156,7 +158,7 @@ public struct AtomicDocumentStore: Sendable {
             throw CommentProtocolError.concurrentModification
         }
 
-        guard Darwin.rename(temporaryURL.path, url.path) == 0 else {
+        guard rename(temporaryURL.path, url.path) == 0 else {
             let renameError = errno
             throw CommentProtocolError.io(
                 "Could not replace '\(url.path)': \(String(cString: strerror(renameError)))."
@@ -164,7 +166,7 @@ public struct AtomicDocumentStore: Sendable {
         }
         temporaryExists = false
 
-        let directoryDescriptor = Darwin.open(url.deletingLastPathComponent().path, O_RDONLY)
+        let directoryDescriptor = open(url.deletingLastPathComponent().path, O_RDONLY)
         if directoryDescriptor >= 0 {
             _ = fsync(directoryDescriptor)
             _ = close(directoryDescriptor)

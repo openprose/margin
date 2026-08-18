@@ -1,7 +1,12 @@
-import Darwin
 import Dispatch
 import Foundation
 import MarginCore
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 struct CommentWatchFileIdentity: Codable, Equatable, Sendable {
     let device: UInt64
@@ -55,7 +60,11 @@ final class CommentWatchSession {
     private let codec: EmbeddedCommentCodec
     private let queue = DispatchQueue(label: "dev.margin.cli.comments-watch", qos: .utility)
     private let stopped = DispatchSemaphore(value: 0)
+#if canImport(Darwin)
     private var source: DispatchSourceFileSystemObject?
+#else
+    private var pollTimer: DispatchSourceTimer?
+#endif
     private var pendingRead: DispatchWorkItem?
     private var emitter: Emitter?
     private var state: CommentWatchState?
@@ -71,22 +80,30 @@ final class CommentWatchSession {
     }
 
     func start(sinceRevision: Int?, emit: @escaping Emitter) throws {
-        guard source == nil else {
+#if canImport(Darwin)
+        let alreadyStarted = source != nil
+#else
+        let alreadyStarted = pollTimer != nil
+#endif
+        guard !alreadyStarted else {
             throw CLIError("WATCH_ALREADY_STARTED", "The comment watcher is already running.", exit: .software)
         }
+
+        self.emitter = emit
+        self.state = nil
+        self.sinceRevision = sinceRevision
+
+#if canImport(Darwin)
         let directory = file.deletingLastPathComponent()
         let descriptor = Darwin.open(directory.path, O_EVTONLY | O_CLOEXEC)
         guard descriptor >= 0 else {
+            self.emitter = nil
             throw CLIError(
                 "WATCH_FAILED",
                 "Could not watch \(directory.path): \(String(cString: strerror(errno))).",
                 exit: .io
             )
         }
-
-        self.emitter = emit
-        self.state = nil
-        self.sinceRevision = sinceRevision
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: descriptor,
             eventMask: [.write, .delete, .rename, .extend, .attrib, .link, .revoke],
@@ -96,6 +113,20 @@ final class CommentWatchSession {
         source.setCancelHandler { _ = Darwin.close(descriptor) }
         self.source = source
         source.resume()
+#else
+        // Dispatch's vnode source is Darwin-only. A watch command is already a
+        // long-running, explicitly requested process, so a small timer keeps
+        // Linux portable without adding a daemon or startup dependency.
+        let pollTimer = DispatchSource.makeTimerSource(queue: queue)
+        pollTimer.schedule(
+            deadline: .now() + .milliseconds(100),
+            repeating: .milliseconds(100),
+            leeway: .milliseconds(20)
+        )
+        pollTimer.setEventHandler { [weak self] in self?.readChange() }
+        self.pollTimer = pollTimer
+        pollTimer.resume()
+#endif
 
         // Register the directory source before taking the first snapshot. The
         // serial queue ensures any event observed during this read is handled
@@ -112,8 +143,13 @@ final class CommentWatchSession {
                 ))
             }
         } catch {
+#if canImport(Darwin)
             source.cancel()
             self.source = nil
+#else
+            pollTimer.cancel()
+            self.pollTimer = nil
+#endif
             self.emitter = nil
             throw error
         }
@@ -161,8 +197,13 @@ final class CommentWatchSession {
                 unavailable = false
                 return
             }
+            let reconnecting = unavailable
             let changes = CommentWatchChanges(
-                fileReplaced: previous.fileIdentity != next.fileIdentity,
+                // Once a path disappeared, continuity was broken even if the
+                // filesystem immediately reuses the same inode for identical
+                // bytes. Report replacement rather than silently swallowing
+                // the reconnect.
+                fileReplaced: reconnecting || previous.fileIdentity != next.fileIdentity,
                 documentIdentityChanged: previous.documentID != next.documentID,
                 protocolVersionChanged: previous.protocolVersion != next.protocolVersion,
                 revisionChanged: previous.revision != next.revision,
@@ -170,13 +211,13 @@ final class CommentWatchSession {
                 commentsChanged: previous.commentsSha256 != next.commentsSha256,
                 annotationCountChanged: previous.annotationCount != next.annotationCount
             )
-            guard changes.fileReplaced || changes.documentIdentityChanged || changes.protocolVersionChanged || changes.revisionChanged ||
+            guard reconnecting || changes.fileReplaced || changes.documentIdentityChanged || changes.protocolVersionChanged || changes.revisionChanged ||
                     changes.contentChanged || changes.commentsChanged || changes.annotationCountChanged else {
                 unavailable = false
                 return
             }
             state = next
-            let event = unavailable ? "reconnected" : "change"
+            let event = reconnecting ? "reconnected" : "change"
             unavailable = false
             emit(makeEvent(event: event, previous: previous, current: next, changes: changes))
         } catch {
@@ -195,8 +236,13 @@ final class CommentWatchSession {
         pendingRead?.cancel()
         pendingRead = nil
         emit(makeEvent(event: "stopped", current: state))
+#if canImport(Darwin)
         source?.cancel()
         source = nil
+#else
+        pollTimer?.cancel()
+        pollTimer = nil
+#endif
         stopped.signal()
     }
 
