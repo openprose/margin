@@ -92,6 +92,12 @@ valid—prepare the private 24-case run with a $2.40 enforced cap and an untouch
 wallet reserve. The $96.662016 provider-contract figure remains the disclosed
 worst case rather than being mistaken for expected spend.
 
+A full no-spend schedule expansion confirms that both profiles contain 88
+logical role runs. Role separation uses 88 model processes; continuation uses
+48 processes with summed role limits. At identical limits their contract and
+enforced maxima are exactly equal, so the comparison does not obtain a hidden
+budget advantage from using fewer processes.
+
 ## Next work, in order
 
 1. Use the now-runnable `single-agent-margin-v1` control to prepare a matched,

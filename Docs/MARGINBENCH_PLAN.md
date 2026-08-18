@@ -715,6 +715,17 @@ The phase is successful if the repository contains:
   before authentication, output creation, or spend, rather than receiving an
   unfair shared ceiling. No model call was made.
 
+- 2026-08-18 07:30 ET — Expanded complete 24-case, two-candidate schedules for
+  both implemented profiles without inference. Each schedule contains 88
+  logical role runs. The role-separated profile schedules 88 model processes;
+  the continuing profile schedules 48, while summing the same logical compute
+  into those processes. With a 65,536-token prompt contract both independently
+  produce the same $7.850568 worst-case bound and the same $2.40 enforced cap.
+  Substituting the audited one-million-token provider contract reproduces the
+  disclosed $96.662016 worst case for either schedule. This demonstrates that
+  topology changes process count without silently changing work or admission
+  cost. No model call was made.
+
 ## Next statistically useful paid run
 
 The next useful experiment is not another public one-off. It is a paired
