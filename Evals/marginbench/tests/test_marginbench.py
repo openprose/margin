@@ -10,6 +10,7 @@ import unittest
 from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from marginbench.binary import resolve_margin_binary, validate_packaged_binary
 from marginbench.candidates import CandidateManifest, load_results, paired_compare
@@ -39,6 +40,7 @@ from prime_pilot import (
     load_candidate_manifest,
     load_holdout_key,
 )
+from preflight import _subprocess_environment
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -149,6 +151,15 @@ class MarginBenchCoreTests(unittest.TestCase):
                 self.assertIsInstance(invocation.get("arguments"), list)
                 self.assertTrue(invocation["arguments"])
         self.assertEqual(expected_roles, 11)
+
+    def test_preflight_uses_only_an_explicit_holdout_key(self) -> None:
+        variable = "MARGINBENCH_HOLDOUT_KEY"
+        with patch.dict(os.environ, {variable: "ambient-secret-must-not-be-used"}):
+            public_environment = _subprocess_environment(None)
+            private_environment = _subprocess_environment(b"explicit-private-test-key")
+            self.assertEqual(os.environ[variable], "ambient-secret-must-not-be-used")
+        self.assertNotIn(variable, public_environment)
+        self.assertEqual(private_environment[variable], "explicit-private-test-key")
 
     def test_prime_summary_aggregates_roles_into_one_schema_valid_episode(self) -> None:
         margin_sha256 = CandidateManifest.create("summary-test", self.binary).margin_sha256

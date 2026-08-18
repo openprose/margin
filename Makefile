@@ -40,6 +40,8 @@ marginbench-package:
 marginbench-preflight: release
 	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(PROJECT_DIR)/Evals/marginbench" \
 		"$(PROJECT_DIR)/Evals/marginbench/preflight.py" --margin-bin "$(OUTPUT_DIR)/margin"
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(PROJECT_DIR)/Evals/marginbench" \
+		"$(PROJECT_DIR)/Evals/marginbench/preflight.py" --margin-bin "$(OUTPUT_DIR)/margin" --server
 
 marginbench-remote-plan:
 	PYTHONDONTWRITEBYTECODE=1 \

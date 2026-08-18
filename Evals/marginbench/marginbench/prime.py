@@ -24,10 +24,10 @@ from .servers.gateway import MarginGatewayConfig, MarginGatewayToolset
 
 
 def _generation_key(environment_name: str) -> bytes:
-    # Consume the private value before any agent subprocess is started. The
-    # taskset retains the bytes in its own process; descendant runtimes must not
-    # inherit the holdout key through their environment.
-    value = os.environ.pop(environment_name, None)
+    # Prime's served path materializes client tasks before spawning the trusted
+    # environment worker, so the value must remain available for that process to
+    # inherit. MarginBenchEnv scrubs it before creating any agent process.
+    value = os.environ.get(environment_name)
     if value is None:
         return PUBLIC_DEVELOPMENT_KEY
     encoded = value.encode("utf-8")
@@ -98,6 +98,19 @@ class MarginBenchTaskset(vf.Taskset[MarginBenchTask, MarginBenchTasksetConfig]):
             raise ValueError("Wire task fingerprint does not match the regenerated episode.")
         return episode
 
+    def scrub_generation_key(self) -> None:
+        """Remove the secret from this trusted process before agent runtimes start."""
+        value = os.environ.pop(self.config.holdout_key_env, None)
+        if value is None:
+            return
+        encoded = value.encode("utf-8")
+        if len(encoded) < 16:
+            raise ValueError(f"{self.config.holdout_key_env} must contain at least 16 bytes.")
+        cached = getattr(self, "_marginbench_generation_key", None)
+        if cached is not None and cached != encoded:
+            raise ValueError("Holdout key changed between task generation and environment start.")
+        self._marginbench_generation_key = encoded
+
     def load(self):
         require_implemented_profile(self.config.control_profile)
         key = self._generation_key()
@@ -158,6 +171,7 @@ class MarginBenchEnv(vf.Env[MarginBenchEnvConfig]):
         if not isinstance(task, MarginBenchTask):
             raise TypeError(f"MarginBenchEnv requires MarginBenchTask, got {type(task).__name__}.")
         episode = self._trusted_episode(task)
+        self.taskset.scrub_generation_key()
         binary = resolve_margin_binary(self.taskset.config.margin_binary)
         started = time.perf_counter()
         with tempfile.TemporaryDirectory(prefix="marginbench-v1-") as temporary:

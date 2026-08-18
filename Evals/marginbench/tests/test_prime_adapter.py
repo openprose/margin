@@ -105,6 +105,8 @@ class PrimeAdapterTests(unittest.TestCase):
         with patch.dict(os.environ, {environment_name: secret}):
             taskset = MarginBenchTaskset(config)
             tasks = list(taskset)
+            self.assertIn(environment_name, os.environ)
+            taskset.scrub_generation_key()
             self.assertNotIn(environment_name, os.environ)
             repeated = list(taskset)
         self.assertEqual([task.data.repetition for task in tasks], [3, 1])

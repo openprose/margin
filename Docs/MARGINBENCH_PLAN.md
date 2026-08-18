@@ -411,6 +411,28 @@ The phase is successful if the repository contains:
   `78148f4969b463a9dbaed944d0bd80e13c219f7588acb2281b2ba9bb7baaac72`;
   the source archive is
   `a1955f881a07485e8a9cca1c6ba586ea2527633ddfe78ed98351831e5928b445`.
+- 2026-08-18 04:08 ET — Exercised the entire six-case fake-model matrix through
+  Prime's real out-of-process environment server, not just the in-process
+  adapter. A private-key rehearsal first exposed that Prime materializes public
+  task selections before its trusted worker is spawned. The lifecycle now keeps
+  the key only long enough for that worker to inherit it, regenerates and checks
+  the hidden episode there, and removes the key before Margin resolution,
+  workspace or gateway creation, or any agent process. Both private in-process
+  and private served rehearsals scored six of six at 100; output contained only
+  a one-way key ID, and each temporary key was overwritten and deleted. Public
+  preflight also strips an ambient key unless its mode-0600 file is explicitly
+  named. Make and CI now require both public execution modes; CI additionally
+  creates, tests, overwrites, and deletes a fresh private key. `actionlint`,
+  Ruff, and diff checks pass. The system runtime passes 37 contracts with six
+  intentional Prime-only skips; Prime passes all 43. A fresh Linux source
+  package passes 43 tests with 19 expected optional/runtime skips, and its wheel
+  again scores all six reference cases at 100. No paid model was called. The
+  implementation digest is
+  `861e29f8f86ac7fe29dae9693cec68a8654dae0bce283a7002ad5e92b7771b4e`.
+  The Linux-verified wheel is
+  `d72be45bd1bb51b51d83ee07c2dc34f864fc602eb6ab8cb7b04294ee5b6bc133`;
+  the source archive is
+  `fa2addb0d5f0197043c314e53e39cdbf8881d79748aeec89decdfb07bb851aa8`.
 
 ## Next statistically useful paid run
 

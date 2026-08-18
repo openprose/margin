@@ -47,8 +47,11 @@ prompts and tool responses; `runs/` is ignored and must be treated as private.
 When Prime serves the environment out of process, the wire carries only the
 scenario, repetition, control profile, and one-way case fingerprint. The trusted
 server regenerates the hidden episode from its key and rejects a fingerprint
-mismatch before creating any agent process. Each agent then receives a plain
-role task with no episode, fixture, or oracle attribute.
+mismatch before creating any agent process. A private key remains available only
+long enough for that trusted worker to inherit and verify the episode; the worker
+then removes it from its environment before resolving Margin, creating the
+workspace or gateway, or starting an agent. Each agent receives a plain role task
+with no episode, fixture, oracle, or key attribute.
 
 ## Local, no-model gates
 
@@ -62,8 +65,12 @@ make marginbench-preflight
 `marginbench-test` runs the Python contracts under both the system interpreter
 and Prime's Verifiers environment, then requires the deterministic reference
 policy to score 100 on every scenario. `marginbench-preflight` runs every role
-in all six Verifiers v1 scenarios through a local fake OpenAI-compatible model.
-Neither command invokes a paid model.
+in all six Verifiers v1 scenarios through a local fake OpenAI-compatible model,
+first in process and then across Prime's real environment-server boundary.
+Neither command invokes a paid model. CI also repeats the served path with a
+fresh private key, publishes only its one-way key ID, then overwrites and deletes
+the key in the same job. A public preflight ignores any ambient holdout-key
+variable unless `--holdout-key-file` was explicitly supplied.
 
 The same gates are encoded in `.github/workflows/marginbench.yml` for a clean
 Ubuntu runner. The workflow has read-only repository permissions, uses no

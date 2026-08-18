@@ -105,6 +105,12 @@ fingerprint. The trusted environment regenerates the fixture and oracle from its
 private key, rejects any fingerprint mismatch, and then gives each agent a plain
 role task without the hidden episode attached. This is tested through Prime's
 actual server-side task reconstruction path, not only by inspecting local JSON.
+Prime's client must retain the key just long enough for the trusted environment
+worker to inherit it. That worker reconstructs and verifies the hidden episode,
+then removes the key from its environment before resolving Margin, creating the
+workspace, starting the tool gateway, or starting an agent. Both the in-process
+and separate-worker paths complete all six private fake-model cases at full
+score; CI creates and destroys a new key for the served-path check.
 
 Document and comment text is untrusted collaborative content. Prompts explicitly
 state that it cannot override the user's request, tool policy, or system rules.
@@ -142,10 +148,12 @@ The tracked `MarginBench` continuous-integration workflow starts from an empty
 Ubuntu runner with read-only repository permission. It repeats all portable
 Swift tests, rebuilds the x86-64 binary against its declared digest, runs the
 provider-independent and Prime adapter contracts, completes the fake-model
-six-workflow rehearsal, builds the wheel, exercises it in the pinned Linux
-image, and retains the package with a validation receipt. It has no credential
-or paid-inference step. The workflow file is statically checked locally; its
-first hosted execution awaits a GitHub remote.
+six-workflow rehearsal both locally and across Prime's environment-server wire,
+repeats that served rehearsal with a fresh private key, builds the wheel,
+exercises it in the pinned Linux image, and retains the package with a validation
+receipt. The key is overwritten and deleted in the same job. It has no external
+credential or paid-inference step. The workflow file is statically checked
+locally; its first hosted execution awaits a GitHub remote.
 
 Public JSON evidence can be checked independently with `marginbench validate`.
 The installed command bundles all versioned schemas and adds bounded semantic
@@ -280,8 +288,8 @@ on macOS, Linux x86-64, and Linux arm64. Margin 0.3.2 passes 164 macOS tests and
 112 portable Linux tests; a repeat x86-64 build is byte-for-byte identical. The Verifiers v1
 adapter completes the whole six-case local fake-agent matrix at 100 with only
 one exposed tool. The installable manylinux wheel and source archive also pass
-their tests in clean containers. The system Python runtime passes 36 benchmark
-contracts with six Prime-only skips; Prime's runtime passes all 42. The wheel
+their tests in clean containers. The system Python runtime passes 37 benchmark
+contracts with six Prime-only skips; Prime's runtime passes all 43. The wheel
 bundles all 24 schemas.
 
 Real Qwen Flash runs exercised the original five families; the new directory
