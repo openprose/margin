@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .candidates import CandidateManifest
+from .controls import planned_topology
 
 
 VALIDATION_SCHEMA = "urn:marginbench:validation:v1"
@@ -327,9 +328,22 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 errors.append(f"episode id is inconsistent: {episode['id']}")
             if len(episode["roles"]) != len(set(episode["roles"])):
                 errors.append(f"episode contains duplicate roles: {episode['id']}")
+            try:
+                topology = planned_topology(payload["controlProfile"], episode["roles"])
+            except ValueError as error:
+                errors.append(str(error))
+            else:
+                if any(episode[field] != topology[field] for field in topology):
+                    errors.append(f"episode topology is inconsistent: {episode['id']}")
         roles = sum(len(item["roles"]) for item in episodes)
         if payload["roleRunsPerCandidate"] != roles or payload["totalRoleRuns"] != roles * 2:
             errors.append("study plan role-run totals are inconsistent")
+        processes = sum(item["agentProcessCount"] for item in episodes)
+        if (
+            payload["agentProcessesPerCandidate"] != processes
+            or payload["totalAgentProcesses"] != processes * 2
+        ):
+            errors.append("study plan agent-process totals are inconsistent")
         expected_candidates = {payload["baselineCandidate"], payload["candidate"]}
         orders = [tuple(item["candidateOrder"]) for item in episodes]
         if any(set(order) != expected_candidates for order in orders):
@@ -715,12 +729,21 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             errors.append("execution plan ordinals are not contiguous")
         if payload["roleProcessCount"] != sum(len(item["roles"]) for item in jobs):
             errors.append("execution plan role-process total is inconsistent")
+        if payload["agentProcessCount"] != sum(item["agentProcessCount"] for item in jobs):
+            errors.append("execution plan agent-process total is inconsistent")
         job_ids = [item["id"] for item in jobs]
         if len(job_ids) != len(set(job_ids)):
             errors.append("execution plan contains duplicate job ids")
         candidates = {payload["baselineCandidate"], payload["candidate"]}
         episodes: dict[str, list[dict[str, Any]]] = {}
         for job in jobs:
+            try:
+                topology = planned_topology(payload["controlProfile"], job["roles"])
+            except ValueError as error:
+                errors.append(str(error))
+            else:
+                if any(job[field] != topology[field] for field in topology):
+                    errors.append(f"execution job topology is inconsistent: {job['ordinal']}")
             expected_episode = (
                 f"{job['scenario']}:{job['repetition']}:"
                 f"{job['fingerprint'][:12]}"
@@ -757,7 +780,10 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 or [item["candidatePosition"] for item in ordered] != [0, 1]
             ):
                 errors.append(f"execution episode does not cover both candidates once: {episode_id[:200]}")
-            immutable = ("scenario", "repetition", "fingerprint", "roles")
+            immutable = (
+                "scenario", "repetition", "fingerprint", "roles",
+                "agentProcessCount", "traceSeats", "phasePolicy",
+            )
             if any(ordered[0][field] != ordered[1][field] for field in immutable):
                 errors.append(f"execution episode pair metadata differs: {episode_id[:200]}")
             first = ordered[0]["candidateID"]
@@ -777,6 +803,8 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             errors.append("Prime study plan ordinals are not contiguous")
         if payload["roleProcessCount"] != sum(len(item["roles"]) for item in jobs):
             errors.append("Prime study plan role-process total is inconsistent")
+        if payload["agentProcessCount"] != sum(item["agentProcessCount"] for item in jobs):
+            errors.append("Prime study plan agent-process total is inconsistent")
         job_ids = [item["id"] for item in jobs]
         if len(job_ids) != len(set(job_ids)):
             errors.append("Prime study plan contains duplicate job ids")
@@ -787,8 +815,15 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         pricing = payload["pricing"]
         requested_live_cap = payload["budget"]["requestedLiveProxyCapPerJobUSD"]
         for job in jobs:
+            try:
+                topology = planned_topology(payload["controlProfile"], job["roles"])
+            except ValueError as error:
+                errors.append(str(error))
+            else:
+                if any(job[field] != topology[field] for field in topology):
+                    errors.append(f"Prime study job topology is inconsistent: {job['ordinal']}")
             attempts = (
-                len(job["roles"])
+                job["agentProcessCount"]
                 * limits["maxTurns"]
                 * limits["upstreamAttemptsPerTurn"]
             )

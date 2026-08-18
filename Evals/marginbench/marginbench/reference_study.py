@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .candidates import CandidateManifest, paired_compare
+from .controls import require_implemented_profile
 from .entropy import PUBLIC_DEVELOPMENT_KEY
 from .keys import read_holdout_key
 from .provenance import implementation_sha256
@@ -189,6 +190,10 @@ def run_reference_study(
     if output.exists() or not output.parent.is_dir():
         raise ReferenceStudyError("Output must be a new path inside an existing directory.")
     study, study_raw, study_sha256 = _snapshot(study_plan, "urn:marginbench:study-plan:v1")
+    try:
+        require_implemented_profile(study["controlProfile"])
+    except ValueError as error:
+        raise ReferenceStudyError(str(error)) from error
     execution, execution_raw, _ = _snapshot(
         execution_plan,
         "urn:marginbench:execution-plan:v1",

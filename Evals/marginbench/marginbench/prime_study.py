@@ -270,7 +270,7 @@ def build_prime_study_plan(
         planned = expected_episodes[job["episodeID"]]
         if job["roles"] != planned["roles"]:
             raise PrimeStudyError("Execution job roles differ from the frozen study plan.")
-        contract_job_cost = _job_cost(len(job["roles"]), limits, pricing)
+        contract_job_cost = _job_cost(job["agentProcessCount"], limits, pricing)
         live_job_cap = round(min(
             contract_job_cost,
             live_proxy_cap_per_job_usd
@@ -292,6 +292,9 @@ def build_prime_study_plan(
             "candidateID": job["candidateID"],
             "candidatePosition": job["candidatePosition"],
             "roles": job["roles"],
+            "agentProcessCount": job["agentProcessCount"],
+            "traceSeats": job["traceSeats"],
+            "phasePolicy": job["phasePolicy"],
             "estimatedMaximumCostUSD": estimated_job_cost,
             "contractMaximumCostUSD": contract_job_cost,
             "liveProxyCapUSD": live_job_cap,
@@ -339,6 +342,7 @@ def build_prime_study_plan(
         },
         "jobCount": len(jobs),
         "roleProcessCount": sum(len(item["roles"]) for item in jobs),
+        "agentProcessCount": sum(item["agentProcessCount"] for item in jobs),
         "jobs": jobs,
     }
     plan["id"] = submission_identifier(plan)
@@ -425,7 +429,7 @@ def validate_prime_job_outputs(
     }
     if run["execution"].get("limits") != expected_limits:
         errors.append("run limits differ from the paired plan")
-    if run["execution"].get("agentProcessCount") != len(job["roles"]):
+    if run["execution"].get("agentProcessCount") != job["agentProcessCount"]:
         errors.append("run process count differs from the scheduled roles")
     if set(run["execution"]["roles"]) != set(job["roles"]):
         errors.append("run roles differ from the scheduled job")

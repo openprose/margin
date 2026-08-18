@@ -60,6 +60,9 @@ def build_execution_plan_from_study(
                 "candidateID": candidate_id,
                 "candidatePosition": position,
                 "roles": episode["roles"],
+                "agentProcessCount": episode["agentProcessCount"],
+                "traceSeats": episode["traceSeats"],
+                "phasePolicy": episode["phasePolicy"],
             })
     plan = {
         "schema": EXECUTION_PLAN_SCHEMA,
@@ -73,6 +76,7 @@ def build_execution_plan_from_study(
         "episodeCount": study["episodeCount"],
         "jobCount": len(jobs),
         "roleProcessCount": sum(len(job["roles"]) for job in jobs),
+        "agentProcessCount": sum(job["agentProcessCount"] for job in jobs),
         "failurePolicy": {
             "continueAfterIncompleteJob": False,
             "retryCreatesNewRun": True,

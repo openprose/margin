@@ -158,12 +158,47 @@ def control_catalog() -> dict[str, Any]:
     }
 
 
-def require_implemented_profile(identifier: str) -> dict[str, Any]:
+def control_profile(identifier: str) -> dict[str, Any]:
     profile = next((item for item in _PROFILES if item["id"] == identifier), None)
     if profile is None:
         raise ValueError(f"Unknown MarginBench control profile: {identifier}")
+    return deepcopy(profile)
+
+
+def planned_topology(identifier: str, logical_roles: list[str]) -> dict[str, Any]:
+    """Describe model processes without making a gated profile executable."""
+    control_profile(identifier)
+    if (
+        not logical_roles
+        or len(logical_roles) > 32
+        or len(logical_roles) != len(set(logical_roles))
+        or any(
+            not isinstance(role, str) or not role or len(role.encode("utf-8")) > 128
+            for role in logical_roles
+        )
+    ):
+        raise ValueError("Logical roles must be a nonempty unique bounded list.")
+    if identifier == "single-agent-margin-v1":
+        return {
+            "agentProcessCount": 1,
+            "traceSeats": ["agent"],
+            "phasePolicy": "serial-stable-role-order",
+        }
+    return {
+        "agentProcessCount": len(logical_roles),
+        "traceSeats": list(logical_roles),
+        "phasePolicy": (
+            "independent-workspaces"
+            if identifier == "role-separated-no-exchange-v1"
+            else "scenario-defined"
+        ),
+    }
+
+
+def require_implemented_profile(identifier: str) -> dict[str, Any]:
+    profile = control_profile(identifier)
     if profile["status"] != "implemented":
         raise ValueError(
             f"Control profile {identifier!r} is specified but not safely runnable."
         )
-    return deepcopy(profile)
+    return profile

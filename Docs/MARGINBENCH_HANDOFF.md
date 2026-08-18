@@ -1,6 +1,6 @@
 # MarginBench build-phase handoff
 
-Status at 2026-08-18 06:17 ET: the primary benchmark track is implemented,
+Status at 2026-08-18 06:31 ET: the primary benchmark track is implemented,
 portable, tested, packaged, and ready for further no-model development. No
 additional paid run is justified before the next comparison profile passes its
 local release gates.
@@ -31,7 +31,7 @@ local release gates.
 | --- | --- |
 | macOS protocol correctness | 164 Swift tests passed |
 | Linux protocol correctness | 112 tests passed in an architecture-pinned Swift container |
-| Benchmark contracts | 51 passed in system Python and 51 passed in Prime's Python runtime |
+| Benchmark contracts | 52 passed in system Python and 52 passed in Prime's Python runtime |
 | Deterministic reference quality | 6/6 scenarios scored 100 with safety passing |
 | Hosted-boundary rehearsal | 6/6 passed in process and 6/6 through the environment server; 59 requests each, zero rejects, zero provider-bound violations, no paid inference |
 | Clean distributable | Extracted source passed 51 available tests with six optional Prime skips; installed Intel Linux wheel passed self-test; package and CI reject sensitive/generated archive paths |
@@ -49,15 +49,15 @@ make marginbench-package
 ```
 
 The current benchmark implementation digest is
-`1f70155a6cada26b8c51ecbb4c7e59dbb476ffb9552ef3a9cb7e616c096e0c8e`.
+`e5de2cf72482f08dab1755b91a7c5ed4eb50e093889a5656cbdcec188fbcf887`.
 
 Current benchmark packages:
 
 - `build/marginbench-package/marginbench-0.1.0-py3-none-manylinux_2_35_x86_64.whl`
   — SHA-256
-  `d6b57497a55a9b8cef6718ff3afa156297e936e9ff83849f26a44294ce5f2f76`
+  `7150f9814ec5bfd87dbaead8ae6247ac9995b3e411705ba307de1565c2a4c3e4`
 - `build/marginbench-package/marginbench-0.1.0.tar.gz` — SHA-256
-  `ecd8065c151dd4a4a1e00ca81378dde5bcd4a3a83e4ec18f9cfa11402d9a9457`
+  `7df424e69e2355924c45b51afc9fcd363ca2ba2e671a2248bbe7ceddb7c7585e`
 
 Current macOS packages:
 
@@ -83,11 +83,15 @@ profile gives that pair a useful scientific question.
 
 ## Next work, in order
 
-1. Implement `single-agent-margin-v1` locally. It reuses the exact Margin
+1. Finish `single-agent-margin-v1` locally. Its static topology plan is now
+   implemented: logical roles remain visible while each episode records one
+   continuing model process, one `agent` trace seat, and serial role phases. It
+   reuses the exact Margin
    representation and scorer, and therefore gives the cleanest next answer:
    whether splitting one collaboration task across isolated agents adds value
    versus one continuing agent with matched compute.
-2. Prove phase-bound identity, topology-aware cost/trace accounting, all six
+2. Prove continuing interaction, phase-bound identity, topology-aware live
+   cost/trace accounting, all six
    local reference cases, and both served fake-model paths. `marginbench
    controls` is the machine-readable checklist.
 3. If those gates pass, propose—but do not automatically run—one public

@@ -368,8 +368,8 @@ should be reported as separate tracks rather than mixed into one claim.
 profile includes stable, machine-readable `blockingGates`, so automation can
 show what evidence is still missing without attempting a run. The primary
 role-separated, Margin-only profile is runnable. Single-context, plain-Markdown,
-and Margin-plus-shell controls are specified but fail closed until their
-identity, task-neutral scoring, and disposable-sandbox requirements are
+Margin-plus-shell, and no-exchange controls are specified but fail closed until
+their identity, task-neutral scoring, and isolation requirements are
 implemented. This prevents an attractive but incomparable control result from
 quietly entering the main track.
 
@@ -382,6 +382,14 @@ marginbench study-plan --baseline released --candidate compact-guidance \
 
 marginbench execution-plan study-plan.json > execution-plan.json
 ```
+
+Planning is allowed before a control is executable. For example,
+`--control-profile single-agent-margin-v1` produces a static plan that records
+one model process and trace seat `agent` per episode while retaining every
+logical author/reviewer role. Reference and paid runners still reject that plan
+until the catalog's interaction and identity gates are complete. This makes
+future compute and cost accounting reviewable without creating work state or
+spending credit.
 
 Four repetitions across all six workflows produce the default 24 matching
 episodes, exceeding the 20-episode promotion minimum. The execution plan

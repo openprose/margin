@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 06:23 ET
+Last updated: 2026-08-18 06:31 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -86,6 +86,9 @@ Rules:
 - [x] Score exact outcomes, source preservation, all-or-none transactions,
   attribution, recovery, calls, tokens, latency, human attention, and cost.
 - [ ] Add single-agent, no-collaboration, and unconstrained-shell controls.
+- [x] Add topology-aware dry planning for gated controls: logical roles,
+  model-process counts, trace seats, and phase policy are distinct and validated;
+  execution remains refused until each profile's complete gates pass.
 - [x] Freeze the fairness, identity, cost, isolation, and release contract for
   those controls in `Docs/MARGINBENCH_CONTROLS.md`; none is marked runnable
   before its complete gate lands.
@@ -606,6 +609,26 @@ The phase is successful if the repository contains:
   run trace, key, transcript, raw prompt, temporary tree, environment file, or
   cache path appears. The rule has executable positive and false-positive
   checks, and the clean package retained the same digests.
+
+- 2026-08-18 06:31 ET — Added the first executable groundwork for the
+  single-continuing-agent control without making it runnable. Study and execution
+  plans now distinguish logical roles from actual model processes, trace seats,
+  and phase policy. A 24-case `single-agent-margin-v1` plan therefore records 44
+  logical role turns but 24 model processes per candidate, with one `agent` trace
+  per episode and serial stable role phases. The normal profile retains 44
+  processes. Prime cost construction now derives from the explicit process count
+  rather than inferring it from roles, but both the reference runner and paid
+  controller continue to reject the unfinished profile before work or spend.
+  Schema validation recomputes every topology field and aggregate. The benchmark
+  passes 52 contracts in both Python runtimes, all six reference scenarios at
+  100, and both complete fake-model rehearsals. A clean archive and installed
+  wheel pass the same gates, and the sensitive-path exclusion remains active. No
+  paid call was made. The implementation digest is
+  `e5de2cf72482f08dab1755b91a7c5ed4eb50e093889a5656cbdcec188fbcf887`.
+  The current Linux-verified wheel is
+  `7150f9814ec5bfd87dbaead8ae6247ac9995b3e411705ba307de1565c2a4c3e4`;
+  its source archive is
+  `7df424e69e2355924c45b51afc9fcd363ca2ba2e671a2248bbe7ceddb7c7585e`.
 
 ## Next statistically useful paid run
 

@@ -78,6 +78,12 @@ Required implementation changes:
 5. Keep the existing exact scorer; annotations, actor IDs, source, and final
    status are representation-identical.
 
+Current progress: study and execution plans now record logical roles separately
+from actual model-process count, trace seats, and phase policy. A
+`single-agent-margin-v1` dry plan therefore uses one `agent` process per episode
+without being executable. Continuing interaction and trusted phase-bound
+identity remain release gates.
+
 Release gates:
 
 - All six deterministic reference cases score 100.

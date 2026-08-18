@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .binary import resolve_margin_binary
 from .candidates import CandidateManifest, load_results, paired_compare
-from .controls import control_catalog
+from .controls import DEFAULT_CONTROL_PROFILE, control_catalog
 from .diagnostics import DiagnosticError, diagnose_artifacts
 from .entropy import PUBLIC_DEVELOPMENT_KEY
 from .keys import create_holdout_key
@@ -112,6 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     study.add_argument("--scenario", action="append", choices=SCENARIO_IDS)
     study.add_argument("--repetitions", type=int, default=4)
     study.add_argument("--key-file")
+    study.add_argument("--control-profile", default=DEFAULT_CONTROL_PROFILE)
 
     execution_plan = subparsers.add_parser(
         "execution-plan",
@@ -253,6 +254,7 @@ def main(argv: list[str] | None = None) -> int:
             repetitions=arguments.repetitions,
             key=_key(arguments.key_file),
             development_cases=arguments.key_file is None,
+            control_profile=arguments.control_profile,
         ))
         return 0
     if arguments.command == "execution-plan":

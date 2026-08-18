@@ -21,7 +21,12 @@ import httpx
 from marginbench.binary import resolve_margin_binary, validate_packaged_binary
 from marginbench.budget_proxy import InferenceBudgetGate, InferenceBudgetPolicy, InferenceBudgetProxy
 from marginbench.candidates import CandidateManifest, load_results, paired_compare
-from marginbench.controls import DEFAULT_CONTROL_PROFILE, control_catalog, require_implemented_profile
+from marginbench.controls import (
+    DEFAULT_CONTROL_PROFILE,
+    control_catalog,
+    planned_topology,
+    require_implemented_profile,
+)
 from marginbench.diagnostics import DiagnosticError, diagnose_artifacts
 from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY
 from marginbench.fake_model import scripted_response
@@ -388,6 +393,8 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(plan["controlProfile"], DEFAULT_CONTROL_PROFILE)
         self.assertTrue(plan["sampleSizeSufficient"])
         self.assertEqual(plan["totalRoleRuns"], plan["roleRunsPerCandidate"] * 2)
+        self.assertEqual(plan["agentProcessesPerCandidate"], plan["roleRunsPerCandidate"])
+        self.assertEqual(plan["totalAgentProcesses"], plan["totalRoleRuns"])
         orders = [tuple(item["candidateOrder"]) for item in plan["episodes"]]
         self.assertEqual(orders.count(("baseline", "candidate-v2")), 12)
         self.assertEqual(orders.count(("candidate-v2", "baseline")), 12)
@@ -400,6 +407,63 @@ class MarginBenchCoreTests(unittest.TestCase):
             return
         schema = json.loads((SCHEMA_ROOT / "study-plan.schema.json").read_text(encoding="utf-8"))
         Draft202012Validator(schema).validate(plan)
+
+    def test_single_agent_control_can_be_planned_but_not_executed(self) -> None:
+        profile = "single-agent-margin-v1"
+        plan = build_study_plan(
+            baseline="baseline",
+            candidate="candidate-v2",
+            scenarios=list(SCENARIO_IDS),
+            repetitions=4,
+            key=KEY,
+            development_cases=False,
+            control_profile=profile,
+        )
+        self.assertEqual(plan["controlProfile"], profile)
+        self.assertEqual(plan["agentProcessesPerCandidate"], plan["episodeCount"])
+        self.assertEqual(plan["totalAgentProcesses"], plan["episodeCount"] * 2)
+        self.assertGreater(plan["roleRunsPerCandidate"], plan["agentProcessesPerCandidate"])
+        for episode in plan["episodes"]:
+            self.assertEqual(episode["agentProcessCount"], 1)
+            self.assertEqual(episode["traceSeats"], ["agent"])
+            self.assertEqual(episode["phasePolicy"], "serial-stable-role-order")
+        self.assertTrue(validate_bytes(canonical_json(plan))["valid"])
+        with self.assertRaisesRegex(ValueError, "not safely runnable"):
+            require_implemented_profile(profile)
+        self.assertEqual(
+            planned_topology(profile, ["author", "reviewer"]),
+            {
+                "agentProcessCount": 1,
+                "traceSeats": ["agent"],
+                "phasePolicy": "serial-stable-role-order",
+            },
+        )
+        with tempfile.TemporaryDirectory(prefix="marginbench-single-control-plan-") as temporary:
+            study_path = Path(temporary) / "study.json"
+            study_path.write_bytes(canonical_json(plan))
+            execution = build_execution_plan(study_path)
+        self.assertEqual(execution["agentProcessCount"], plan["totalAgentProcesses"])
+        self.assertEqual(execution["roleProcessCount"], plan["totalRoleRuns"])
+        self.assertTrue(all(job["agentProcessCount"] == 1 for job in execution["jobs"]))
+        self.assertTrue(validate_bytes(canonical_json(execution))["valid"])
+        environment = dict(os.environ)
+        environment["PYTHONPATH"] = str(PACKAGE_ROOT)
+        completed = subprocess.run(
+            [
+                sys.executable, "-m", "marginbench.cli", "study-plan",
+                "--baseline", "baseline", "--candidate", "candidate-v2",
+                "--scenario", "human_agent_relay", "--repetitions", "1",
+                "--control-profile", profile,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        cli_plan = json.loads(completed.stdout)
+        self.assertEqual(cli_plan["agentProcessesPerCandidate"], 1)
+        self.assertEqual(cli_plan["episodes"][0]["traceSeats"], ["agent"])
 
     @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
     def test_execution_plan_flattens_study_order_deterministically(self) -> None:
@@ -419,6 +483,7 @@ class MarginBenchCoreTests(unittest.TestCase):
             self.assertEqual(plan["episodeCount"], 24)
             self.assertEqual(plan["jobCount"], 48)
             self.assertEqual(plan["roleProcessCount"], study["totalRoleRuns"])
+            self.assertEqual(plan["agentProcessCount"], study["totalAgentProcesses"])
             first = [job["candidateID"] for job in plan["jobs"] if job["candidatePosition"] == 0]
             self.assertEqual(first.count("baseline"), 12)
             self.assertEqual(first.count("candidate-v2"), 12)

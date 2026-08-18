@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from .controls import DEFAULT_CONTROL_PROFILE
+from .controls import DEFAULT_CONTROL_PROFILE, planned_topology
 from .scenarios import SCENARIO_IDS, generate_episode
 
 
@@ -27,6 +27,7 @@ def build_study_plan(
     repetitions: int,
     key: bytes,
     development_cases: bool,
+    control_profile: str = DEFAULT_CONTROL_PROFILE,
 ) -> dict[str, Any]:
     """Freeze paired cases and counterbalance candidate order without exposing answers."""
     baseline = _candidate_id(baseline)
@@ -57,14 +58,19 @@ def build_study_plan(
         )
     public_episodes = []
     role_runs = 0
+    agent_processes = 0
     for episode in sorted(episodes, key=lambda value: value.public_id):
-        role_runs += len(episode.roles)
+        roles = [role.seat for role in episode.roles]
+        topology = planned_topology(control_profile, roles)
+        role_runs += len(roles)
+        agent_processes += topology["agentProcessCount"]
         public_episodes.append({
             "id": episode.public_id,
             "scenario": episode.scenario_id,
             "repetition": episode.repetition,
             "fingerprint": episode.fingerprint,
-            "roles": [role.seat for role in episode.roles],
+            "roles": roles,
+            **topology,
             "candidateOrder": assignments[episode.public_id],
         })
     episode_count = len(public_episodes)
@@ -73,7 +79,7 @@ def build_study_plan(
         "benchmarkVersion": "0.1.0",
         "taskSet": "public-development-v1" if development_cases else "private-holdout-v1",
         "developmentCases": development_cases,
-        "controlProfile": DEFAULT_CONTROL_PROFILE,
+        "controlProfile": control_profile,
         "baselineCandidate": baseline,
         "candidate": candidate,
         "scenarioIDs": scenarios,
@@ -81,6 +87,8 @@ def build_study_plan(
         "episodeCount": episode_count,
         "roleRunsPerCandidate": role_runs,
         "totalRoleRuns": role_runs * 2,
+        "agentProcessesPerCandidate": agent_processes,
+        "totalAgentProcesses": agent_processes * 2,
         "minimumPairsForPromotion": MINIMUM_PROMOTION_PAIRS,
         "sampleSizeSufficient": episode_count >= MINIMUM_PROMOTION_PAIRS,
         "episodes": public_episodes,
