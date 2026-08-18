@@ -467,10 +467,10 @@ agent runtime or public result.
   Cryptographic submitter signatures are not part of v1 and must not be
   implied by a checksum alone.
 
-The benchmark card and known limitations are tracked in
-[`Docs/MARGINBENCH.md`](../../Docs/MARGINBENCH.md). The build and spending ledger
-is [`Docs/MARGINBENCH_PLAN.md`](../../Docs/MARGINBENCH_PLAN.md). The paid-wrapper
-cost-bound correction is preserved in
+In a full Margin source checkout, the expanded benchmark card and known
+limitations are in `Docs/MARGINBENCH.md`, and the build and spending ledger is
+in `Docs/MARGINBENCH_PLAN.md`. Those source-tree records are not required by the
+standalone package. The paid-wrapper cost-bound correction is preserved here in
 [`results/COST_BOUND_AUDIT.md`](results/COST_BOUND_AUDIT.md).
 
 The package is ready for Prime's Environment Hub, but a private upload under the
