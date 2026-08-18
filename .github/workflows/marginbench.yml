@@ -57,7 +57,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes jq libdigest-sha-perl unzip zsh
-          python -m pip install --disable-pip-version-check uv==0.7.8 "jsonschema>=4.23,<5"
+          python -m pip install --disable-pip-version-check uv==0.7.8 "httpx>=0.27,<1" "jsonschema>=4.23,<5"
           uv tool install --with "jsonschema>=4.23,<5" prime==0.6.24
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
@@ -112,13 +112,18 @@ jobs:
         run: |
           uv build "$MARGINBENCH_ROOT" --out-dir build/ci-marginbench-dist
           wheel="$(find build/ci-marginbench-dist -type f -name '*.whl' -print -quit)"
-          mkdir -p build/ci-marginbench-site
-          unzip -q "$wheel" -d build/ci-marginbench-site
           docker run --rm --platform linux/amd64 \
-            -v "$GITHUB_WORKSPACE/build/ci-marginbench-site:/package:ro" \
-            -e PYTHONPATH=/package \
-            swift:5.10-jammy@sha256:ffc42e399ad0cad324f68d58f65e4d5f2c22eb9df73c4dfa249e898d497254b3 \
-            python3 -m marginbench.cli self-test
+            -v "$GITHUB_WORKSPACE/build/ci-marginbench-dist:/dist:ro" \
+            -e MARGINBENCH_WHEEL="/dist/$(basename "$wheel")" \
+            -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
+            -e PIP_ROOT_USER_ACTION=ignore \
+            python@sha256:0f16c5d35fe6464ee471792ab3bb9116f911b65b3fbf10120c98d2bdc6332f48 \
+            bash -lc '
+              set -euo pipefail
+              python -m pip install --quiet --no-cache-dir "httpx>=0.27,<1" "jsonschema>=4.23,<5"
+              python -m pip install --quiet --no-cache-dir --no-deps "$MARGINBENCH_WHEEL"
+              marginbench self-test
+            '
           PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli validate \
             "$MARGINBENCH_ROOT/results/EXPERIMENT_LEDGER.json" \
             > build/ci-marginbench-dist/validation-receipt.json

@@ -6,6 +6,16 @@ SWIFT_IMAGE="${MARGIN_LINUX_SWIFT_IMAGE:-swift:5.10-jammy}"
 TEST_TIMEOUT="${MARGIN_LINUX_TEST_TIMEOUT:-45}"
 BUILD_VOLUME="margin-linux-tests-${$}-${RANDOM}"
 
+case "$(uname -m)" in
+    arm64|aarch64) HOST_LINUX_PLATFORM="linux/arm64" ;;
+    x86_64|amd64) HOST_LINUX_PLATFORM="linux/amd64" ;;
+    *)
+        print -u2 "Unsupported host architecture for the Linux test gate: $(uname -m)"
+        exit 69
+        ;;
+esac
+LINUX_PLATFORM="${MARGIN_LINUX_PLATFORM:-$HOST_LINUX_PLATFORM}"
+
 cleanup() {
     docker volume rm "$BUILD_VOLUME" >/dev/null 2>&1 || true
 }
@@ -23,7 +33,7 @@ docker info >/dev/null 2>&1 || {
 docker volume create "$BUILD_VOLUME" >/dev/null
 
 run_linux() {
-    docker run --rm \
+    docker run --platform "$LINUX_PLATFORM" --rm \
         -v "$PROJECT_DIR:/workspace:ro" \
         -v "$BUILD_VOLUME:/build" \
         -w /workspace \

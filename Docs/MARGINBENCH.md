@@ -300,22 +300,23 @@ recommendation, not a claim that those licenses already apply.
 
 At the current 0.1 development snapshot, all six reference scenarios score 100
 on macOS, Linux x86-64, and Linux arm64. Margin 0.3.2 passes 164 macOS tests and
-112 portable Linux tests; a repeat x86-64 build is byte-for-byte identical. The Verifiers v1
-adapter completes the whole six-case local fake-agent matrix at 100 with only
-one exposed tool. The installable manylinux wheel and source archive also pass
-their tests in clean containers. The system Python runtime passes 38 benchmark
-contracts with six Prime-only skips; Prime's runtime passes all 44. The wheel
-bundles all 25 schemas.
+112 portable Linux tests; a repeat x86-64 build is byte-for-byte identical. The
+Verifiers v1 adapter completes the whole six-case local fake-agent matrix at
+100 with one exposed tool, both in process and through its real environment
+server. Both 59-request rehearsals pass through the live spend proxy with no
+rejections or paid calls. The installable manylinux wheel and source archive
+pass clean-container verification. The system Python runtime passes all 48
+benchmark contracts with six intentional Prime-only skips; Prime's runtime
+passes all 48. The wheel bundles all 25 schemas.
 
-Real Qwen Flash runs exercised the original five families; the new directory
-handoff has deliberately only used no-model gates so far. The initial human-relay smoke
-scored 25; successive general CLI guidance improvements reached the exact
-durable result and then 100. Handoff reached 100. Concurrent review, suggestion
-decision, and stale multi-file recovery all reached their exact final document
-state, scoring 92.083, 89.821, and 92.5 because of extra or invalid command
-attempts. These are useful interface failures, not hidden or discarded results.
-The final CLI returns exact verification steps after typed contributions,
-suggestions, and handoffs, addressing the remaining recurring syntax errors.
-The complete phase used $0.0267, leaving $199.9594. Exact artifacts, all 13
-attempts, and the historical cost-bound correction are kept in the tracked
+Real Qwen Flash runs now cover all six families. The earlier human-relay,
+handoff, concurrent-review, suggestion-decision, and stale multi-file runs
+produced useful interface failures as well as exact final states. The new
+directory workflow improved from 25.0 to 91.944444 and then 96.25 while holding
+the public case and model fixed; the final run had zero invalid Margin commands,
+but one sample is calibration evidence rather than a promotion result. A final
+$0.02-capped proxy smoke scored 96.25 and cost $0.001. The complete ledger now
+contains 17 attempts, 16 completed runs, 193 model calls, and $0.0374 observed
+wallet debit, leaving $199.9487. Exact artifacts and the historical cost-bound
+correction are kept in the tracked
 results and build ledger.

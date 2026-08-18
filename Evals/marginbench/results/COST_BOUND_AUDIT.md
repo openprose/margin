@@ -49,7 +49,8 @@ creating an output directory or calling a model; a $0.18 cap emits a no-model
 plan whose full assumptions are machine-readable. Unit coverage also asserts
 that this bound exceeds the observed $0.0044 staged debit.
 
-No paid run was started during or after this correction.
+At this correction checkpoint, no paid run had been started; the later
+contract-backed calibration and live-proxy smoke are recorded below.
 
 ## Subsequent contract evidence
 

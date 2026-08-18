@@ -76,7 +76,7 @@ The same gates are encoded in `.github/workflows/marginbench.yml` for a clean
 Ubuntu runner. The workflow has read-only repository permissions, uses no
 secrets or paid service, rebuilds the published x86-64 binary against its
 tracked digest, runs the Prime fake-model rehearsal, exercises the wheel inside
-the pinned Swift/Linux image, and retains only the package plus a redacted
+the pinned Python/Linux image, and retains only the package plus a redacted
 validation receipt.
 
 Individual commands are also available:

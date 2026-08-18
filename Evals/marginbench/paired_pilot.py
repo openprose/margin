@@ -528,6 +528,7 @@ def execute_study(
     wallet_reader: Callable[[Path], dict[str, Any]] = wallet,
     child_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
     start_claimer: Callable[..., None] = claim_paid_start,
+    prime_resolver: Callable[[str], str | None] = shutil.which,
 ) -> dict[str, Any]:
     work = arguments.work_dir
     if work.exists() and (not work.is_dir() or work.is_symlink()):
@@ -591,7 +592,7 @@ def execute_study(
         if len(receipts) == len(plan["jobs"]):
             return _finalize(arguments, plan, work, receipts, frozen)
 
-        prime_name = shutil.which("prime")
+        prime_name = prime_resolver("prime")
         if not prime_name:
             raise PrimeStudyError("Prime CLI is not installed.")
         prime = Path(prime_name).resolve()

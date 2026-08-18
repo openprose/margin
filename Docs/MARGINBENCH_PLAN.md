@@ -534,6 +534,31 @@ The phase is successful if the repository contains:
   The experiment ledger now records 17 attempts, 16 completions, 193 model
   calls, and $0.0374 total wallet debit.
 
+- 2026-08-18 05:52 ET — Completed the release and portability gates after the
+  live-budget work. Margin passes 164 macOS tests and 112 isolated Linux tests;
+  the Linux runner now selects the host architecture explicitly, so an old
+  Intel Docker cache cannot create a false timeout on Apple silicon. The
+  benchmark passes all 48 contracts under both the ordinary and Prime Python
+  runtimes (six intentional Prime-only skips in the ordinary runtime), all six
+  deterministic scenarios at 100, and both complete 59-request fake-model
+  rehearsals through the live proxy. The distributable wheel now declares its
+  HTTP client dependency, performs a real Intel Linux wheel smoke, and runs all
+  extracted-source tests on a pinned native Python image with the matching
+  manifest-verified Margin binary. The CI workflow uses the same supported
+  Python and dependency boundary. Final package digests are
+  `45d3c91c3c6f9b858e4d9ed5e1432e07fc4bdbbe82dc8481841d433644dd3d06`
+  for the wheel and
+  `4a1c30a416db0a173e85ad18d0d25859603cd7cdcc2bb2ece9946b4a6946bb2e`
+  for the source archive. The combined Mac app/CLI zip and installer are also
+  built, with digests
+  `d051533f6c7cfda4307521d1668ca11449e99789a17bc94b9bc1f5377bcaf839`
+  and
+  `1ccec429adf23a1b680a4984e815e7d206256090e4198033eea2313a17ba2307`.
+  A fresh 15-run app benchmark measured 288.431 ms median / 326.421 ms p95;
+  100-process checks measured terminal help at 5.132 ms median / 5.800 ms p95
+  and staging guidance at 6.139 ms median / 7.440 ms p95. No app or CLI launch
+  source changed in this phase, and no further model credit was spent.
+
 ## Next statistically useful paid run
 
 The next useful experiment is not another public one-off. It is a paired

@@ -401,6 +401,7 @@ class PairedPrimeControllerTests(unittest.TestCase):
                 wallet_reader=wallet,
                 child_runner=recorded,
                 start_claimer=lambda *_, **__: None,
+                prime_resolver=lambda _: "/opt/fake-prime",
             )
             self.assertEqual(paused["status"], "paused")
             self.assertEqual(paused["completedJobs"], 1)
@@ -414,6 +415,7 @@ class PairedPrimeControllerTests(unittest.TestCase):
                 wallet_reader=wallet,
                 child_runner=recorded,
                 start_claimer=lambda *_, **__: None,
+                prime_resolver=lambda _: "/opt/fake-prime",
             )
             self.assertTrue(completed["verified"])
             self.assertEqual(completed["jobCount"], 2)
@@ -526,6 +528,7 @@ class PairedPrimeControllerTests(unittest.TestCase):
                     wallet_reader=wallet,
                     child_runner=failed,
                     start_claimer=lambda *_, **__: None,
+                    prime_resolver=lambda _: "/opt/fake-prime",
                 )
             with self.assertRaisesRegex(Exception, "will not be retried automatically"):
                 execute_study(

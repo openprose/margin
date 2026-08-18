@@ -7,6 +7,25 @@ BINARY_DIR="$PACKAGE_DIR/marginbench/bin"
 MANIFEST="$PACKAGE_DIR/BINARY_MANIFEST.json"
 OUTPUT_DIR="${MARGINBENCH_DIST_DIR:-$PROJECT_DIR/build/marginbench-package}"
 STAGING_DIR="$(mktemp -d /tmp/marginbench-package.XXXXXX)"
+PYTHON_VERIFY_IMAGE_AMD64="python@sha256:0f16c5d35fe6464ee471792ab3bb9116f911b65b3fbf10120c98d2bdc6332f48"
+PYTHON_VERIFY_IMAGE_ARM64="python@sha256:3b6bee0531ed64639c7846e5a083a3d13531ceb58326f52d63d436f4edabf50e"
+
+case "$(uname -m)" in
+    arm64|aarch64)
+        SOURCE_TEST_ARCHITECTURE="aarch64"
+        SOURCE_TEST_PLATFORM="linux/arm64"
+        SOURCE_TEST_IMAGE="$PYTHON_VERIFY_IMAGE_ARM64"
+        ;;
+    x86_64|amd64)
+        SOURCE_TEST_ARCHITECTURE="x86_64"
+        SOURCE_TEST_PLATFORM="linux/amd64"
+        SOURCE_TEST_IMAGE="$PYTHON_VERIFY_IMAGE_AMD64"
+        ;;
+    *)
+        print -u2 "Unsupported host architecture for the MarginBench source test: $(uname -m)"
+        exit 69
+        ;;
+esac
 
 cleanup() {
     rm -rf "$STAGING_DIR"
@@ -97,17 +116,16 @@ wheel_metadata="$(unzip -p "$wheel" '*/WHEEL')"
     exit 65
 }
 
-python_verify_image="python:3.13-slim-bookworm@sha256:00faa2debb87529f9f0764e9491d8ba400a3678976616c3bd7cb193745ac20d1"
 docker run --platform linux/amd64 --rm \
     -v "$STAGING_DIR/dist:/dist:ro" \
     -e MARGINBENCH_WHEEL="/dist/${wheel:t}" \
     -e PYTHONDONTWRITEBYTECODE=1 \
     -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
     -e PIP_ROOT_USER_ACTION=ignore \
-    "$python_verify_image" \
+    "$PYTHON_VERIFY_IMAGE_AMD64" \
     bash -lc '
         set -euo pipefail
-        python -m pip install --quiet --no-cache-dir "jsonschema>=4.23,<5"
+        python -m pip install --quiet --no-cache-dir "httpx>=0.27,<1" "jsonschema>=4.23,<5"
         python -m pip install --quiet --no-cache-dir --no-deps "$MARGINBENCH_WHEEL"
         marginbench self-test
         marginbench reference --scenario human_agent_relay > /tmp/reference.json
@@ -120,12 +138,20 @@ mkdir -p "$STAGING_DIR/source"
 /usr/bin/tar -xzf "$source_archive" -C "$STAGING_DIR/source"
 source_directory="$(find "$STAGING_DIR/source" -mindepth 1 -maxdepth 1 -type d -print -quit)"
 [[ -n "$source_directory" ]]
-docker run --platform linux/amd64 --rm \
+docker run --platform "$SOURCE_TEST_PLATFORM" --rm \
     -v "$source_directory:/source:ro" \
+    -v "$BINARY_DIR/margin-linux-$SOURCE_TEST_ARCHITECTURE:/opt/margin:ro" \
     -e PYTHONDONTWRITEBYTECODE=1 \
     -e PYTHONPATH=/source \
-    swift:5.10-jammy \
-    python3 -m unittest discover -s /source/tests -p 'test_*.py'
+    -e MARGINBENCH_MARGIN_BIN=/opt/margin \
+    -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    -e PIP_ROOT_USER_ACTION=ignore \
+    "$SOURCE_TEST_IMAGE" \
+    bash -lc '
+        set -euo pipefail
+        python -m pip install --quiet --no-cache-dir "httpx>=0.27,<1" "jsonschema>=4.23,<5"
+        python -m unittest discover -s /source/tests -p "test_*.py"
+    '
 
 mkdir -p "$OUTPUT_DIR"
 # A release directory is a complete snapshot, not an append-only cache. Remove
