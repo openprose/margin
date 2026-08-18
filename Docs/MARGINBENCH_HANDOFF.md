@@ -89,6 +89,8 @@ profile gives that pair a useful scientific question.
    no-spend comparison plan against the role-separated profile. Keep the tracks
    separate and verify equal logical work, identities, case fingerprints,
    sampling settings, and worst-case provider cost before proposing inference.
+   The exact 24-case, 12/12-counterbalanced design is frozen in
+   `Docs/MARGINBENCH_CONTROLS.md`.
 2. If that plan is clean, propose—but do not automatically run—one public
    matched pair capped at $0.10 total. Use it to calibrate the control, not to
    claim a ranking.

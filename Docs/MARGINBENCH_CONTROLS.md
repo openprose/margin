@@ -100,8 +100,39 @@ Release gates:
 - Trace aggregation produces one trace and the correct logical actor set.
 - Dry plans and live proxy reservations charge one process with the summed
   call budget.
-- In-process and served fake-model matrices both pass before one public paid
-  cell is proposed. That first cell may reserve at most $0.02.
+- In-process and served fake-model matrices must both pass before a public paid
+  comparison is proposed. The first matched pair may reserve at most $0.10 in
+  total across both profiles.
+
+### First split-versus-continuing study
+
+The first comparison between the two implemented profiles should hold the
+Margin build, model version, sampling settings, hidden case fingerprint, role
+briefs, scripted events, scorer, and logical-role compute budget fixed. Only the
+agent topology and transcript sharing change.
+
+- Use all six workflows with four freshly keyed repetitions: 24 matched cases.
+- Run every case once as role-separated and once as one continuing agent.
+- Counterbalance profile order exactly 12/12 so provider drift does not favor
+  one topology.
+- Preserve 44 logical role phases per profile. The role-separated side uses 44
+  model processes; the continuing side uses 24 processes whose per-case limits
+  are the sum of their logical roles.
+- Treat outcome, integrity, and efficiency as the primary comparable
+  dimensions declared by both profiles. Report protocol and recovery results
+  descriptively without folding unlike dimensions into a single promotion
+  claim.
+- Report paired score differences, safety/source failures, model calls, tokens,
+  observed cost, command counts, invalid commands, and wall time. Do not use an
+  LLM judge.
+- Keep the existing conservative full-study provider bound as an admission
+  ceiling, while enforcing a much smaller cumulative proxy cap. A first public
+  calibration is one matched case capped at $0.10 total; no 24-case study should
+  start until that cell produces valid, topology-complete artifacts.
+
+This is a comparison between control tracks, not a candidate promotion. Its
+result must not enter the existing candidate leaderboard or be combined with a
+role-separated interface score.
 
 ## 2. Role-separated agents using ordinary Markdown files
 
