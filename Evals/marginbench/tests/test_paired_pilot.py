@@ -58,6 +58,7 @@ class PairedPrimeControllerTests(unittest.TestCase):
         *,
         control_profile: str = DEFAULT_CONTROL_PROFILE,
         scenario: str = "human_agent_relay",
+        response_token_allowance: int = 0,
     ) -> tuple[argparse.Namespace, dict]:
         root.mkdir(parents=True, exist_ok=True)
         baseline = CandidateManifest.create(
@@ -96,6 +97,7 @@ class PairedPrimeControllerTests(unittest.TestCase):
             "inputTokenCeilingSource": "https://example.invalid/model-contract",
             "upstreamAttemptsPerTurn": 1,
             "maxTokensPerCall": 250,
+            "providerResponseTokenAllowance": response_token_allowance,
             "maxConcurrent": 1,
             "rolloutTimeoutSeconds": 30.0,
             "wallTimeoutSeconds": 60.0,
@@ -136,6 +138,22 @@ class PairedPrimeControllerTests(unittest.TestCase):
             clock=lambda: 1_000.0,
         )
         return arguments, plan
+
+    def test_paired_plan_prices_provider_wrapper_tokens_without_expanding_sampling(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="marginbench-paired-wrapper-budget-") as temporary:
+            root = Path(temporary)
+            _, baseline = self._fixture(root / "baseline")
+            _, padded = self._fixture(root / "padded", response_token_allowance=8)
+            self.assertEqual(padded["limits"]["maxTokensPerCall"], 250)
+            self.assertEqual(padded["limits"]["providerResponseTokenAllowance"], 8)
+            self.assertEqual(
+                round(
+                    padded["budget"]["contractMaximumCostUSD"]
+                    - baseline["budget"]["contractMaximumCostUSD"],
+                    6,
+                ),
+                0.000004,
+            )
 
     def test_single_agent_plan_matches_compute_with_one_process(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-paired-topology-") as temporary:
@@ -235,6 +253,10 @@ class PairedPrimeControllerTests(unittest.TestCase):
                     ],
                     "inputTokenCeiling": plan["limits"]["inputTokenCeilingPerCall"],
                     "maxOutputTokens": plan["limits"]["maxTokensPerCall"],
+                    "responseTokenAllowance": plan["limits"].get(
+                        "providerResponseTokenAllowance",
+                        0,
+                    ),
                     "inputPricePerMillion": plan["pricing"]["inputPricePerMillion"],
                     "outputPricePerMillion": plan["pricing"]["outputPricePerMillion"],
                     "billingOverheadUSDPerCall": plan["pricing"][
@@ -325,6 +347,10 @@ class PairedPrimeControllerTests(unittest.TestCase):
                         "upstreamAttemptsPerTurn": plan["limits"]["upstreamAttemptsPerTurn"],
                         "billingOverheadUSDPerCall": plan["pricing"]["billingOverheadUSDPerCall"],
                         "maxTokensPerCall": plan["limits"]["maxTokensPerCall"],
+                        "providerResponseTokenAllowance": plan["limits"].get(
+                            "providerResponseTokenAllowance",
+                            0,
+                        ),
                         "maxTurns": plan["limits"]["maxTurns"],
                         "rolloutTimeoutSeconds": plan["limits"]["rolloutTimeoutSeconds"],
                         "temperature": plan["limits"]["temperature"],
@@ -351,7 +377,10 @@ class PairedPrimeControllerTests(unittest.TestCase):
                     "liveBudget": live_budget,
                     "boundBasis": {
                         "inputTokenCeilingPerCall": plan["limits"]["inputTokenCeilingPerCall"],
-                        "outputTokenCeilingPerCall": plan["limits"]["maxTokensPerCall"],
+                        "outputTokenCeilingPerCall": (
+                            plan["limits"]["maxTokensPerCall"]
+                            + plan["limits"].get("providerResponseTokenAllowance", 0)
+                        ),
                         "modelCallsPerAgentAtMost": plan["limits"]["maxTurns"],
                         "upstreamAttemptsPerTurnAtMost": plan["limits"]["upstreamAttemptsPerTurn"],
                         "inputPricePerMillion": plan["pricing"]["inputPricePerMillion"],
@@ -522,6 +551,7 @@ class PairedPrimeControllerTests(unittest.TestCase):
                 "--input-token-ceiling-source", "https://example.invalid/model-contract",
                 "--upstream-attempts-per-turn", "1",
                 "--max-tokens-per-call", "250",
+                "--provider-response-token-allowance", "0",
                 "--rollout-timeout-seconds", "30",
                 "--wall-timeout-seconds", "60",
                 "--input-price-per-million", "0.03",

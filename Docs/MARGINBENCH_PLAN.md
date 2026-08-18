@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 07:56 ET
+Last updated: 2026-08-18 10:33 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -26,13 +26,13 @@ This document is the live checklist for the build phase ending at 08:00 ET on
 ## Credit ledger and spending gates
 
 Opening Prime Intellect credit: **$199.9861**. Latest observed balance:
-**$199.9487**. Total debit so far: **$0.0374**.
+**$199.9467**. Total debit so far: **$0.0394**.
 
 | Gate | Maximum cumulative spend | Purpose | Status |
 | --- | ---: | --- | --- |
 | 0 | $0 | Install, login, local tests, container builds, dry runs | Complete |
 | 1 | $2 | One tiny end-to-end hosted smoke test | Complete; $0.0017 first valid smoke |
-| 2 | $15 | Cheap-model calibration on a small public-development slice | Complete; cumulative debit $0.0374 |
+| 2 | $15 | Cheap-model calibration on a small public-development slice | Complete; cumulative debit $0.0394 |
 | 3 | $50 | Paired comparisons of promising CLI/manual variants | Not started |
 | 4 | $120 | Broader model/team matrix only after stable signal | Not started |
 | Reserve | $80 | Held for follow-up, failures, and a meaningful final run | Untouched |
@@ -780,29 +780,67 @@ The phase is successful if the repository contains:
   `cd8b91b4dcde44880df37bb84eceb3cc55e0b0ae0891e230c3744b5664227760`.
   No inference was invoked.
 
+- 2026-08-18 10:33 ET — Attempted the authorized public topology calibration
+  on the exact `agent_agent_handoff` repetition-0 case. The role-separated half
+  completed at 96.25 with exact outcome, intact source, one invalid command,
+  ten model calls, 39.840 seconds wall time, and $0.0017 observed debit. The
+  continuing-agent half was invalid: Prime reported 1,202 completion tokens
+  against the 1,200-token reservation, the live gate closed after one forwarded
+  call, three later calls were rejected, and $0.0002 was charged. A mistaken
+  natural-language balance probe before the experiment cost another $0.0001;
+  total debit for the phase was therefore $0.0020, leaving $199.9467. No score
+  comparison was recorded and no paid retry ran. The harness now prices a
+  separate eight-token provider wrapper allowance without increasing the
+  requested generation limit, marks any infrastructure code or errored role as
+  incomplete, creates raw trace roots at mode 0700, and can validate redacted
+  infrastructure receipts. During local verification, a pre-existing race in
+  the scripted concurrent-writer rehearsal was also reproduced: after a real
+  write conflict the fake agent reread but did not retry. That recovery path is
+  fixed and passed 10/10 targeted served runs. The complete role-separated and
+  continuing-agent matrices now pass in-process and through the environment
+  server; all 63 benchmark tests pass. The fresh two-half retry plan is dry and
+  compute-matched at a $0.049 cap per half ($0.098 combined), but remains
+  unexecuted pending a separate paid-retry decision. The repaired source
+  archive then rebuilt independently and passed all 63 discovered clean-package
+  tests (eight expected Prime-only skips); its installed wheel passed the
+  six-scenario 100/100 self-test. The replacement wheel is
+  `8454236f270122921a70e588280023663fcc36a60bba2fa5b5bcec638a8f93b0`
+  and the source archive is
+  `b3b6a78e89ffa7c9e4ea6797923588cd178b4dd5ab7aecb7013d4780fe8653df`.
+
 ## Next statistically useful paid run
 
-The next useful experiment is not another public one-off. It is a paired
-interface comparison over all six workflows with four private repetitions: 24
-matched episodes per candidate, 44 role processes per candidate, and exactly
-balanced 12/12 AB/BA ordering. That is the default study and exceeds the
-20-episode promotion minimum.
+The first public topology calibration did not yield a pair: its role-separated
+half is valid evidence, but its continuing half is an infrastructure failure.
+The next paid action, if separately approved, is a fresh rerun of both halves
+under the repaired harness. Both dry plans use the same case, model, sampling,
+logical actors, Margin binary, and 1,208-token billing ceiling (1,200 requested
+tokens plus eight bounded wrapper tokens). Each live gate is $0.049, so the
+fresh pair can add at most $0.098. It is a calibration only, not ranking
+evidence.
+
+After a clean public pair, the next useful experiment is a paired interface
+comparison over all six workflows with four private repetitions: 24 matched
+episodes per candidate, 44 role processes per candidate, and exactly balanced
+12/12 AB/BA ordering. That default study exceeds the 20-episode promotion
+minimum.
 
 The official 1M-token context resolves the factual uncertainty, but it exposes
 an intentionally conservative budget problem. At Qwen Flash's current Prime
-price, 2,400 output tokens, 12 turns, three possible upstream attempts per turn,
-and $0.0002 rounding allowance, the worst-case bound is $48.331008 per candidate
-or $96.662016 for the pair. The observed three-cell calibration cost only
+price, 2,400 requested output tokens plus eight bounded provider wrapper tokens,
+12 turns, three possible upstream attempts per turn, and $0.0002 rounding
+allowance, the worst-case bound is $48.332656 per candidate or $96.665312 for
+the pair. The observed three-cell calibration cost only
 $0.0097, but observed cost is not a safe admission limit. Before a broad private
 study, the new trusted request proxy now hard-rejects oversized prompts and
 enforces cumulative reservations before forwarding each model call. The paired
-planner now preserves the $96.662016 contract maximum separately while allowing
+planner now preserves the $96.665312 contract maximum separately while allowing
 an explicit $0.05 live cap on each of 48 jobs: the enforceable study maximum is
 $2.40 under a $3 admission cap, and the first matched pair is at most $0.10.
-That no-model plan preserves a $190 wallet reserve. The next paid step, if
-chosen, is only that first private matched pair; inspect it before allowing the
-remaining 46 jobs. The remaining $199.9487 balance is sufficient, so no
-additional credits are requested.
+That no-model plan preserves a $190 wallet reserve. Do not schedule any private
+jobs until a fresh public topology pair is complete and inspected. The
+remaining $199.9467 balance is sufficient, so no additional credits are
+requested.
 
 ## Decisions still to earn with evidence
 

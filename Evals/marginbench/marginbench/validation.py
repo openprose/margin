@@ -210,7 +210,13 @@ def _close(left: float, right: float) -> bool:
     return math.isclose(float(left), float(right), abs_tol=0.000001)
 
 
-def _live_budget_semantics(report: dict[str, Any], prefix: str, errors: list[str]) -> None:
+def _live_budget_semantics(
+    report: dict[str, Any],
+    prefix: str,
+    errors: list[str],
+    *,
+    allow_provider_violation: bool = False,
+) -> None:
     policy = report["policy"]
     if report["reservedCostUpperBoundUSD"] > policy["maxTotalCostUSD"] + 0.000001:
         errors.append(f"{prefix}: reserved cost exceeds the live budget cap")
@@ -228,16 +234,21 @@ def _live_budget_semantics(report: dict[str, Any], prefix: str, errors: list[str
         policy["inputTokenCeiling"],
         policy["maxRequestBytes"] * 2 + policy["templateTokenAllowance"],
     )
-    maximum_completion_tokens = forwarded * policy["maxOutputTokens"]
+    maximum_completion_tokens = forwarded * (
+        policy["maxOutputTokens"] + policy.get("responseTokenAllowance", 0)
+    )
     if report["reportedPromptTokens"] > maximum_prompt_tokens:
         errors.append(f"{prefix}: reported prompt tokens exceed the request-byte bound")
-    if report["reportedCompletionTokens"] > maximum_completion_tokens:
+    if (
+        report["reportedCompletionTokens"] > maximum_completion_tokens
+        and not allow_provider_violation
+    ):
         errors.append(f"{prefix}: reported completion tokens exceed the output bound")
     violations = report.get("providerBoundViolationCount", 0)
     latched = report.get("latchedClosed", violations > 0)
     if latched != (violations > 0):
         errors.append(f"{prefix}: closed latch disagrees with provider-bound violations")
-    if violations > 0:
+    if violations > 0 and not allow_provider_violation:
         errors.append(f"{prefix}: provider reported usage outside the reserved bound")
 
 
@@ -490,7 +501,12 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             elif not _close(expected, cost["admissionBound"]):
                 errors.append("admissionBound does not match its recorded basis")
         if "liveBudget" in cost:
-            _live_budget_semantics(cost["liveBudget"], "run live budget", errors)
+            _live_budget_semantics(
+                cost["liveBudget"],
+                "run live budget",
+                errors,
+                allow_provider_violation=payload["status"] == "infrastructure-error",
+            )
     elif schema_name == "prime-run-summary.schema.json":
         episodes = payload["episodes"]
         identifiers = [item["episodeID"] for item in episodes]
@@ -581,7 +597,12 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         if payload["estimatedMaximumCostUSD"] + 0.000001 < trace_cost:
             errors.append("reported model cost exceeds estimatedMaximumCostUSD")
         if "liveBudget" in payload:
-            _live_budget_semantics(payload["liveBudget"], "Prime live budget", errors)
+            _live_budget_semantics(
+                payload["liveBudget"],
+                "Prime live budget",
+                errors,
+                allow_provider_violation=payload["status"] == "infrastructure_error",
+            )
         summary_bound_parts = (
             "contractMaximumCostUSD" in payload,
             "liveBudgetCapUSD" in payload,
@@ -909,7 +930,10 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 limits["inputTokenCeilingPerCall"]
                 * pricing["inputPricePerMillion"]
                 / 1_000_000
-                + limits["maxTokensPerCall"]
+                + (
+                    limits["maxTokensPerCall"]
+                    + limits.get("providerResponseTokenAllowance", 0)
+                )
                 * pricing["outputPricePerMillion"]
                 / 1_000_000
                 + pricing["billingOverheadUSDPerCall"]

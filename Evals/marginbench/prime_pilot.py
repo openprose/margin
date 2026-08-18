@@ -49,6 +49,7 @@ BENCHMARK_VERSION = "0.1.0"
 DEFAULT_PRIME_INFERENCE_URL = "https://api.pinference.ai/api/v1"
 PROXY_API_KEY_ENV = "MARGINBENCH_PROXY_TOKEN"
 MAX_PRIME_CONFIG_BYTES = 1024 * 1024
+DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE = 8
 
 
 def canonical(value: Any) -> str:
@@ -78,6 +79,12 @@ def _require_fresh_output_targets(
         path = original.resolve(strict=False)
         if original.is_symlink() or path.exists():
             raise ValueError(f"Refusing to replace an existing output: {original}")
+
+
+def _create_private_output_directory(path: Path) -> None:
+    """Create the raw trace root so other local users cannot traverse it."""
+    path.mkdir(parents=True, mode=0o700, exist_ok=False)
+    path.chmod(0o700)
 
 
 def _write_new_artifact(path: Path, raw: bytes, *, mode: int = 0o600) -> None:
@@ -503,6 +510,26 @@ def _summarize_traces(output: Path) -> dict[str, Any]:
     }
 
 
+def _execution_status(
+    exit_code: int,
+    trace_summary: dict[str, Any],
+    infrastructure_codes: list[str],
+) -> str:
+    role_stops = (
+        role.get("stopCondition")
+        for episode in trace_summary.get("episodes", ())
+        for role in episode.get("roleRuns", ())
+    )
+    completed = (
+        exit_code == 0
+        and bool(trace_summary.get("traceCount"))
+        and trace_summary.get("traceConsistencyPassed") is True
+        and not infrastructure_codes
+        and all(stop != "error" for stop in role_stops)
+    )
+    return "completed" if completed else "infrastructure_error"
+
+
 def _run_manifest(
     arguments: argparse.Namespace,
     trace_summary: dict[str, Any],
@@ -575,7 +602,8 @@ def _run_manifest(
         arguments.max_turns,
         arguments.upstream_attempts_per_turn,
         arguments.input_token_ceiling_per_call,
-        arguments.max_tokens_per_call,
+        arguments.max_tokens_per_call
+        + getattr(arguments, "provider_response_token_allowance", 0),
         arguments.input_price_per_million,
         arguments.output_price_per_million,
         arguments.billing_overhead_usd_per_call,
@@ -649,6 +677,11 @@ def _run_manifest(
                 "upstreamAttemptsPerTurn": arguments.upstream_attempts_per_turn,
                 "billingOverheadUSDPerCall": arguments.billing_overhead_usd_per_call,
                 "maxTokensPerCall": arguments.max_tokens_per_call,
+                "providerResponseTokenAllowance": getattr(
+                    arguments,
+                    "provider_response_token_allowance",
+                    0,
+                ),
                 "maxTurns": arguments.max_turns,
                 "rolloutTimeoutSeconds": arguments.rollout_timeout_seconds,
                 "temperature": arguments.temperature,
@@ -684,7 +717,10 @@ def _run_manifest(
             "hardAdmissionCap": arguments.max_cost_usd,
             "boundBasis": {
                 "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
-                "outputTokenCeilingPerCall": arguments.max_tokens_per_call,
+                "outputTokenCeilingPerCall": (
+                    arguments.max_tokens_per_call
+                    + getattr(arguments, "provider_response_token_allowance", 0)
+                ),
                 "modelCallsPerAgentAtMost": arguments.max_turns * compute_multiplier,
                 "upstreamAttemptsPerTurnAtMost": arguments.upstream_attempts_per_turn,
                 "inputPricePerMillion": arguments.input_price_per_million,
@@ -716,6 +752,15 @@ def main() -> int:
     )
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--max-tokens-per-call", type=int, default=1200)
+    parser.add_argument(
+        "--provider-response-token-allowance",
+        type=int,
+        default=DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE,
+        help=(
+            "small, priced allowance for provider-reported wrapper tokens beyond the "
+            "requested generation limit"
+        ),
+    )
     parser.add_argument("--max-turns", type=int, default=12)
     parser.add_argument("--max-input-tokens", type=int, default=40000)
     parser.add_argument("--max-output-tokens", type=int, default=6000)
@@ -825,6 +870,8 @@ def main() -> int:
         raise SystemExit("all run limits must be positive")
     if arguments.max_tokens_per_call > arguments.max_output_tokens:
         raise SystemExit("max-tokens-per-call cannot exceed max-output-tokens")
+    if not 0 <= arguments.provider_response_token_allowance <= 4096:
+        raise SystemExit("provider-response-token-allowance must be between 0 and 4096")
     if arguments.input_price_per_million < 0 or arguments.output_price_per_million < 0:
         raise SystemExit("token prices cannot be negative")
     if not (0 <= arguments.billing_overhead_usd_per_call <= 1):
@@ -860,6 +907,7 @@ def main() -> int:
             output_price_per_million=arguments.output_price_per_million,
             billing_overhead_usd_per_call=arguments.billing_overhead_usd_per_call,
             max_total_cost_usd=live_proxy_cost_cap,
+            response_token_allowance=arguments.provider_response_token_allowance,
         )
     except ValueError as error:
         raise SystemExit(str(error)) from error
@@ -901,7 +949,7 @@ def main() -> int:
         arguments.max_turns,
         arguments.upstream_attempts_per_turn,
         arguments.input_token_ceiling_per_call,
-        arguments.max_tokens_per_call,
+        arguments.max_tokens_per_call + arguments.provider_response_token_allowance,
         arguments.input_price_per_million,
         arguments.output_price_per_million,
         arguments.billing_overhead_usd_per_call,
@@ -947,7 +995,10 @@ def main() -> int:
             "modelCallsPerAgentAtMost": arguments.max_turns * compute_multiplier,
             "upstreamAttemptsPerTurnAtMost": arguments.upstream_attempts_per_turn,
             "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
-            "outputTokenCeilingPerCall": arguments.max_tokens_per_call,
+            "outputTokenCeilingPerCall": (
+                arguments.max_tokens_per_call
+                + arguments.provider_response_token_allowance
+            ),
             "billingOverheadUSDPerCall": arguments.billing_overhead_usd_per_call,
             "note": (
                 "The input ceiling is an externally verified provider/model contract. "
@@ -967,6 +1018,7 @@ def main() -> int:
                 "templateTokenAllowance": live_budget_policy.template_token_allowance,
                 "inputTokenCeiling": live_budget_policy.input_token_ceiling,
                 "maxOutputTokens": live_budget_policy.max_output_tokens,
+                "responseTokenAllowance": live_budget_policy.response_token_allowance,
                 "inputPricePerMillion": live_budget_policy.input_price_per_million,
                 "outputPricePerMillion": live_budget_policy.output_price_per_million,
                 "billingOverheadUSDPerCall": live_budget_policy.billing_overhead_usd_per_call,
@@ -985,6 +1037,7 @@ def main() -> int:
             "maxTurns": arguments.max_turns,
             "maxInputTokens": arguments.max_input_tokens,
             "maxOutputTokens": arguments.max_output_tokens,
+            "providerResponseTokenAllowance": arguments.provider_response_token_allowance,
             "maxTotalTokens": arguments.max_total_tokens,
             "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
             "upstreamAttemptsPerTurn": arguments.upstream_attempts_per_turn,
@@ -1027,7 +1080,7 @@ def main() -> int:
     except RuntimeError as error:
         raise SystemExit(str(error)) from error
 
-    output.mkdir(parents=True, exist_ok=False)
+    _create_private_output_directory(output)
     before = wallet(prime)
     environment = os.environ.copy()
     environment.update({"PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(PACKAGE_ROOT)})
@@ -1073,7 +1126,9 @@ def main() -> int:
     trace_summary = _summarize_traces(output)
     log_text = (output / "runner.log").read_text(encoding="utf-8", errors="replace")
     infrastructure_codes = []
-    if "BUDGET_PROXY_COST_LIMIT" in log_text:
+    if live_budget_report.get("providerBoundViolationCount", 0):
+        infrastructure_codes.append("PROVIDER_USAGE_BOUND_VIOLATION")
+    elif "BUDGET_PROXY_COST_LIMIT" in log_text:
         infrastructure_codes.append("LIVE_BUDGET_EXHAUSTED")
     elif "upstream 429" in log_text or "rate_limit" in log_text:
         infrastructure_codes.append("PROVIDER_RATE_LIMIT")
@@ -1086,13 +1141,7 @@ def main() -> int:
             infrastructure_codes.append(infrastructure_code)
     if timed_out:
         infrastructure_codes.append("WALL_TIMEOUT")
-    status = (
-        "completed"
-        if exit_code == 0
-        and trace_summary["traceCount"]
-        and trace_summary["traceConsistencyPassed"]
-        else "infrastructure_error"
-    )
+    status = _execution_status(exit_code, trace_summary, infrastructure_codes)
     duration_ms = round((time.perf_counter() - started) * 1000)
     observed_wallet_debit = round(before["balanceUSD"] - after["balanceUSD"], 6)
     summary = {

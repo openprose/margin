@@ -121,7 +121,10 @@ def _job_cost(
         _positive_integer(limits, "inputTokenCeilingPerCall")
         * _nonnegative_number(pricing, "inputPricePerMillion")
         / 1_000_000
-        + _positive_integer(limits, "maxTokensPerCall")
+        + (
+            _positive_integer(limits, "maxTokensPerCall")
+            + limits.get("providerResponseTokenAllowance", 0)
+        )
         * _nonnegative_number(pricing, "outputPricePerMillion")
         / 1_000_000
         + _nonnegative_number(pricing, "billingOverheadUSDPerCall")
@@ -151,6 +154,7 @@ def build_prime_study_plan(
     limits = {
         "liveProxyMaxRequestBytes": 1024 * 1024,
         "liveProxyTemplateTokenAllowance": 8192,
+        "providerResponseTokenAllowance": 0,
         **limits,
     }
     if not model or len(model.encode("utf-8")) > 256:
@@ -223,6 +227,13 @@ def build_prime_study_plan(
         raise PrimeStudyError("liveProxyTemplateTokenAllowance must be between 0 and 1000000.")
     if limits["liveProxyMaxRequestBytes"] > 16 * 1024 * 1024:
         raise PrimeStudyError("liveProxyMaxRequestBytes cannot exceed 16777216.")
+    response_allowance = limits.get("providerResponseTokenAllowance")
+    if (
+        not isinstance(response_allowance, int)
+        or isinstance(response_allowance, bool)
+        or not 0 <= response_allowance <= 4096
+    ):
+        raise PrimeStudyError("providerResponseTokenAllowance must be between 0 and 4096.")
     ceiling_source = limits.get("inputTokenCeilingSource")
     if (
         not isinstance(ceiling_source, str)
@@ -431,6 +442,10 @@ def validate_prime_job_outputs(
         "upstreamAttemptsPerTurn": plan["limits"]["upstreamAttemptsPerTurn"],
         "billingOverheadUSDPerCall": plan["pricing"]["billingOverheadUSDPerCall"],
         "maxTokensPerCall": plan["limits"]["maxTokensPerCall"],
+        "providerResponseTokenAllowance": plan["limits"].get(
+            "providerResponseTokenAllowance",
+            0,
+        ),
         "maxTurns": plan["limits"]["maxTurns"],
         "rolloutTimeoutSeconds": plan["limits"]["rolloutTimeoutSeconds"],
         "temperature": plan["limits"]["temperature"],
@@ -517,7 +532,10 @@ def validate_prime_job_outputs(
         errors.append("observed wallet debit exceeds the scheduled job bound")
     expected_basis = {
         "inputTokenCeilingPerCall": plan["limits"]["inputTokenCeilingPerCall"],
-        "outputTokenCeilingPerCall": plan["limits"]["maxTokensPerCall"],
+        "outputTokenCeilingPerCall": (
+            plan["limits"]["maxTokensPerCall"]
+            + plan["limits"].get("providerResponseTokenAllowance", 0)
+        ),
         "modelCallsPerAgentAtMost": (
             plan["limits"]["maxTurns"]
             * per_agent_compute_multiplier(plan["controlProfile"], job["roles"])
@@ -535,6 +553,10 @@ def validate_prime_job_outputs(
         "templateTokenAllowance": plan["limits"]["liveProxyTemplateTokenAllowance"],
         "inputTokenCeiling": plan["limits"]["inputTokenCeilingPerCall"],
         "maxOutputTokens": plan["limits"]["maxTokensPerCall"],
+        "responseTokenAllowance": plan["limits"].get(
+            "providerResponseTokenAllowance",
+            0,
+        ),
         "inputPricePerMillion": plan["pricing"]["inputPricePerMillion"],
         "outputPricePerMillion": plan["pricing"]["outputPricePerMillion"],
         "billingOverheadUSDPerCall": plan["pricing"]["billingOverheadUSDPerCall"],

@@ -134,13 +134,20 @@ def scripted_concurrent_review(prompt: str, tools: list[dict]) -> dict | None:
     if match is None:
         raise ValueError("Fake preflight could not parse the concurrent-review brief.")
     identifier, body = match.group(1), match.group(2).strip()
+    add = [
+        "comments", "add", "review.md", "-m", body,
+        "--document", "--kind", "issue", "--id", identifier,
+    ]
+    listing = ["comments", "list", "review.md", "--status", "all"]
     if not tools:
-        return _invocation([
-            "comments", "add", "review.md", "-m", body,
-            "--document", "--kind", "issue", "--id", identifier,
-        ])
+        return _invocation(add)
     if len(tools) == 1:
-        return _invocation(["comments", "list", "review.md", "--status", "all"])
+        return _invocation(listing)
+    first_failed = _tool_payload(tools[0]).get("exitCode") not in (None, 0)
+    if first_failed and len(tools) == 2:
+        return _invocation(add)
+    if first_failed and len(tools) == 3:
+        return _invocation(listing)
     return None
 
 

@@ -304,7 +304,7 @@ The resulting `urn:marginbench:prime-study-plan:v1` artifact contains no secret
 or local path. It binds all 48 candidate-ordered jobs, benchmark and candidate
 digests, every limit and price, each job's unproxied contract bound and enforced
 proxy cap, both aggregate bounds, and the protected reserve. With the values
-above, the one-million-token contract maximum remains visible as $96.662016,
+above, the one-million-token contract maximum remains visible as $96.665312,
 while the enforceable 48-job maximum is $2.40 and the first matched pair is
 $0.10. Paid execution additionally needs the literal
 confirmation printed by `--help`. `--max-new-jobs 1` stops cleanly after one

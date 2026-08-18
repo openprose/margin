@@ -47,6 +47,7 @@ class InferenceBudgetPolicy:
     output_price_per_million: float
     billing_overhead_usd_per_call: float
     max_total_cost_usd: float
+    response_token_allowance: int = 0
 
     def __post_init__(self) -> None:
         try:
@@ -82,6 +83,12 @@ class InferenceBudgetPolicy:
             or not 1 <= self.max_output_tokens <= 1_000_000
         ):
             raise ValueError("max_output_tokens must be between 1 and 1000000")
+        if (
+            not isinstance(self.response_token_allowance, int)
+            or isinstance(self.response_token_allowance, bool)
+            or not 0 <= self.response_token_allowance <= 4096
+        ):
+            raise ValueError("response_token_allowance must be between 0 and 4096")
         for name, value in (
             ("input_price_per_million", self.input_price_per_million),
             ("output_price_per_million", self.output_price_per_million),
@@ -117,7 +124,9 @@ class InferenceBudgetPolicy:
             self.input_token_upper_bound(request_bytes)
             * self.input_price_per_million
             / 1_000_000
-            + output_tokens * self.output_price_per_million / 1_000_000
+            + (output_tokens + self.response_token_allowance)
+            * self.output_price_per_million
+            / 1_000_000
             + self.billing_overhead_usd_per_call
         )
 
@@ -156,7 +165,11 @@ class InferenceBudgetGate:
             # This makes the cumulative cap pessimistic rather than optimistic.
             self._reserved_upper_usd += upper
             self._forwarded += 1
-        return InferenceReservation(upper, input_tokens, output_tokens)
+        return InferenceReservation(
+            upper,
+            input_tokens,
+            output_tokens + self.policy.response_token_allowance,
+        )
 
     def reject(self) -> None:
         with self._lock:
@@ -215,6 +228,7 @@ class InferenceBudgetGate:
                     "templateTokenAllowance": self.policy.template_token_allowance,
                     "inputTokenCeiling": self.policy.input_token_ceiling,
                     "maxOutputTokens": self.policy.max_output_tokens,
+                    "responseTokenAllowance": self.policy.response_token_allowance,
                     "inputPricePerMillion": self.policy.input_price_per_million,
                     "outputPricePerMillion": self.policy.output_price_per_million,
                     "billingOverheadUSDPerCall": self.policy.billing_overhead_usd_per_call,

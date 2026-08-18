@@ -1,10 +1,11 @@
 # MarginBench build-phase handoff
 
-Status at 2026-08-18 07:56 ET: the primary benchmark track and its
+Status at 2026-08-18 10:33 ET: the primary benchmark track and its
 compute-matched continuing-agent control are implemented, portable, tested,
-packaged, and ready for further no-model development. No
-additional paid run is justified before the next comparison profile passes its
-local release gates.
+packaged, and locally green. The first paid topology calibration produced one
+valid role-separated half and one infrastructure-invalid continuing half, so it
+does not support a comparison. A repaired, dry retry plan is ready; no paid
+retry has run.
 
 ## What exists
 
@@ -33,12 +34,12 @@ local release gates.
 | --- | --- |
 | macOS protocol correctness | 164 Swift tests passed |
 | Linux protocol correctness | 112 tests passed in an architecture-pinned Swift container |
-| Benchmark contracts | 59 passed in system Python and 59 passed in Prime's Python runtime |
+| Benchmark contracts | 63 passed in Prime's Python runtime; the rebuilt source package discovered and passed the same 63 tests with eight expected Prime-only skips |
 | Deterministic reference quality | 6/6 scenarios scored 100 with safety passing |
-| Hosted-boundary rehearsal | Both the role-separated and continuing-agent profiles passed 6/6 in process and 6/6 through the environment server; the continuing profile also passed a freshly keyed private served run; 59 requests per run, zero rejects, zero provider-bound violations, no paid inference |
-| Clean distributable | Extracted source discovered 59 tests and passed every available test with eight expected Prime-only skips; installed Intel Linux wheel passed self-test; package and CI reject sensitive/generated archive paths |
+| Hosted-boundary rehearsal | Both profiles passed 6/6 in process and 6/6 through the environment server; the concurrent-writer recovery path also passed 10/10 targeted served stress runs; 59 requests per full run, zero rejects, zero provider-bound violations, no paid inference |
+| Clean distributable | Extracted source passed 63 tests with eight expected Prime-only skips; installed Intel Linux wheel passed self-test; package and CI reject sensitive/generated archive paths |
 | macOS responsiveness | Final app warm launch median 286.610 ms, p95 289.237 ms; latest CLI help sample median 5.247 ms, p95 5.832 ms |
-| Paid calibration | 17 attempts, 16 completed runs, 193 model calls, $0.0374 observed debit; $199.9487 remains |
+| Paid calibration | 19 benchmark attempts, 17 completed runs, 207 traced model calls, $0.0394 total wallet debit since opening; $199.9467 remains. The topology pair is incomplete and unscored as a comparison. |
 
 Run the local release gates from the repository root:
 
@@ -51,15 +52,15 @@ make marginbench-package
 ```
 
 The current benchmark implementation digest is
-`cf6b4c08710932f0a123728fd6f9a04c5d92db88eda8e9cc8423c74af5ff598e`.
+`24ad4dddc2e56a85c0d15a6419a01192a1edde572bbd72a5eb934412dd4dd536`.
 
 Current benchmark packages:
 
 - `build/marginbench-package/marginbench-0.1.0-py3-none-manylinux_2_35_x86_64.whl`
   — SHA-256
-  `58b0b51b7bab472ee206abfd9069f8b9f423ee481c7ef13847f7e45fe4c7bc55`
+  `8454236f270122921a70e588280023663fcc36a60bba2fa5b5bcec638a8f93b0`
 - `build/marginbench-package/marginbench-0.1.0.tar.gz` — SHA-256
-  `cd8b91b4dcde44880df37bb84eceb3cc55e0b0ae0891e230c3744b5664227760`
+  `b3b6a78e89ffa7c9e4ea6797923588cd178b4dd5ab7aecb7013d4780fe8653df`
 
 Current macOS packages:
 
@@ -74,23 +75,25 @@ ID signed or notarized because no distribution certificate is available.
 ## Spend position
 
 The opening balance was $199.9861 and the authenticated wallet now reports
-$199.9487. The build phase used $0.0374. All later hardening, packaging, Linux
-verification, and served rehearsals were model-free.
+$199.9467. Total debit is $0.0394. Today's attempted topology pair used $0.0019
+inside the benchmark plus $0.0001 from a mistaken natural-language balance
+probe. All subsequent repairs, packaging, and served rehearsals were
+model-free.
 
 A complete 24-pair private study has a deliberately pessimistic provider
-contract bound of $96.662016. With the tested per-job live cap it can enforce a
+contract bound of $96.665312. With the tested per-job live cap it can enforce a
 $2.40 maximum, but it should not run yet. The next paid checkpoint would be one
 matched pair capped at $0.10 total, only after an implemented comparison
 profile gives that pair a useful scientific question.
 
-The two implemented profiles now supply that question. Based only on the 193
-calibration calls already observed, one matched case would likely cost about
-$0.004 and the 24-case matrix about $0.092; these are planning estimates, not
-admission guarantees. The proposed sequence is therefore: one public matched
-case with a hard $0.10 cumulative proxy cap, inspect its artifacts, then—only if
-valid—prepare the private 24-case run with a $2.40 enforced cap and an untouched
-wallet reserve. The $96.662016 provider-contract figure remains the disclosed
-worst case rather than being mistaken for expected spend.
+The attempted public pair cannot be compared because the continuing half hit a
+provider accounting bound after one forwarded call. The repaired runner keeps
+the 1,200-token requested generation limit and separately prices eight possible
+provider wrapper tokens. A fresh pair is dry-planned at $0.049 per half, $0.098
+combined, with equal $2.185707 disclosed contract bounds. Run it only as a
+separate paid retry; if both halves validate, inspect them before preparing the
+private 24-case study. The broad study's $96.665312 provider-contract figure
+remains a disclosed worst case rather than an expected-spend estimate.
 
 A full no-spend schedule expansion confirms that both profiles contain 88
 logical role runs. Role separation uses 88 model processes; continuation uses
@@ -100,15 +103,13 @@ budget advantage from using fewer processes.
 
 ## Next work, in order
 
-1. Use the now-runnable `single-agent-margin-v1` control to prepare a matched,
-   no-spend comparison plan against the role-separated profile. Keep the tracks
-   separate and verify equal logical work, identities, case fingerprints,
-   sampling settings, and worst-case provider cost before proposing inference.
-   The exact 24-case, 12/12-counterbalanced design is frozen in
-   `Docs/MARGINBENCH_CONTROLS.md`.
-2. If that plan is clean, propose—but do not automatically run—one public
-   matched pair capped at $0.10 total. Use it to calibrate the control, not to
-   claim a ranking.
+1. Decide whether to authorize the separately capped fresh public retry. Its
+   plans are already matched and dry: same case, actors, model, sampling,
+   Margin digest, and provider ceiling; $0.049 per half and $0.098 combined.
+   Use it only to calibrate the control, not to claim a ranking.
+2. If the fresh pair validates, inspect both redacted artifacts before planning
+   any private cases. The exact 24-case, 12/12-counterbalanced design remains
+   frozen in `Docs/MARGINBENCH_CONTROLS.md`.
 3. Implement and adversarially test the representation-neutral fact projection
    and visible Markdown interchange drafted in
    `Docs/MARGINBENCH_NEUTRAL_OUTCOMES.md`, then build the plain-Markdown and

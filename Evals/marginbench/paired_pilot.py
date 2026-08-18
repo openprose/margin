@@ -37,7 +37,10 @@ from marginbench.prime_study import (  # noqa: E402
 from marginbench.schema import EpisodeResult, canonical_json  # noqa: E402
 from marginbench.submission import build_submission, verify_submission  # noqa: E402
 from marginbench.validation import MAX_ARTIFACT_BYTES, validate_bytes  # noqa: E402
-from prime_pilot import CONFIRMATION as CHILD_CONFIRMATION  # noqa: E402
+from prime_pilot import (  # noqa: E402
+    CONFIRMATION as CHILD_CONFIRMATION,
+    DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE,
+)
 from prime_pilot import claim_paid_start, wallet  # noqa: E402
 
 
@@ -337,6 +340,8 @@ def _child_command(
         "--track", plan["track"],
         "--temperature", str(limits["temperature"]),
         "--max-tokens-per-call", str(limits["maxTokensPerCall"]),
+        "--provider-response-token-allowance",
+        str(limits["providerResponseTokenAllowance"]),
         "--max-turns", str(limits["maxTurns"]),
         "--max-input-tokens", str(limits["maxInputTokens"]),
         "--max-output-tokens", str(limits["maxOutputTokens"]),
@@ -725,6 +730,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--upstream-attempts-per-turn", type=int, default=3)
     parser.add_argument("--max-tokens-per-call", type=int, default=2_400)
+    parser.add_argument(
+        "--provider-response-token-allowance",
+        type=int,
+        default=DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE,
+    )
     parser.add_argument("--max-concurrent", type=int, default=1)
     parser.add_argument("--rollout-timeout-seconds", type=float, default=120.0)
     parser.add_argument("--wall-timeout-seconds", type=float, default=300.0)
@@ -790,6 +800,7 @@ def main(argv: list[str] | None = None) -> int:
         "inputTokenCeilingSource": arguments.input_token_ceiling_source,
         "upstreamAttemptsPerTurn": arguments.upstream_attempts_per_turn,
         "maxTokensPerCall": arguments.max_tokens_per_call,
+        "providerResponseTokenAllowance": arguments.provider_response_token_allowance,
         "maxConcurrent": arguments.max_concurrent,
         "rolloutTimeoutSeconds": arguments.rollout_timeout_seconds,
         "wallTimeoutSeconds": arguments.wall_timeout_seconds,

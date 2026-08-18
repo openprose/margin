@@ -44,6 +44,8 @@ from marginbench.studies import build_study_plan
 from marginbench.submission import SubmissionError, build_submission, verify_submission
 from marginbench.validation import submission_identifier, validate_artifact, validate_bytes
 from prime_pilot import (
+    _create_private_output_directory,
+    _execution_status,
     _run_manifest,
     _summarize_traces,
     _require_fresh_output_targets,
@@ -175,6 +177,23 @@ class MarginBenchCoreTests(unittest.TestCase):
             {"role": "user", "content": handoff.roles[1].prompt},
         ])
         self.assertEqual(continued["arguments"][:2], ["handoff", "list"])
+
+    def test_fake_concurrent_agent_retries_after_a_real_write_conflict(self) -> None:
+        episode = generate_episode("concurrent_review", KEY, 0)
+        messages = [{"role": "user", "content": episode.roles[0].prompt}]
+        self.assertEqual(scripted_response(messages)["arguments"][:2], ["comments", "add"])
+        messages.append({
+            "role": "tool",
+            "content": json.dumps({
+                "exitCode": 75,
+                "errorCode": "COLLABORATION_PRECONDITION_FAILED",
+            }),
+        })
+        self.assertEqual(scripted_response(messages)["arguments"][:2], ["comments", "list"])
+        messages.append({"role": "tool", "content": json.dumps({"exitCode": 0})})
+        self.assertEqual(scripted_response(messages)["arguments"][:2], ["comments", "add"])
+        messages.append({"role": "tool", "content": json.dumps({"exitCode": 0})})
+        self.assertEqual(scripted_response(messages)["arguments"][:2], ["comments", "list"])
 
     def test_preflight_collects_every_trace_reward_from_a_batched_envelope(self) -> None:
         envelope = {
@@ -326,6 +345,9 @@ class MarginBenchCoreTests(unittest.TestCase):
             "provider reported usage outside" in error
             for error in violation_receipt["errors"]
         ))
+        infrastructure_manifest = json.loads(json.dumps(violating_manifest))
+        infrastructure_manifest["status"] = "infrastructure-error"
+        self.assertTrue(validate_bytes(canonical_json(infrastructure_manifest))["valid"])
         partial = json.loads(json.dumps(summary))
         partial["episodes"][0]["roleRuns"] = partial["episodes"][0]["roleRuns"][:1]
         partial_manifest = _run_manifest(
@@ -1241,6 +1263,32 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(report["forwardedRequestCount"], 1)
         self.assertEqual(report["rejectedRequestCount"], 1)
 
+    def test_inference_budget_gate_prices_bounded_provider_wrapper_tokens(self) -> None:
+        gate = InferenceBudgetGate(InferenceBudgetPolicy(
+            allowed_model="test/model",
+            max_request_bytes=64,
+            template_token_allowance=0,
+            input_token_ceiling=1000,
+            max_output_tokens=10,
+            input_price_per_million=1.0,
+            output_price_per_million=1.0,
+            billing_overhead_usd_per_call=0.0,
+            max_total_cost_usd=0.001,
+            response_token_allowance=2,
+        ))
+        reservation = gate.reserve(10, 5)
+        self.assertIsNotNone(reservation)
+        self.assertEqual(reservation.output_tokens_upper, 7)
+        gate.record_response(
+            {"usage": {"prompt_tokens": 20, "completion_tokens": 7}},
+            reservation,
+        )
+        report = gate.report()
+        self.assertEqual(report["policy"]["maxOutputTokens"], 10)
+        self.assertEqual(report["policy"]["responseTokenAllowance"], 2)
+        self.assertEqual(report["providerBoundViolationCount"], 0)
+        self.assertFalse(report["latchedClosed"])
+
     def test_paid_start_gate_serializes_and_enforces_cooldown(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-paid-gate-") as temporary:
             marker = Path(temporary) / "last-start"
@@ -1259,6 +1307,9 @@ class MarginBenchCoreTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "distinct paths"):
                 _require_fresh_output_targets(output, summary, summary)
 
+            _create_private_output_directory(output)
+            self.assertEqual(output.stat().st_mode & 0o777, 0o700)
+
             _write_new_artifact(summary, b'{"first":true}\n')
             self.assertEqual(summary.read_bytes(), b'{"first":true}\n')
             self.assertEqual(summary.stat().st_mode & 0o777, 0o600)
@@ -1272,6 +1323,21 @@ class MarginBenchCoreTests(unittest.TestCase):
             dangling.symlink_to(root / "missing.json")
             with self.assertRaisesRegex(ValueError, "Refusing to replace"):
                 _require_fresh_output_targets(output, dangling, run)
+
+    def test_infrastructure_codes_and_role_errors_cannot_publish_completed_runs(self) -> None:
+        complete = {
+            "traceCount": 1,
+            "traceConsistencyPassed": True,
+            "episodes": [{"roleRuns": [{"stopCondition": "agent_completed"}]}],
+        }
+        self.assertEqual(_execution_status(0, complete, []), "completed")
+        self.assertEqual(
+            _execution_status(0, complete, ["PROVIDER_USAGE_BOUND_VIOLATION"]),
+            "infrastructure_error",
+        )
+        failed_role = json.loads(json.dumps(complete))
+        failed_role["episodes"][0]["roleRuns"][0]["stopCondition"] = "error"
+        self.assertEqual(_execution_status(0, failed_role, []), "infrastructure_error")
 
     def test_gateway_blocks_escape_gui_and_identity_override_without_raw_log(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-gateway-test-") as temporary:
