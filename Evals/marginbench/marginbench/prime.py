@@ -49,13 +49,18 @@ class MarginBenchTask(vf.Task[MarginBenchData, vf.State, vf.TaskConfig]):
         data: MarginBenchData,
         config: vf.TaskConfig | None = None,
         *,
-        episode: EpisodeDefinition,
+        episode: EpisodeDefinition | None = None,
     ) -> None:
         super().__init__(data, config)
         self.episode = episode
 
-    def for_role(self, role: RoleTask) -> "MarginBenchTask":
-        return MarginBenchTask(
+    def for_role(self, role: RoleTask) -> vf.Task:
+        if self.episode is None:
+            raise RuntimeError("Role task requested before the hidden episode was reconstructed.")
+        # The environment retains the complete episode for setup and scoring.
+        # The agent receives a plain task containing only its public role data;
+        # do not depend on a runtime serializing only selected attributes.
+        return vf.Task(
             self.data.model_copy(update={
                 "name": f"{self.episode.public_id}:{role.seat}",
                 "description": f"MarginBench {role.workflow} role {role.seat}",
@@ -63,7 +68,6 @@ class MarginBenchTask(vf.Task[MarginBenchData, vf.State, vf.TaskConfig]):
                 "system_prompt": None,
             }),
             self.config,
-            episode=self.episode,
         )
 
 
@@ -77,11 +81,26 @@ class MarginBenchTasksetConfig(vf.TasksetConfig):
 
 
 class MarginBenchTaskset(vf.Taskset[MarginBenchTask, MarginBenchTasksetConfig]):
-    def load(self):
-        require_implemented_profile(self.config.control_profile)
+    def _generation_key(self) -> bytes:
         if not hasattr(self, "_marginbench_generation_key"):
             self._marginbench_generation_key = _generation_key(self.config.holdout_key_env)
-        key = self._marginbench_generation_key
+        return self._marginbench_generation_key
+
+    def episode_for(self, data: MarginBenchData) -> EpisodeDefinition:
+        """Rebuild a hidden episode inside the trusted environment from wire-safe data."""
+        require_implemented_profile(data.control_profile)
+        if data.control_profile != self.config.control_profile:
+            raise ValueError("Wire task control profile does not match the environment.")
+        if data.scenario_id not in SCENARIO_IDS:
+            raise ValueError(f"Unknown MarginBench scenario: {data.scenario_id}")
+        episode = generate_episode(data.scenario_id, self._generation_key(), data.repetition)
+        if data.fingerprint != episode.fingerprint or data.name != episode.public_id:
+            raise ValueError("Wire task fingerprint does not match the regenerated episode.")
+        return episode
+
+    def load(self):
+        require_implemented_profile(self.config.control_profile)
+        key = self._generation_key()
         repetitions = self.config.repetition_ids or list(range(self.config.repetitions))
         if (
             len(repetitions) > 100
@@ -130,9 +149,15 @@ class MarginBenchEnvConfig(vf.EnvConfig):
 
 
 class MarginBenchEnv(vf.Env[MarginBenchEnvConfig]):
+    def _trusted_episode(self, task: MarginBenchTask) -> EpisodeDefinition:
+        if task.episode is None:
+            task.episode = self.taskset.episode_for(task.data)
+        return task.episode
+
     async def run(self, task: vf.Task, agents: vf.Agents) -> None:
         if not isinstance(task, MarginBenchTask):
             raise TypeError(f"MarginBenchEnv requires MarginBenchTask, got {type(task).__name__}.")
+        episode = self._trusted_episode(task)
         binary = resolve_margin_binary(self.taskset.config.margin_binary)
         started = time.perf_counter()
         with tempfile.TemporaryDirectory(prefix="marginbench-v1-") as temporary:
@@ -141,11 +166,11 @@ class MarginBenchEnv(vf.Env[MarginBenchEnvConfig]):
             control = root / "control"
             event_log = control / "events.jsonl"
             state_root = control / "state"
-            task.episode.materialize(workspace)
+            episode.materialize(workspace)
             traces: list[vf.Trace] = []
 
             async def apply_events(phase: int, timing: str) -> None:
-                for event in task.episode.events:
+                for event in episode.events:
                     if event.phase == phase and event.timing == timing:
                         await asyncio.to_thread(
                             apply_harness_event,
@@ -178,10 +203,10 @@ class MarginBenchEnv(vf.Env[MarginBenchEnvConfig]):
                     trace = await agent.run(task.for_role(role), tools=tools)
                     traces.append(trace)
 
-            phases = sorted({role.phase for role in task.episode.roles})
+            phases = sorted({role.phase for role in episode.roles})
             for phase in phases:
                 await apply_events(phase, "before")
-                phase_roles = [role for role in task.episode.roles if role.phase == phase]
+                phase_roles = [role for role in episode.roles if role.phase == phase]
                 if len(phase_roles) == 1:
                     await run_role(phase_roles[0])
                 else:
@@ -191,7 +216,7 @@ class MarginBenchEnv(vf.Env[MarginBenchEnvConfig]):
             elapsed = (time.perf_counter() - started) * 1000
             result = await asyncio.to_thread(
                 score_episode,
-                task.episode,
+                episode,
                 workspace,
                 binary,
                 event_log,

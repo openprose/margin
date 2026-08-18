@@ -47,7 +47,14 @@ class PrimeAdapterTests(unittest.TestCase):
 
     def test_taskset_carries_no_oracle_in_wire_data(self) -> None:
         from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY
-        from marginbench.prime import MarginBenchTaskset, MarginBenchTasksetConfig
+        from marginbench.prime import (
+            MarginBenchData,
+            MarginBenchEnv,
+            MarginBenchEnvConfig,
+            MarginBenchTask,
+            MarginBenchTaskset,
+            MarginBenchTasksetConfig,
+        )
         from marginbench.scenarios import generate_episode
 
         taskset = MarginBenchTaskset(MarginBenchTasksetConfig(id="marginbench", repetitions=1))
@@ -61,6 +68,26 @@ class PrimeAdapterTests(unittest.TestCase):
             task.episode.fingerprint,
             generate_episode("human_agent_relay", PUBLIC_DEVELOPMENT_KEY, 0).fingerprint,
         )
+        role_task = task.for_role(task.episode.roles[0])
+        self.assertFalse(hasattr(role_task, "episode"))
+        role_wire = role_task.data.model_dump_json()
+        self.assertNotIn("oracle", role_wire)
+        self.assertNotIn(next(iter(task.episode.files.values())), role_wire)
+
+        rebuilt = MarginBenchTask(MarginBenchData.model_validate_json(wire), task.config)
+        self.assertIsNone(rebuilt.episode)
+        rebuilt.episode = taskset.episode_for(rebuilt.data)
+        self.assertEqual(rebuilt.episode, task.episode)
+        self.assertFalse(hasattr(rebuilt.for_role(rebuilt.episode.roles[0]), "episode"))
+        tampered = rebuilt.data.model_copy(update={"fingerprint": "0" * 64})
+        with self.assertRaisesRegex(ValueError, "fingerprint"):
+            taskset.episode_for(tampered)
+
+        served_environment = MarginBenchEnv(MarginBenchEnvConfig(
+            taskset=MarginBenchTasksetConfig(id="marginbench", margin_binary=str(self.binary)),
+        ))
+        served_task = MarginBenchTask(MarginBenchData.model_validate_json(wire), task.config)
+        self.assertEqual(served_environment._trusted_episode(served_task), task.episode)
 
     def test_taskset_selects_exact_private_repetitions_without_leaking_key(self) -> None:
         from marginbench.prime import MarginBenchTaskset, MarginBenchTasksetConfig
@@ -99,6 +126,30 @@ class PrimeAdapterTests(unittest.TestCase):
         ))
         with self.assertRaisesRegex(ValueError, "unique values"):
             list(invalid)
+
+    def test_prime_server_rebuilds_private_episode_only_inside_trusted_environment(self) -> None:
+        from marginbench.prime import MarginBenchEnvConfig, MarginBenchTaskset, MarginBenchTasksetConfig
+        from verifiers.v1.serve.server import EnvServer
+
+        taskset_config = MarginBenchTasksetConfig(
+            id="marginbench",
+            scenario_ids=["directory_handoff"],
+            margin_binary=str(self.binary),
+        )
+        source = next(iter(MarginBenchTaskset(taskset_config)))
+        server = EnvServer(
+            MarginBenchEnvConfig(taskset=taskset_config),
+            address="tcp://127.0.0.1:0",
+        )
+        try:
+            rebuilt = server._build_task(source.data.model_dump(mode="json"))
+            self.assertIsNone(rebuilt.episode)
+            trusted = server.env._trusted_episode(rebuilt)
+            self.assertEqual(trusted.fingerprint, source.episode.fingerprint)
+            self.assertFalse(hasattr(rebuilt.for_role(trusted.roles[0]), "episode"))
+        finally:
+            server.frontend.close()
+            server.ctx.term()
 
     def test_mcp_tool_adapter_runs_the_real_confined_gateway(self) -> None:
         from marginbench.servers.gateway import MarginGatewayConfig, MarginGatewayToolset

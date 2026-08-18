@@ -394,6 +394,23 @@ The phase is successful if the repository contains:
   `4762696f8c281a921ddf6a424d307a27668ab24ae14b7f4ee0db69c807e1836e`;
   the source archive is
   `3a5c69dea0a756594bd110fbed3802b5344e71036a8742c9137b2ce95db0870a`.
+- 2026-08-18 03:52 ET — Closed the hosted Prime task reconstruction gap. The
+  client wire now remains limited to public selection fields and a one-way case
+  fingerprint. Prime's actual environment server can rebuild a task without a
+  hidden Python attribute; the trusted environment regenerates the episode from
+  its key, checks the fingerprint and control profile, and fails closed on
+  tampering before starting an agent. Role tasks are plain public tasks with no
+  fixture or oracle attribute. Prime passes all 42 contracts, including a real
+  server reconstruction regression; the ordinary runtime passes 36 with six
+  intentional Prime-only skips. The six-case fake-agent matrix remains 100.
+  A fresh Linux package passes its six-case wheel self-test and 42 source tests
+  with 19 expected optional/runtime skips. No paid call was made. The
+  implementation digest is
+  `3be5f580ef040b0e1edefb97cb1f57f78f7c8fa9c61e47f51c7a16e9e28bb042`.
+  The Linux-verified wheel is
+  `78148f4969b463a9dbaed944d0bd80e13c219f7588acb2281b2ba9bb7baaac72`;
+  the source archive is
+  `a1955f881a07485e8a9cca1c6ba586ea2527633ddfe78ed98351831e5928b445`.
 
 ## Next statistically useful paid run
 

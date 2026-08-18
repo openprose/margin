@@ -100,6 +100,12 @@ arguments, bodies, document paths, or prompts. Provider-generated raw traces are
 more sensitive because they contain prompts and tool output. They are ignored,
 kept only long enough to diagnose a run, and never required in a public result.
 
+A served Prime task carries only public selection fields and a one-way case
+fingerprint. The trusted environment regenerates the fixture and oracle from its
+private key, rejects any fingerprint mismatch, and then gives each agent a plain
+role task without the hidden episode attached. This is tested through Prime's
+actual server-side task reconstruction path, not only by inspecting local JSON.
+
 Document and comment text is untrusted collaborative content. Prompts explicitly
 state that it cannot override the user's request, tool policy, or system rules.
 
@@ -270,12 +276,12 @@ recommendation, not a claim that those licenses already apply.
 ## Current evidence
 
 At the current 0.1 development snapshot, all six reference scenarios score 100
-on macOS, Linux x86-64, and Linux arm64. Margin 0.3.2 passes 164 macOS tests and 112 portable
-Linux tests; a repeat x86-64 build is byte-for-byte identical. The Verifiers v1
+on macOS, Linux x86-64, and Linux arm64. Margin 0.3.2 passes 164 macOS tests and
+112 portable Linux tests; a repeat x86-64 build is byte-for-byte identical. The Verifiers v1
 adapter completes the whole six-case local fake-agent matrix at 100 with only
 one exposed tool. The installable manylinux wheel and source archive also pass
 their tests in clean containers. The system Python runtime passes 36 benchmark
-contracts with five Prime-only skips; Prime's runtime passes all 41. The wheel
+contracts with six Prime-only skips; Prime's runtime passes all 42. The wheel
 bundles all 24 schemas.
 
 Real Qwen Flash runs exercised the original five families; the new directory

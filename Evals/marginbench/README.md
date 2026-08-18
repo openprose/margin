@@ -44,6 +44,11 @@ An agent receives its role brief and one tool named `margin`. The gateway:
 The hidden fixture and executable oracle remain in the environment process, not
 in the task data or agent runtime. Raw provider traces can still contain task
 prompts and tool responses; `runs/` is ignored and must be treated as private.
+When Prime serves the environment out of process, the wire carries only the
+scenario, repetition, control profile, and one-way case fingerprint. The trusted
+server regenerates the hidden episode from its key and rejects a fingerprint
+mismatch before creating any agent process. Each agent then receives a plain
+role task with no episode, fixture, or oracle attribute.
 
 ## Local, no-model gates
 
