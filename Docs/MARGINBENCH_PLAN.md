@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 07:46 ET
+Last updated: 2026-08-18 07:51 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -753,6 +753,15 @@ The phase is successful if the repository contains:
   success conditions for all six workflows, intermediate all-or-none
   visibility, and the adversarial gates required before the control can run.
   No paid or model-backed execution was enabled.
+
+- 2026-08-18 07:51 ET — Corrected the distributable benchmark card's stale
+  description of the now-runnable continuing-agent control, then rebuilt from
+  the source archive and repeated all 59 clean-container tests plus the
+  installed-wheel six-case self-test. The final wheel is
+  `7da1b10fc0e471607cb6f8a74c8238d9159d949a9e950643786589c0f3b83ee0`;
+  the final source archive is
+  `5c3547ab616f93db2a862a9694e648916c819c6b16bf657976ac1aba470263d4`.
+  No inference was invoked.
 
 ## Next statistically useful paid run
 
