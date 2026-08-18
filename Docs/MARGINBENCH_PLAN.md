@@ -693,11 +693,11 @@ The phase is successful if the repository contains:
   proves equal logical work and equal worst-case cost with half the processes on
   a two-role case. Both Python runtimes pass 59 contracts; clean source/wheel
   verification passes. The implementation digest is
-  `bb94ca3053cd8463b484714ea39a35f979aeac2ac179c2b5646415d722fa490e`.
+  `cf6b4c08710932f0a123728fd6f9a04c5d92db88eda8e9cc8423c74af5ff598e`.
   The Linux-verified wheel is
-  `57240cbc3b89002c973117c4e8e8a78dd3443686ae7517aa9179e419b88c50e5`;
+  `ad797f9bf43a6cdaa9a9c13fefe253e47587797a78f7ec0d1fd4ad7124b2feec`;
   its source archive is
-  `e93405b2256fbe5407b9add3cd391b0d556c6127d9543c4e1e575d1d5c886508`.
+  `f7a0b995563212ccb14b96ac42de88b55c5efcb4274a93a5a7ff3f566620266f`.
 
 - 2026-08-18 07:20 ET — Repeated the continuing-agent served gate against a
   freshly generated private holdout key. All six hidden variants scored 100 in
@@ -706,6 +706,14 @@ The phase is successful if the repository contains:
   removed. CI now repeats this private served control gate before removing its
   own ephemeral key, preventing the public deterministic fixtures from being
   the only evidence for the promoted topology.
+
+- 2026-08-18 07:23 ET — Audited the low-level no-spend paid-plan projection for
+  a two-role continuing case. It now publishes and enforces the same effective
+  ceiling: one agent process, 24 calls at most from two 12-turn role budgets,
+  and a $0.167190 conservative contract bound in the dry fixture. Mixed
+  continuing scenarios with different role counts fail with a concise error
+  before authentication, output creation, or spend, rather than receiving an
+  unfair shared ceiling. No model call was made.
 
 ## Next statistically useful paid run
 

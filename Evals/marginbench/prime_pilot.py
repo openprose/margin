@@ -831,6 +831,15 @@ def main() -> int:
         raise SystemExit("billing-overhead-usd-per-call must be between zero and one")
     if arguments.prior_infrastructure_attempts < 0:
         raise SystemExit("prior-infrastructure-attempts must be nonnegative")
+    try:
+        compute_multiplier = _selection_compute_multiplier(
+            arguments.scenario,
+            arguments.repetitions,
+            repetition_ids,
+            arguments.control_profile,
+        )
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     if not (0 < arguments.max_cost_usd <= HARD_MAX_COST_USD):
         raise SystemExit(f"max-cost-usd must be above zero and at most {HARD_MAX_COST_USD}")
     live_proxy_cost_cap = (
@@ -935,7 +944,7 @@ def main() -> int:
         "estimatedMaximumCostUSD": estimate,
         "contractMaximumCostUSD": contract_estimate,
         "costBoundBasis": {
-            "modelCallsPerAgentAtMost": arguments.max_turns,
+            "modelCallsPerAgentAtMost": arguments.max_turns * compute_multiplier,
             "upstreamAttemptsPerTurnAtMost": arguments.upstream_attempts_per_turn,
             "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
             "outputTokenCeilingPerCall": arguments.max_tokens_per_call,

@@ -405,6 +405,12 @@ sum the logical-role limits onto the one continuing process, preserve each
 logical actor separately from the `agent` trace seat, and validate topology and
 pricing. The profile is implemented.
 
+The low-level paid pilot accepts one continuing-agent scenario family per
+invocation (or several families only when they have the same logical-role
+count), because Verifiers applies one process limit to the whole invocation.
+The paired-study controller already launches one frozen case per child job and
+therefore applies the exact summed limit automatically.
+
 Four repetitions across all six workflows produce the default 24 matching
 episodes, exceeding the 20-episode promotion minimum. The execution plan
 deterministically flattens each study pair into 48 candidate-ordered jobs,

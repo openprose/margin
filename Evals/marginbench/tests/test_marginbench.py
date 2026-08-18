@@ -457,6 +457,14 @@ class MarginBenchCoreTests(unittest.TestCase):
             ),
             1,
         )
+        mixed = SimpleNamespace(
+            **{
+                **vars(arguments),
+                "scenario": ["human_agent_relay", "agent_agent_handoff"],
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "one logical-role count"):
+            build_eval_command(mixed, Path("/prime/eval"), Path("/output"))
 
     def test_implementation_digest_is_stable_and_excludes_generated_or_private_data(self) -> None:
         files = implementation_files(PACKAGE_ROOT)

@@ -51,15 +51,15 @@ make marginbench-package
 ```
 
 The current benchmark implementation digest is
-`bb94ca3053cd8463b484714ea39a35f979aeac2ac179c2b5646415d722fa490e`.
+`cf6b4c08710932f0a123728fd6f9a04c5d92db88eda8e9cc8423c74af5ff598e`.
 
 Current benchmark packages:
 
 - `build/marginbench-package/marginbench-0.1.0-py3-none-manylinux_2_35_x86_64.whl`
   — SHA-256
-  `57240cbc3b89002c973117c4e8e8a78dd3443686ae7517aa9179e419b88c50e5`
+  `ad797f9bf43a6cdaa9a9c13fefe253e47587797a78f7ec0d1fd4ad7124b2feec`
 - `build/marginbench-package/marginbench-0.1.0.tar.gz` — SHA-256
-  `e93405b2256fbe5407b9add3cd391b0d556c6127d9543c4e1e575d1d5c886508`
+  `f7a0b995563212ccb14b96ac42de88b55c5efcb4274a93a5a7ff3f566620266f`
 
 Current macOS packages:
 
