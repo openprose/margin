@@ -60,6 +60,7 @@ human-readable record shape:
 - Replacement text: none
 - Decision by: none
 - Transaction: none
+- Body bytes: 20
 
 ### Body
 
@@ -68,10 +69,14 @@ Exact Markdown body.
 
 Records are ordered by ID for deterministic rewrites. `none` is literal.
 Single-value fields occupy exactly one line; generated identifiers and source
-passages never contain line breaks. The body is everything after `### Body`
-until the next level-two fact heading. Duplicate headings, unknown required
-fields, invalid actor/parent references, and cycles are errors. Unknown
-optional fields are preserved but receive no credit.
+passages never contain line breaks. `Body bytes` is the exact UTF-8 byte length
+after the blank line following `### Body`; the next record begins only after
+those bytes and the canonical blank-line separator. This keeps headings,
+fences, delimiter-looking text, and arbitrary Unicode inside a Markdown body
+unambiguous without hiding it. Invalid UTF-8, byte counts, line endings,
+duplicate headings, unknown required fields, invalid actor/parent references,
+and cycles are errors. Unknown optional fields are preserved but receive no
+credit.
 
 `Author` is not trusted merely because an agent typed it. The gateway records
 the bound actor under which each fact ID first appeared; those values must
@@ -145,8 +150,9 @@ writes cannot earn the check.
    Margin.
 4. Add adversarial cases for duplicate IDs, forged authors/decision-makers,
    attribution laundering through a later whole-file rewrite, parent cycles,
-   malformed bodies, stale compare-and-swap, symlink/path escape, oversized
-   files, and partial grouped visibility.
+   malformed body lengths, embedded heading/fence/delimiter text, Unicode byte
+   boundaries, stale compare-and-swap, symlink/path escape, oversized files,
+   and partial grouped visibility.
 5. Run both profiles through the same in-process and served fake-model matrix,
    with identical hidden cases, logical role budgets, sampling, and ordering.
 6. Measure and publish each gateway's no-model latency and byte overhead so
