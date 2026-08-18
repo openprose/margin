@@ -245,6 +245,42 @@ class PrimeAdapterTests(unittest.TestCase):
             self.assertEqual(events[0]["role"], roles[0].seat)
             self.assertEqual(events[-1]["role"], roles[1].seat)
 
+    def test_continuing_phase_loop_preserves_role_order_and_event_boundaries(self) -> None:
+        import asyncio
+        from types import SimpleNamespace
+
+        from marginbench.phase_identity import PhaseIdentityController, read_phase_identity
+        from marginbench.prime import _run_continuing_phases
+        from marginbench.scenarios import generate_episode
+
+        episode = generate_episode("agent_agent_handoff", b"continuing-phase-test-key", 0)
+
+        async def exercise(terminate_first: bool):
+            with tempfile.TemporaryDirectory(prefix="marginbench-continuing-phase-") as temporary:
+                binding_path = Path(temporary) / "identity.json"
+                controller = PhaseIdentityController(binding_path, list(episode.roles))
+                timeline = []
+
+                async def apply_events(phase, timing):
+                    timeline.append((timing, phase))
+
+                async def turn(prompt):
+                    binding = read_phase_identity(binding_path)
+                    timeline.append(("turn", binding.ordinal, binding.seat, prompt))
+                    return SimpleNamespace(terminated=terminate_first and binding.ordinal == 0)
+
+                await _run_continuing_phases(episode, controller, turn, apply_events)
+                return timeline
+
+        timeline = asyncio.run(exercise(False))
+        turns = [item for item in timeline if item[0] == "turn"]
+        self.assertEqual([item[2] for item in turns], [role.seat for role in episode.roles])
+        self.assertEqual(timeline[0], ("before", 0))
+        self.assertEqual(timeline[-1], ("after", 1))
+        terminated = asyncio.run(exercise(True))
+        self.assertEqual(len([item for item in terminated if item[0] == "turn"]), 1)
+        self.assertIn(("after", 1), terminated)
+
     def test_mcp_server_starts_and_exposes_only_margin(self) -> None:
         import asyncio
         from mcp import ClientSession

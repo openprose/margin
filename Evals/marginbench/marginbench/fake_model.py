@@ -305,12 +305,16 @@ def scripted_directory_reviewer(prompt: str, tools: list[dict]) -> dict | None:
 
 
 def scripted_response(messages: list[dict]) -> dict | None:
-    prompt = "\n".join(
-        message.get("content", "")
-        for message in messages
+    user_positions = [
+        index
+        for index, message in enumerate(messages)
         if message.get("role") == "user" and isinstance(message.get("content"), str)
-    )
-    tools = _tools(messages)
+    ]
+    if not user_positions:
+        raise ValueError("Fake preflight received no current role brief.")
+    current = user_positions[-1]
+    prompt = messages[current]["content"]
+    tools = _tools(messages[current + 1:])
     if "Begin with bounded directory context" in prompt:
         return scripted_directory_author(prompt, tools)
     if "Use a bounded directory-wide inbox or handoff" in prompt:

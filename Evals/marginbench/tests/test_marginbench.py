@@ -55,7 +55,7 @@ from prime_pilot import (
     load_candidate_manifest,
     load_holdout_key,
 )
-from preflight import _subprocess_environment
+from preflight import _expected_trace_count, _find_scores, _subprocess_environment
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -166,6 +166,30 @@ class MarginBenchCoreTests(unittest.TestCase):
                 self.assertIsInstance(invocation.get("arguments"), list)
                 self.assertTrue(invocation["arguments"])
         self.assertEqual(expected_roles, 11)
+
+        handoff = generate_episode("agent_agent_handoff", KEY, 0)
+        continued = scripted_response([
+            {"role": "user", "content": handoff.roles[0].prompt},
+            {"role": "assistant", "content": "First phase complete."},
+            {"role": "user", "content": handoff.roles[1].prompt},
+        ])
+        self.assertEqual(continued["arguments"][:2], ["handoff", "list"])
+
+    def test_preflight_collects_every_trace_reward_from_a_batched_envelope(self) -> None:
+        envelope = {
+            "traces": [
+                {"rewards": {"marginbench": {"score": 1.0}}},
+                {"rewards": {"marginbench": {"score": 0.75}}},
+            ]
+        }
+        self.assertEqual(_find_scores(envelope), [1.0, 0.75])
+
+    def test_preflight_counts_traces_from_the_selected_agent_topology(self) -> None:
+        self.assertEqual(
+            _expected_trace_count("role-separated-margin-only-v1", KEY),
+            11,
+        )
+        self.assertEqual(_expected_trace_count("single-agent-margin-v1", KEY), 6)
 
     def test_preflight_uses_only_an_explicit_holdout_key(self) -> None:
         variable = "MARGINBENCH_HOLDOUT_KEY"
@@ -465,6 +489,19 @@ class MarginBenchCoreTests(unittest.TestCase):
         cli_plan = json.loads(completed.stdout)
         self.assertEqual(cli_plan["agentProcessesPerCandidate"], 1)
         self.assertEqual(cli_plan["episodes"][0]["traceSeats"], ["agent"])
+        preflight = subprocess.run(
+            [
+                sys.executable, str(PACKAGE_ROOT / "preflight.py"),
+                "--margin-bin", str(self.binary), "--control-profile", profile,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+            check=False,
+        )
+        self.assertNotEqual(preflight.returncode, 0)
+        self.assertEqual(preflight.stdout, b"")
+        self.assertIn(b"not safely runnable", preflight.stderr)
 
     @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
     def test_execution_plan_flattens_study_order_deterministically(self) -> None:

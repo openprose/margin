@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 06:37 ET
+Last updated: 2026-08-18 06:57 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -650,6 +650,34 @@ The phase is successful if the repository contains:
   `ec22af54c8d4c7c704c7b0a51b90aa9b6db7845e77d42f34917733d6ec993e31`;
   its source archive is
   `424c47304b55cce92445b0eb0ec3c828d4c0df3fba5379350a9f3029b5de2cd2`.
+
+- 2026-08-18 06:57 ET — Wired the trusted identity controller into a real
+  promptless continuing Verifiers interaction without enabling the control.
+  Existing role briefs arrive as separate user turns in stable phase/seat order,
+  the model retains one transcript, same-phase work is serialized, scripted
+  events retain their boundaries, and early termination still advances the
+  deterministic external world. A disposable source snapshot changed only the
+  control status and ran the complete fake model: 6/6 scenarios scored 100 both
+  in process and through the environment server, with one trace per episode, 59
+  forwarded requests, zero rejects or provider-bound violations, and no paid
+  inference. That run found and fixed two harness defects: cases without an
+  initial human event had not precreated the private control directory, and the
+  preflight reader retained only the first reward from a batched trace envelope.
+  The corrected release gate now collects every reward and derives its expected
+  trace count from the selected topology: 11 role traces for the primary track
+  and six continuing-agent traces for the control. Both defects now have
+  regressions, and the primary in-process and served release gates pass again.
+  The checked-in profile still refuses all execution
+  because compute-matched live limits/costing and explicit logical-actor versus
+  trace-seat publication remain incomplete. The benchmark passes 57 contracts
+  in both Python runtimes (eight expected Prime-only skips in the ordinary
+  runtime), and its clean package passes all available checks. No paid call was
+  made. The implementation digest is
+  `5cef878ec960ebdaf6bdfddf398f765d94caf6b6afe3112f76873bf734433f46`.
+  The current Linux-verified wheel is
+  `402e6a31b46a5ade48febf0abb96b58126297ea347be99c01ea8308c7778174b`;
+  its source archive is
+  `ee1aaeb9ff08292967981f33d4c46f4f9ae65f1391819d9c452c281b63086160`.
 
 ## Next statistically useful paid run
 

@@ -1,6 +1,6 @@
 # MarginBench build-phase handoff
 
-Status at 2026-08-18 06:37 ET: the primary benchmark track is implemented,
+Status at 2026-08-18 06:57 ET: the primary benchmark track is implemented,
 portable, tested, packaged, and ready for further no-model development. No
 additional paid run is justified before the next comparison profile passes its
 local release gates.
@@ -31,10 +31,10 @@ local release gates.
 | --- | --- |
 | macOS protocol correctness | 164 Swift tests passed |
 | Linux protocol correctness | 112 tests passed in an architecture-pinned Swift container |
-| Benchmark contracts | 54 passed in system Python and 54 passed in Prime's Python runtime |
+| Benchmark contracts | 57 passed in system Python and 57 passed in Prime's Python runtime |
 | Deterministic reference quality | 6/6 scenarios scored 100 with safety passing |
 | Hosted-boundary rehearsal | 6/6 passed in process and 6/6 through the environment server; 59 requests each, zero rejects, zero provider-bound violations, no paid inference |
-| Clean distributable | Extracted source passed 51 available tests with six optional Prime skips; installed Intel Linux wheel passed self-test; package and CI reject sensitive/generated archive paths |
+| Clean distributable | Extracted source discovered 57 tests and passed every available test with eight expected Prime-only skips; installed Intel Linux wheel passed self-test; package and CI reject sensitive/generated archive paths |
 | macOS responsiveness | App warm launch median 288.431 ms, p95 326.421 ms; CLI help median 5.132 ms, p95 5.800 ms |
 | Paid calibration | 17 attempts, 16 completed runs, 193 model calls, $0.0374 observed debit; $199.9487 remains |
 
@@ -49,15 +49,15 @@ make marginbench-package
 ```
 
 The current benchmark implementation digest is
-`2e674ca2b0e132032deae7b2371a5321ee82a2b6242b9e69abf4eaee499fcd18`.
+`5cef878ec960ebdaf6bdfddf398f765d94caf6b6afe3112f76873bf734433f46`.
 
 Current benchmark packages:
 
 - `build/marginbench-package/marginbench-0.1.0-py3-none-manylinux_2_35_x86_64.whl`
   — SHA-256
-  `ec22af54c8d4c7c704c7b0a51b90aa9b6db7845e77d42f34917733d6ec993e31`
+  `402e6a31b46a5ade48febf0abb96b58126297ea347be99c01ea8308c7778174b`
 - `build/marginbench-package/marginbench-0.1.0.tar.gz` — SHA-256
-  `424c47304b55cce92445b0eb0ec3c828d4c0df3fba5379350a9f3029b5de2cd2`
+  `ee1aaeb9ff08292967981f33d4c46f4f9ae65f1391819d9c452c281b63086160`
 
 Current macOS packages:
 
@@ -90,13 +90,13 @@ profile gives that pair a useful scientific question.
    cleanest next answer:
    whether splitting one collaboration task across isolated agents adds value
    versus one continuing agent with matched compute. A trusted atomic
-   phase-identity controller and promptless task projection are also implemented
-   and tested through the live tool server; the continuing interaction loop is
-   not yet wired.
-2. Prove continuing interaction, phase-bound identity, topology-aware live
-   cost/trace accounting, all six
-   local reference cases, and both served fake-model paths. `marginbench
-   controls` is the machine-readable checklist.
+   phase-identity controller and promptless continuing interaction are also
+   implemented and tested through the live tool server. A disposable gated
+   snapshot passed all six fake-model cases in both process modes.
+2. Finish topology-aware live limits/cost accounting and publish logical actors
+   separately from the single `agent` trace seat. Then promote the disposable
+   six-case checks into permanent release gates before changing the profile's
+   status. `marginbench controls` is the machine-readable checklist.
 3. If those gates pass, propose—but do not automatically run—one public
    calibration cell capped at $0.02. Use the result to repair the environment,
    not to claim a ranking.

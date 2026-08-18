@@ -18,26 +18,41 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 
 from marginbench.fake_model import fake_model_server  # noqa: E402
 from marginbench.budget_proxy import InferenceBudgetPolicy, InferenceBudgetProxy  # noqa: E402
-from marginbench.controls import DEFAULT_CONTROL_PROFILE  # noqa: E402
+from marginbench.controls import (  # noqa: E402
+    DEFAULT_CONTROL_PROFILE,
+    planned_topology,
+    require_implemented_profile,
+)
+from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY  # noqa: E402
 from marginbench.keys import read_holdout_key  # noqa: E402
-from marginbench.scenarios import SCENARIO_IDS  # noqa: E402
+from marginbench.scenarios import SCENARIO_IDS, generate_episode  # noqa: E402
 
 
-def _find_score(value) -> float | None:
+def _find_scores(value) -> list[float]:
+    scores: list[float] = []
     if isinstance(value, dict):
         rewards = value.get("rewards")
         if isinstance(rewards, dict):
             marginbench = rewards.get("marginbench")
             if isinstance(marginbench, dict) and isinstance(marginbench.get("score"), (int, float)):
-                return float(marginbench["score"])
+                scores.append(float(marginbench["score"]))
         for child in value.values():
-            if (score := _find_score(child)) is not None:
-                return score
+            scores.extend(_find_scores(child))
     elif isinstance(value, list):
         for child in value:
-            if (score := _find_score(child)) is not None:
-                return score
-    return None
+            scores.extend(_find_scores(child))
+    return scores
+
+
+def _expected_trace_count(control_profile: str, generation_key: bytes) -> int:
+    """Count model traces, which need not equal benchmark episodes."""
+    return sum(
+        planned_topology(
+            control_profile,
+            [role.seat for role in generate_episode(scenario, generation_key, 0).roles],
+        )["agentProcessCount"]
+        for scenario in SCENARIO_IDS
+    )
 
 
 def _subprocess_environment(holdout_key: bytes | None) -> dict[str, str]:
@@ -57,12 +72,17 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--margin-bin", required=True)
     parser.add_argument("--holdout-key-file", type=Path)
+    parser.add_argument("--control-profile", default=DEFAULT_CONTROL_PROFILE)
     parser.add_argument(
         "--server",
         action="store_true",
         help="exercise Prime's out-of-process environment-server wire path",
     )
     arguments = parser.parse_args()
+    try:
+        require_implemented_profile(arguments.control_profile)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     binary = Path(arguments.margin_bin).expanduser().resolve()
     prime = shutil.which("prime")
     if not prime:
@@ -110,7 +130,7 @@ def main() -> int:
             "--output-dir", output,
             "--env.taskset.scenario-ids", *SCENARIO_IDS,
             "--env.taskset.margin-binary", str(binary),
-            "--env.taskset.control-profile", DEFAULT_CONTROL_PROFILE,
+            "--env.taskset.control-profile", arguments.control_profile,
             "--sampling.max-tokens", "1200",
         ]
         if arguments.server:
@@ -136,9 +156,12 @@ def main() -> int:
                     payload = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if (score := _find_score(payload)) is not None:
-                    scores.append(score)
-        expected_rewards = [1.0] * len(SCENARIO_IDS)
+                scores.extend(_find_scores(payload))
+        expected_trace_count = _expected_trace_count(
+            arguments.control_profile,
+            holdout_key or PUBLIC_DEVELOPMENT_KEY,
+        )
+        expected_rewards = [1.0] * expected_trace_count
         live_budget = budget_proxy.gate.report()
         passed = (
             completed.returncode == 0
@@ -154,11 +177,13 @@ def main() -> int:
             "primeExitCode": completed.returncode,
             "fakeModelCalls": handler.request_count,
             "scenarioCount": len(SCENARIO_IDS),
+            "traceRewardCount": len(scores),
+            "expectedTraceRewardCount": expected_trace_count,
             "scenarios": list(SCENARIO_IDS),
             "rewards": scores,
             "rawPromptsRetained": False,
             "toolSurface": ["margin"],
-            "controlProfile": DEFAULT_CONTROL_PROFILE,
+            "controlProfile": arguments.control_profile,
             "executionMode": "environment-server" if arguments.server else "in-process",
             "taskSet": "private-holdout-v1" if holdout_key_id else "public-development-v1",
             "holdoutKeyID": holdout_key_id,

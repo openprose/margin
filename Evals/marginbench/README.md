@@ -396,8 +396,14 @@ The controller can advance only through the frozen role order, publishes each
 actor atomically with mode `0600`, and is read by the Margin tool server instead
 of accepting identity from model arguments. Core and live MCP-server tests prove
 out-of-order/replayed/concurrent advances fail and that one running tool server
-switches from author to reviewer. The profile remains gated until the actual
-continuing interaction and complete fake-model matrices are wired.
+switches from author to reviewer. A promptless continuing interaction now sends
+the original role briefs as separate turns, retains one transcript, serializes
+same-phase roles in generated order, and preserves scripted-event boundaries.
+In a disposable source snapshot, both complete in-process and environment-server
+fake-model matrices passed 6/6 at 100 with one trace per episode and all 59
+requests accounted for. The checked-in profile remains gated until live
+per-process limits/costing and logical-actor versus trace-seat publication are
+finished and tested.
 
 Four repetitions across all six workflows produce the default 24 matching
 episodes, exceeding the 20-episode promotion minimum. The execution plan

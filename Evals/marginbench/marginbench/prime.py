@@ -16,11 +16,33 @@ from verifiers.v1.runtimes import runtime_is_local
 from .binary import resolve_margin_binary
 from .controls import DEFAULT_CONTROL_PROFILE, require_implemented_profile
 from .entropy import PUBLIC_DEVELOPMENT_KEY
+from .phase_identity import PhaseIdentityController
 from .runner import apply_harness_event
 from .scenarios import SCENARIO_IDS, generate_episode
 from .schema import EpisodeDefinition, RoleTask
 from .scorer import score_episode
 from .servers.gateway import MarginGatewayConfig, MarginGatewayToolset
+
+
+async def _run_continuing_phases(
+    episode: EpisodeDefinition,
+    controller: PhaseIdentityController,
+    turn,
+    apply_events,
+) -> None:
+    """Advance a continuing exchange in stable phase and generated-role order."""
+    ordered_roles = sorted(episode.roles, key=lambda role: role.phase)
+    ended = False
+    for phase in sorted({role.phase for role in ordered_roles}):
+        await apply_events(phase, "before")
+        if not ended:
+            for role in (item for item in ordered_roles if item.phase == phase):
+                controller.advance(role)
+                segment = await turn(role.prompt)
+                if segment.terminated:
+                    ended = True
+                    break
+        await apply_events(phase, "after")
 
 
 def _generation_key(environment_name: str) -> bytes:
@@ -191,6 +213,7 @@ class MarginBenchEnv(vf.Env[MarginBenchEnvConfig]):
             root = Path(temporary)
             workspace = root / "workspace"
             control = root / "control"
+            control.mkdir(mode=0o700)
             event_log = control / "events.jsonl"
             state_root = control / "state"
             episode.materialize(workspace)
@@ -230,15 +253,51 @@ class MarginBenchEnv(vf.Env[MarginBenchEnvConfig]):
                     trace = await agent.run(task.for_role(role), tools=tools)
                     traces.append(trace)
 
-            phases = sorted({role.phase for role in episode.roles})
-            for phase in phases:
-                await apply_events(phase, "before")
-                phase_roles = [role for role in episode.roles if role.phase == phase]
-                if len(phase_roles) == 1:
-                    await run_role(phase_roles[0])
-                else:
-                    await asyncio.gather(*(run_role(role) for role in phase_roles))
-                await apply_events(phase, "after")
+            async def run_continuing_agent() -> None:
+                agent = agents.author
+                ordered_roles = sorted(episode.roles, key=lambda role: role.phase)
+                identity_path = control / "phase-identity.json"
+                controller = PhaseIdentityController(identity_path, ordered_roles)
+                toolset = MarginGatewayToolset(MarginGatewayConfig(
+                    margin_binary=str(binary),
+                    workspace=str(workspace),
+                    event_log=str(event_log),
+                    state_home=str(state_root / "shared"),
+                    role="agent",
+                    actor_id="urn:marginbench:unbound",
+                    actor_name="Unbound continuing agent",
+                    identity_binding_file=str(identity_path),
+                    timeout_seconds=self.config.gateway_timeout_seconds,
+                    max_output_bytes=self.config.gateway_max_output_bytes,
+                ))
+                async with serve_shared(
+                    [toolset],
+                    harness_is_local=runtime_is_local(agent.runtime_config),
+                ) as tools:
+                    async with agent.interaction(
+                        task.for_continuing_agent(),
+                        tools=tools,
+                    ) as interaction:
+                        await _run_continuing_phases(
+                            episode,
+                            controller,
+                            interaction.turn,
+                            apply_events,
+                        )
+                        traces.append(interaction.trace)
+
+            if task.data.control_profile == "single-agent-margin-v1":
+                await run_continuing_agent()
+            else:
+                phases = sorted({role.phase for role in episode.roles})
+                for phase in phases:
+                    await apply_events(phase, "before")
+                    phase_roles = [role for role in episode.roles if role.phase == phase]
+                    if len(phase_roles) == 1:
+                        await run_role(phase_roles[0])
+                    else:
+                        await asyncio.gather(*(run_role(role) for role in phase_roles))
+                    await apply_events(phase, "after")
 
             elapsed = (time.perf_counter() - started) * 1000
             result = await asyncio.to_thread(

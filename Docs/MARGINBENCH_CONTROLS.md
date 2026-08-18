@@ -81,12 +81,16 @@ Required implementation changes:
 Current progress: study and execution plans now record logical roles separately
 from actual model-process count, trace seats, and phase policy. A
 `single-agent-margin-v1` dry plan therefore uses one `agent` process per episode
-without being executable. Continuing interaction and trusted phase-bound
-identity remain release gates. The phase-identity primitive itself is now
-implemented and tested across the live MCP server: it advances only in frozen
-order, writes an atomic mode-0600 binding outside the workspace, and overrides
-the static/tool-call identity. Wiring that controller to a single continuing
-interaction and proving all six scenarios are still outstanding.
+without being executable. The phase-identity primitive and continuing
+interaction are implemented and tested across the live MCP server: the
+controller advances only in frozen order, writes an atomic mode-0600 binding
+outside the workspace, overrides the static/tool-call identity, and sends each
+existing role brief as a separate turn. A disposable, temporarily enabled
+source snapshot passed all six cases at 100 both in process and through the
+environment server, with one trace per episode and no paid inference. The
+profile remains gated while live limits/costing, logical-actor versus trace-seat
+publication, and permanent served release gates are completed in the real
+runners.
 
 Release gates:
 
