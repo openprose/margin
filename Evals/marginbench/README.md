@@ -471,7 +471,7 @@ In a full Margin source checkout, the expanded benchmark card and known
 limitations are in `Docs/MARGINBENCH.md`, and the build and spending ledger is
 in `Docs/MARGINBENCH_PLAN.md`. Those source-tree records are not required by the
 standalone package. The paid-wrapper cost-bound correction is preserved here in
-[`results/COST_BOUND_AUDIT.md`](results/COST_BOUND_AUDIT.md).
+`results/COST_BOUND_AUDIT.md` in the source archive.
 
 The package is ready for Prime's Environment Hub, but a private upload under the
 current OpenProse team requires that team to have a registry handle. This account
