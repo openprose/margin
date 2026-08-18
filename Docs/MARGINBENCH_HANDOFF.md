@@ -35,7 +35,7 @@ local release gates.
 | Linux protocol correctness | 112 tests passed in an architecture-pinned Swift container |
 | Benchmark contracts | 59 passed in system Python and 59 passed in Prime's Python runtime |
 | Deterministic reference quality | 6/6 scenarios scored 100 with safety passing |
-| Hosted-boundary rehearsal | Both the role-separated and continuing-agent profiles passed 6/6 in process and 6/6 through the environment server; 59 requests per run, zero rejects, zero provider-bound violations, no paid inference |
+| Hosted-boundary rehearsal | Both the role-separated and continuing-agent profiles passed 6/6 in process and 6/6 through the environment server; the continuing profile also passed a freshly keyed private served run; 59 requests per run, zero rejects, zero provider-bound violations, no paid inference |
 | Clean distributable | Extracted source discovered 59 tests and passed every available test with eight expected Prime-only skips; installed Intel Linux wheel passed self-test; package and CI reject sensitive/generated archive paths |
 | macOS responsiveness | App warm launch median 288.431 ms, p95 326.421 ms; CLI help median 5.132 ms, p95 5.800 ms |
 | Paid calibration | 17 attempts, 16 completed runs, 193 model calls, $0.0374 observed debit; $199.9487 remains |

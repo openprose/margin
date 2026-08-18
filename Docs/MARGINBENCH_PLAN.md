@@ -699,6 +699,14 @@ The phase is successful if the repository contains:
   its source archive is
   `e93405b2256fbe5407b9add3cd391b0d556c6127d9543c4e1e575d1d5c886508`.
 
+- 2026-08-18 07:20 ET — Repeated the continuing-agent served gate against a
+  freshly generated private holdout key. All six hidden variants scored 100 in
+  six traces over 59 fake-model requests, with zero rejects, zero provider-bound
+  violations, and no paid inference. The temporary key was overwritten and
+  removed. CI now repeats this private served control gate before removing its
+  own ephemeral key, preventing the public deterministic fixtures from being
+  the only evidence for the promoted topology.
+
 ## Next statistically useful paid run
 
 The next useful experiment is not another public one-off. It is a paired

@@ -111,6 +111,10 @@ jobs:
           PYTHONPATH="$MARGINBENCH_ROOT" "$MARGINBENCH_ROOT/preflight.py" \
             --margin-bin "$MARGINBENCH_BINARY" --server \
             --holdout-key-file build/ci-marginbench-private/holdout.key
+          PYTHONPATH="$MARGINBENCH_ROOT" "$MARGINBENCH_ROOT/preflight.py" \
+            --margin-bin "$MARGINBENCH_BINARY" --server \
+            --control-profile single-agent-margin-v1 \
+            --holdout-key-file build/ci-marginbench-private/holdout.key
           cleanup_private_key
           trap - EXIT
 
