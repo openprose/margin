@@ -36,7 +36,7 @@ To create one macOS installer containing both the app and command-line tool:
 
 ```sh
 make installer
-open build/Margin-0.3.1-macOS-arm64.pkg
+open build/Margin-0.3.2-macOS-arm64.pkg
 ```
 
 The installer places `Margin.app` in `/Applications` and `margin` in
@@ -254,9 +254,13 @@ make smoke             # packaged CLI and application smoke tests
 make benchmark         # local launch and footprint measurements
 make installer         # one local macOS package installing the app and CLI
 make package           # portable zip and one-file installer, each with checksum
+make test-linux        # portable core/CLI gate in pinned Swift Linux
+make marginbench-test  # provider-neutral benchmark contracts and exact oracles
+make marginbench-preflight # all Prime roles through a local fake model; no spend
+make marginbench-package   # Linux-verified wheel and source archive
 ```
 
-The original real-agent benchmark lives in `Benchmarks/agent_benchmark`. The hill-climbing suite in `Evals/cli` expands it into six single-document task families. `Evals/collaboration` adds twelve secret-seeded relay environments for human-to-agent, agent-to-agent, concurrent, staged multi-file, suggestion, recovery, and merge workflows. Both systems grade final protocol state rather than model prose and keep paid execution behind explicit caps and confirmation.
+The original real-agent benchmark lives in `Benchmarks/agent_benchmark`. The hill-climbing suite in `Evals/cli` expands it into six single-document task families. `Evals/collaboration` adds twelve secret-seeded relay environments for human-to-agent, agent-to-agent, concurrent, staged multi-file, suggestion, recovery, and merge workflows. `Evals/marginbench` packages the provider-independent public benchmark, reproducible Linux CLI, and Prime Verifiers adapter. All three systems grade final protocol state rather than model prose and keep paid execution behind explicit caps and confirmation.
 
 Measured launch results, agent benchmarks/evals, and the complete verification record are in `Docs/PERFORMANCE.md`, `Docs/AGENT_BENCHMARK.md`, `Docs/CLI_EVALS.md`, and `Docs/RELEASE_NOTES.md`.
 

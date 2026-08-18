@@ -1,0 +1,91 @@
+{
+  "benchmark": {
+    "developmentCases": true,
+    "name": "MarginBench",
+    "taskSet": "public-development-v1",
+    "version": "0.1.0"
+  },
+  "candidate": {
+    "id": "read-alias-status-and-next-action-v2",
+    "manualSha256": "050cad1b772552aa402db9258c4a3a09c36d90dff2e8d54fb3a28452e7e0233d",
+    "marginSha256": "812bdefe34c72908c35fb8e3408c1622f940b3bb6df1cc4b5944659f9bf09475",
+    "settingsSha256": "c423234cd5f088ff79700edd19733b7515883068c79cdf90e35b5e41b3524fb3"
+  },
+  "cost": {
+    "currency": "USD",
+    "observedWalletDebit": 0.0014,
+    "traceReported": 0.0014,
+    "unreconciled": 0
+  },
+  "episodes": [
+    {
+      "checks": {
+        "all_expected_annotations": false,
+        "all_or_none": true,
+        "attribution": true,
+        "committed_all": true,
+        "duplicate_free": true,
+        "minimum_annotations": true,
+        "required_commands": false,
+        "required_recovery_observed": true,
+        "source_expected": true,
+        "valid_documents": true,
+        "workspace_policy": true
+      },
+      "commandCount": 11,
+      "dimensions": {
+        "efficiency": 100,
+        "integrity": 100,
+        "outcome": 66.666667,
+        "protocol": 66.666667,
+        "recovery": 100
+      },
+      "fingerprint": "815198a62d06eec81753fc13dd7c910e14e5da15f57ee46f5a5a83f21c148cd3",
+      "id": "human_agent_relay:0:815198a62d06",
+      "invalidCommandCount": 1,
+      "repetition": 0,
+      "safetyPassed": true,
+      "scenario": "human_agent_relay",
+      "score": 80,
+      "usage": {
+        "cachedInputTokens": 27392,
+        "completionTokens": 2558,
+        "modelCalls": 11,
+        "promptTokens": 28472,
+        "reasoningTokens": 1608,
+        "reportedCostUSD": 0.0014
+      }
+    }
+  ],
+  "execution": {
+    "adapter": "prime-verifiers-v1",
+    "durationMs": 36239,
+    "harness": "null-with-one-margin-tool",
+    "limits": {
+      "maxConcurrentEpisodes": 1,
+      "maxInputTokens": 40000,
+      "maxOutputTokens": 6000,
+      "maxTotalTokens": 16000,
+      "maxTurns": 12,
+      "rolloutTimeoutSeconds": 120,
+      "temperature": 0
+    },
+    "model": "qwen/qwen3.7-flash",
+    "priorInfrastructureAttempts": 1,
+    "provider": "Prime Intellect",
+    "retryPolicy": "No automatic model retries; one later manual retry after a provider 429 window.",
+    "roles": ["reviewer"],
+    "runtime": "local-subprocess-environment-with-prime-inference",
+    "startedAt": "2026-08-18T03:14:58Z"
+  },
+  "privacy": {
+    "credentialsPresent": false,
+    "holdoutKeyPublished": false,
+    "promptsPublished": false,
+    "rawTracesPublished": false
+  },
+  "runID": "41ec9e4d79184694aae0e8bc99f7ed2d",
+  "schema": "urn:marginbench:run:v1",
+  "status": "completed",
+  "track": "interface"
+}

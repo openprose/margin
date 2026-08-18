@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://margin.tools/schemas/marginbench/v1/candidate.schema.json",
+  "title": "MarginBench candidate manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "margin_sha256", "manual_sha256", "settings_sha256", "settings"],
+  "properties": {
+    "schema": {"const": "urn:marginbench:candidate:v1"},
+    "id": {"type": "string", "minLength": 1},
+    "margin_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "manual_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "settings_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "settings": {"type": "object"}
+  }
+}

@@ -64,6 +64,8 @@ final class CollaborationContextTests: XCTestCase {
         XCTAssertEqual(context.cursor.files.map(\.path), ["README.md", "notes/équipe.md"])
         XCTAssertFalse(context.truncation.isTruncated)
         XCTAssertEqual(context.files[1].outline.first?.title, "Café ☕️")
+        XCTAssertTrue(context.availableActions.contains(.replyToThread))
+        XCTAssertTrue(context.availableActions.contains(.resolveThread))
         XCTAssertEqual(
             try FileManager.default.contentsOfDirectory(atPath: metadataDirectory.path).sorted(),
             metadataBefore,
@@ -106,6 +108,7 @@ final class CollaborationContextTests: XCTestCase {
         XCTAssertEqual(contribution.actorName, "Review Bot")
         XCTAssertEqual(contribution.anchorState, .anchored)
         XCTAssertEqual(contribution.threadStatus, .open)
+        XCTAssertTrue(context.availableActions.contains(.listThreads))
         XCTAssertEqual(context.actors.first?.id, actor.id)
         let reviewerActivity = try XCTUnwrap(context.activity.first { $0.actorID == actor.id })
         XCTAssertEqual(reviewerActivity.authoredContributionIDs, ["urn:question:one", "urn:task:two"])

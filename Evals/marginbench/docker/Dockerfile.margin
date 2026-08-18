@@ -1,0 +1,24 @@
+# syntax=docker/dockerfile:1
+FROM swift:5.10-jammy@sha256:ffc42e399ad0cad324f68d58f65e4d5f2c22eb9df73c4dfa249e898d497254b3 AS build
+
+WORKDIR /source
+COPY Package.swift ./
+COPY Sources/MarginCore Sources/MarginCore
+COPY Sources/MarginCLI Sources/MarginCLI
+COPY Tests/MarginCoreTests Tests/MarginCoreTests
+COPY Tests/MarginCLITests Tests/MarginCLITests
+
+ARG TARGETARCH
+RUN --mount=type=cache,id=margin-swift-${TARGETARCH},target=/build \
+    swift build \
+      --configuration release \
+      --product margin-cli \
+      --static-swift-stdlib \
+      --scratch-path /build \
+    && mkdir -p /artifact \
+    && cp "$(swift build --configuration release --show-bin-path --scratch-path /build)/margin-cli" /artifact/margin \
+    && strip /artifact/margin \
+    && chmod 0755 /artifact/margin
+
+FROM scratch
+COPY --from=build /artifact/margin /margin

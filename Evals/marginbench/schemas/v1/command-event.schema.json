@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://margin.tools/schemas/marginbench/v1/command-event.schema.json",
+  "title": "MarginBench privacy-minimized command event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["role", "command", "exit_code", "duration_ms", "stdin_bytes", "stdout_bytes", "stderr_bytes", "error_code", "blocked"],
+  "properties": {
+    "role": {"type": "string", "minLength": 1},
+    "command": {"type": "string", "minLength": 1},
+    "exit_code": {"type": "integer"},
+    "duration_ms": {"type": "number", "minimum": 0},
+    "stdin_bytes": {"type": "integer", "minimum": 0},
+    "stdout_bytes": {"type": "integer", "minimum": 0},
+    "stderr_bytes": {"type": "integer", "minimum": 0},
+    "error_code": {"type": ["string", "null"]},
+    "blocked": {"type": "boolean"}
+  }
+}

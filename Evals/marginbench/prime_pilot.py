@@ -1,0 +1,631 @@
+#!/usr/bin/env python3
+"""Budget-gated Prime Verifiers v1 runner with redacted output.
+
+Without --execute this prints the complete, no-model spend plan. A paid run also
+requires the literal confirmation token and writes raw Prime traces only under
+the ignored local runs directory.
+"""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+sys.dont_write_bytecode = True
+PACKAGE_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(PACKAGE_ROOT))
+
+from marginbench.candidates import CandidateManifest  # noqa: E402
+from marginbench.controls import DEFAULT_CONTROL_PROFILE, require_implemented_profile  # noqa: E402
+from marginbench.provenance import implementation_sha256  # noqa: E402
+from marginbench.scenarios import SCENARIO_IDS, generate_episode  # noqa: E402
+from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY  # noqa: E402
+
+
+CONFIRMATION = "RUN_PAID_MARGINBENCH"
+HARD_MAX_COST_USD = 15.0
+BENCHMARK_VERSION = "0.1.0"
+
+
+def canonical(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def estimate_maximum_cost(
+    scenarios: list[str],
+    repetitions: int,
+    max_turns: int,
+    upstream_attempts_per_turn: int,
+    input_token_ceiling_per_call: int,
+    max_tokens_per_call: int,
+    input_price_per_million: float,
+    output_price_per_million: float,
+    billing_overhead_usd_per_call: float,
+) -> float:
+    """Bound provider charges without mistaking Verifiers' soft caps for billing caps.
+
+    Verifiers' ``max_input_tokens`` counts the deduplicated message graph and is
+    checked between turns. Providers bill the complete prompt again on every
+    call. The only honest pre-run USD ceiling therefore uses a separately
+    asserted maximum billable prompt size for *each* possible model call.
+    ``max_tokens_per_call`` is the hard sampling ceiling for each response.
+    """
+    role_runs = sum(
+        len(generate_episode(scenario, PUBLIC_DEVELOPMENT_KEY, repetition).roles)
+        for repetition in range(repetitions)
+        for scenario in scenarios
+    )
+    billable_call_attempts = max_turns * upstream_attempts_per_turn
+    value = role_runs * billable_call_attempts * (
+        input_token_ceiling_per_call * input_price_per_million / 1_000_000
+        + max_tokens_per_call * output_price_per_million / 1_000_000
+        + billing_overhead_usd_per_call
+    )
+    return round(value, 6)
+
+
+def wallet(prime: Path) -> dict[str, Any]:
+    completed = subprocess.run(
+        [str(prime), "--plain", "wallet", "--limit", "5", "--output", "json"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+        timeout=30,
+    )
+    payload = json.loads(completed.stdout)
+    return {
+        "balanceUSD": float(payload["balance_usd"]),
+        "totalBillings": int(payload["total_billings"]),
+    }
+
+
+def claim_paid_start(path: Path, *, now: float, minimum_interval_seconds: float) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        previous_raw = os.read(descriptor, 128).decode("ascii", errors="ignore").strip()
+        try:
+            previous = float(previous_raw)
+        except ValueError:
+            previous = 0.0
+        remaining = minimum_interval_seconds - (now - previous)
+        if previous > 0 and remaining > 0:
+            raise RuntimeError(
+                f"paid-run cooldown has {remaining:.0f} seconds remaining; rerun later"
+            )
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        os.ftruncate(descriptor, 0)
+        os.write(descriptor, f"{now:.6f}\n".encode("ascii"))
+        os.fsync(descriptor)
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def build_eval_command(arguments: argparse.Namespace, v1_eval: Path, output: Path) -> list[str]:
+    task_count = len(arguments.scenario) * arguments.repetitions
+    command = [
+        str(v1_eval),
+        "marginbench",
+        "--model", arguments.model,
+        "--num-tasks", str(task_count),
+        "--num-rollouts", "1",
+        "--max-concurrent", str(arguments.max_concurrent),
+        "--push", "false",
+        "--rich", "false",
+        "--output-dir", str(output),
+        "--env.taskset.scenario-ids", *arguments.scenario,
+        "--env.taskset.repetitions", str(arguments.repetitions),
+        "--env.taskset.margin-binary", str(arguments.margin_bin),
+        "--env.taskset.control-profile", arguments.control_profile,
+        "--sampling.temperature", str(arguments.temperature),
+        "--sampling.max-tokens", str(arguments.max_tokens_per_call),
+    ]
+    for role in ("author", "reviewer"):
+        command += [
+            f"--env.{role}.max-turns", str(arguments.max_turns),
+            f"--env.{role}.max-input-tokens", str(arguments.max_input_tokens),
+            f"--env.{role}.max-output-tokens", str(arguments.max_output_tokens),
+            f"--env.{role}.max-total-tokens", str(arguments.max_total_tokens),
+            f"--env.{role}.timeout.rollout", str(arguments.rollout_timeout_seconds),
+        ]
+    return command
+
+
+def _summarize_traces(output: Path) -> dict[str, Any]:
+    traces_path = output / "traces.jsonl"
+    traces: list[dict[str, Any]] = []
+    if traces_path.is_file():
+        for line in traces_path.read_text(encoding="utf-8").splitlines():
+            try:
+                envelope = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            traces.extend(item for item in envelope.get("traces", []) if isinstance(item, dict))
+    episodes: dict[str, dict[str, Any]] = {}
+    consistent = True
+    for trace in traces:
+        calls = trace.get("calls") if isinstance(trace.get("calls"), list) else []
+        usage = {
+            "modelCalls": len(calls),
+            "promptTokens": sum(int(call.get("usage", {}).get("prompt_tokens", 0)) for call in calls),
+            "completionTokens": sum(int(call.get("usage", {}).get("completion_tokens", 0)) for call in calls),
+            "cachedInputTokens": sum(int(call.get("usage", {}).get("cached_input_tokens", 0)) for call in calls),
+            "reasoningTokens": sum(int(call.get("usage", {}).get("reasoning_tokens", 0)) for call in calls),
+            "reportedCostUSD": round(sum(float(call.get("usage", {}).get("cost", 0)) for call in calls), 6),
+        }
+        marginbench = trace.get("info", {}).get("marginbench", {})
+        task_data = trace.get("task", {}).get("data", {})
+        episode_id = marginbench.get("episodeID")
+        if not isinstance(episode_id, str) or not episode_id:
+            consistent = False
+            continue
+        task_name = task_data.get("name") if isinstance(task_data.get("name"), str) else ""
+        seat = task_name.rsplit(":", 1)[-1] if ":" in task_name else "unknown"
+        immutable_result = {
+            "score": marginbench.get("score"),
+            "safetyPassed": marginbench.get("safetyPassed"),
+            "commandCount": marginbench.get("commandCount"),
+            "invalidCommandCount": marginbench.get("invalidCommandCount"),
+            "checks": marginbench.get("checks"),
+            "dimensions": marginbench.get("dimensions"),
+        }
+        if episode_id not in episodes:
+            episodes[episode_id] = {
+                "episodeID": episode_id,
+                "scenario": task_data.get("scenario_id"),
+                "repetition": task_data.get("repetition"),
+                "fingerprint": task_data.get("fingerprint"),
+                **immutable_result,
+                "roleRuns": [],
+                "usage": {
+                    "modelCalls": 0,
+                    "promptTokens": 0,
+                    "completionTokens": 0,
+                    "cachedInputTokens": 0,
+                    "reasoningTokens": 0,
+                    "reportedCostUSD": 0.0,
+                },
+            }
+        episode = episodes[episode_id]
+        if any(episode.get(key) != value for key, value in immutable_result.items()):
+            consistent = False
+        episode["roleRuns"].append({
+            "seat": seat,
+            "stopCondition": trace.get("stop_condition"),
+            "usage": usage,
+        })
+        for key in (
+            "modelCalls", "promptTokens", "completionTokens", "cachedInputTokens",
+            "reasoningTokens",
+        ):
+            episode["usage"][key] += usage[key]
+        episode["usage"]["reportedCostUSD"] = round(
+            episode["usage"]["reportedCostUSD"] + usage["reportedCostUSD"],
+            6,
+        )
+    summaries = []
+    for episode_id in sorted(episodes):
+        episode = episodes[episode_id]
+        episode["roleRuns"].sort(key=lambda value: (value["seat"], value["stopCondition"] or ""))
+        summaries.append(episode)
+    return {
+        "traceCount": len(traces),
+        "episodeCount": len(summaries),
+        "traceConsistencyPassed": consistent,
+        "episodes": summaries,
+    }
+
+
+def _run_manifest(
+    arguments: argparse.Namespace,
+    trace_summary: dict[str, Any],
+    *,
+    status: str,
+    started_at: str,
+    duration_ms: int,
+    observed_wallet_debit: float,
+) -> dict[str, Any]:
+    repository = PACKAGE_ROOT.parent.parent
+    manual = repository / "Sources" / "MarginCLI" / "MarginManual.swift"
+    candidate_settings = {
+        "adapter": "prime-verifiers-v1",
+        "benchmarkVersion": BENCHMARK_VERSION,
+        "gatewayAdapterSha256": sha256(PACKAGE_ROOT / "marginbench" / "servers" / "gateway.py"),
+        "scenarioProtocolSha256": sha256(PACKAGE_ROOT / "marginbench" / "scenarios.py"),
+        "toolSurface": ["margin"],
+        "controlProfile": arguments.control_profile,
+    }
+    candidate = CandidateManifest.create(
+        arguments.candidate,
+        arguments.margin_bin,
+        manual=manual if manual.is_file() else None,
+        settings=candidate_settings,
+    )
+    episode_values = []
+    for episode in trace_summary["episodes"]:
+        episode_values.append({
+            "id": episode["episodeID"],
+            "scenario": episode["scenario"],
+            "fingerprint": episode["fingerprint"],
+            "repetition": episode["repetition"],
+            "score": episode["score"],
+            "safetyPassed": episode["safetyPassed"],
+            "commandCount": episode["commandCount"],
+            "invalidCommandCount": episode["invalidCommandCount"],
+            "checks": episode["checks"],
+            "dimensions": episode["dimensions"],
+            "usage": episode["usage"],
+        })
+    trace_reported = round(
+        sum(float(episode["usage"]["reportedCostUSD"]) for episode in episode_values),
+        6,
+    )
+    roles = sorted({
+        role["seat"]
+        for episode in trace_summary["episodes"]
+        for role in episode["roleRuns"]
+    })
+    manifest_status = "completed" if status == "completed" else "infrastructure-error"
+    admission_bound = estimate_maximum_cost(
+        arguments.scenario,
+        arguments.repetitions,
+        arguments.max_turns,
+        arguments.upstream_attempts_per_turn,
+        arguments.input_token_ceiling_per_call,
+        arguments.max_tokens_per_call,
+        arguments.input_price_per_million,
+        arguments.output_price_per_million,
+        arguments.billing_overhead_usd_per_call,
+    )
+    run_id = hashlib.sha256(canonical({
+        "candidate": candidate.digest(),
+        "episodes": [episode["id"] for episode in episode_values],
+        "model": arguments.model,
+        "startedAt": started_at,
+    }).encode("utf-8")).hexdigest()[:32]
+    return {
+        "schema": "urn:marginbench:run:v1",
+        "runID": run_id,
+        "status": manifest_status,
+        "track": arguments.track,
+        "benchmark": {
+            "name": "MarginBench",
+            "version": BENCHMARK_VERSION,
+            "taskSet": "public-development-v1",
+            "developmentCases": True,
+            "implementationSha256": implementation_sha256(PACKAGE_ROOT),
+        },
+        "candidate": {
+            "id": candidate.id,
+            "marginSha256": candidate.margin_sha256,
+            "manualSha256": candidate.manual_sha256,
+            "settingsSha256": candidate.settings_sha256,
+        },
+        "execution": {
+            "adapter": "prime-verifiers-v1",
+            "provider": "Prime Intellect",
+            "model": arguments.model,
+            "harness": "null-with-one-margin-tool",
+            "runtime": "local-subprocess-environment-with-prime-inference",
+            "controlProfile": arguments.control_profile,
+            "roles": roles,
+            "startedAt": started_at,
+            "durationMs": duration_ms,
+            "limits": {
+                "maxConcurrentEpisodes": arguments.max_concurrent,
+                "maxInputTokens": arguments.max_input_tokens,
+                "maxOutputTokens": arguments.max_output_tokens,
+                "maxTotalTokens": arguments.max_total_tokens,
+                "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
+                "upstreamAttemptsPerTurn": arguments.upstream_attempts_per_turn,
+                "billingOverheadUSDPerCall": arguments.billing_overhead_usd_per_call,
+                "maxTokensPerCall": arguments.max_tokens_per_call,
+                "maxTurns": arguments.max_turns,
+                "rolloutTimeoutSeconds": arguments.rollout_timeout_seconds,
+                "temperature": arguments.temperature,
+            },
+            "retryPolicy": "No automatic paid model retries; later attempts are separate capped runs after cooldown.",
+            "priorInfrastructureAttempts": arguments.prior_infrastructure_attempts,
+        },
+        "episodes": episode_values,
+        "cost": {
+            "currency": "USD",
+            "traceReported": trace_reported,
+            "observedWalletDebit": observed_wallet_debit,
+            "unreconciled": round(abs(observed_wallet_debit - trace_reported), 6),
+            "admissionBound": admission_bound,
+            "hardAdmissionCap": arguments.max_cost_usd,
+            "boundBasis": {
+                "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
+                "outputTokenCeilingPerCall": arguments.max_tokens_per_call,
+                "modelCallsPerAgentAtMost": arguments.max_turns,
+                "upstreamAttemptsPerTurnAtMost": arguments.upstream_attempts_per_turn,
+                "inputPricePerMillion": arguments.input_price_per_million,
+                "outputPricePerMillion": arguments.output_price_per_million,
+                "billingOverheadUSDPerCall": arguments.billing_overhead_usd_per_call,
+            },
+        },
+        "privacy": {
+            "rawTracesPublished": False,
+            "credentialsPresent": False,
+            "promptsPublished": False,
+            "holdoutKeyPublished": False,
+        },
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--margin-bin", type=Path, required=True)
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--scenario", action="append", choices=SCENARIO_IDS, required=True)
+    parser.add_argument("--repetitions", type=int, default=1)
+    parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument("--max-tokens-per-call", type=int, default=1200)
+    parser.add_argument("--max-turns", type=int, default=12)
+    parser.add_argument("--max-input-tokens", type=int, default=40000)
+    parser.add_argument("--max-output-tokens", type=int, default=6000)
+    parser.add_argument("--max-total-tokens", type=int, default=16000)
+    parser.add_argument(
+        "--input-token-ceiling-per-call",
+        type=int,
+        required=True,
+        help=(
+            "Provider/model contract ceiling for billable prompt tokens in one call; "
+            "required because Verifiers' max-input-tokens is a soft graph limit, not a billing cap."
+        ),
+    )
+    parser.add_argument(
+        "--upstream-attempts-per-turn",
+        type=int,
+        default=3,
+        help="Admission allowance for the initial provider request plus SDK retries.",
+    )
+    parser.add_argument(
+        "--billing-overhead-usd-per-call",
+        type=float,
+        default=0.0002,
+        help="Additional per-attempt allowance for provider rounding or minimum billing.",
+    )
+    parser.add_argument("--rollout-timeout-seconds", type=float, default=120.0)
+    parser.add_argument("--wall-timeout-seconds", type=float, default=300.0)
+    parser.add_argument("--max-concurrent", type=int, default=1)
+    parser.add_argument("--minimum-start-interval-seconds", type=float, default=300.0)
+    parser.add_argument("--input-price-per-million", type=float, required=True)
+    parser.add_argument("--output-price-per-million", type=float, required=True)
+    parser.add_argument("--max-cost-usd", type=float, default=2.0)
+    parser.add_argument("--candidate", default="baseline")
+    parser.add_argument("--control-profile", default=DEFAULT_CONTROL_PROFILE)
+    parser.add_argument("--track", choices=("model", "interface", "team", "open-systems"), default="interface")
+    parser.add_argument("--prior-infrastructure-attempts", type=int, default=0)
+    parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--summary-file", type=Path)
+    parser.add_argument("--run-manifest-file", type=Path)
+    parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--confirm-paid", default="")
+    arguments = parser.parse_args()
+
+    try:
+        require_implemented_profile(arguments.control_profile)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+
+    arguments.margin_bin = arguments.margin_bin.expanduser().resolve()
+    if not arguments.margin_bin.is_file() or not os.access(arguments.margin_bin, os.X_OK):
+        raise SystemExit("Margin executable is unavailable.")
+    if arguments.repetitions < 1 or arguments.repetitions > 20:
+        raise SystemExit("repetitions must be between 1 and 20")
+    numeric_limits = [
+        arguments.max_tokens_per_call,
+        arguments.max_turns,
+        arguments.max_input_tokens,
+        arguments.max_output_tokens,
+        arguments.max_total_tokens,
+        arguments.input_token_ceiling_per_call,
+        arguments.upstream_attempts_per_turn,
+        arguments.max_concurrent,
+    ]
+    if any(value < 1 for value in numeric_limits):
+        raise SystemExit("all run limits must be positive")
+    if arguments.max_tokens_per_call > arguments.max_output_tokens:
+        raise SystemExit("max-tokens-per-call cannot exceed max-output-tokens")
+    if arguments.input_price_per_million < 0 or arguments.output_price_per_million < 0:
+        raise SystemExit("token prices cannot be negative")
+    if not (0 <= arguments.billing_overhead_usd_per_call <= 1):
+        raise SystemExit("billing-overhead-usd-per-call must be between zero and one")
+    if arguments.prior_infrastructure_attempts < 0:
+        raise SystemExit("prior-infrastructure-attempts must be nonnegative")
+    if not (0 < arguments.max_cost_usd <= HARD_MAX_COST_USD):
+        raise SystemExit(f"max-cost-usd must be above zero and at most {HARD_MAX_COST_USD}")
+    if not (0 <= arguments.minimum_start_interval_seconds <= 3_600):
+        raise SystemExit("minimum-start-interval-seconds must be between 0 and 3600")
+
+    prime_name = shutil.which("prime")
+    if not prime_name:
+        raise SystemExit("Prime CLI is not installed.")
+    prime = Path(prime_name).resolve()
+    v1_eval = prime.parent / "eval"
+    if not v1_eval.is_file():
+        raise SystemExit("Prime Verifiers v1 eval executable is unavailable.")
+
+    estimate = estimate_maximum_cost(
+        arguments.scenario,
+        arguments.repetitions,
+        arguments.max_turns,
+        arguments.upstream_attempts_per_turn,
+        arguments.input_token_ceiling_per_call,
+        arguments.max_tokens_per_call,
+        arguments.input_price_per_million,
+        arguments.output_price_per_million,
+        arguments.billing_overhead_usd_per_call,
+    )
+    if estimate > arguments.max_cost_usd:
+        raise SystemExit(
+            f"estimated maximum ${estimate:.6f} exceeds the ${arguments.max_cost_usd:.6f} cap"
+        )
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    output = (arguments.output_dir or PACKAGE_ROOT / "runs" / f"{stamp}-{arguments.candidate}").resolve()
+    command = build_eval_command(arguments, v1_eval, output)
+    plan = {
+        "schema": "urn:marginbench:prime-paid-plan:v1",
+        "execute": arguments.execute,
+        "model": arguments.model,
+        "candidate": arguments.candidate,
+        "track": arguments.track,
+        "controlProfile": arguments.control_profile,
+        "scenarios": arguments.scenario,
+        "repetitions": arguments.repetitions,
+        "agentProcessCount": sum(
+            len(generate_episode(scenario, PUBLIC_DEVELOPMENT_KEY, repetition).roles)
+            for repetition in range(arguments.repetitions)
+            for scenario in arguments.scenario
+        ),
+        "estimatedMaximumCostUSD": estimate,
+        "costBoundBasis": {
+            "modelCallsPerAgentAtMost": arguments.max_turns,
+            "upstreamAttemptsPerTurnAtMost": arguments.upstream_attempts_per_turn,
+            "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
+            "outputTokenCeilingPerCall": arguments.max_tokens_per_call,
+            "billingOverheadUSDPerCall": arguments.billing_overhead_usd_per_call,
+            "note": (
+                "The input ceiling is an externally verified provider/model contract. "
+                "The attempt allowance covers SDK retries, and the overhead allowance covers "
+                "rounding. Verifiers soft token limits are not provider billing maxima."
+            ),
+        },
+        "hardRunCapUSD": arguments.max_cost_usd,
+        "limits": {
+            "maxConcurrent": arguments.max_concurrent,
+            "maxTurns": arguments.max_turns,
+            "maxInputTokens": arguments.max_input_tokens,
+            "maxOutputTokens": arguments.max_output_tokens,
+            "maxTotalTokens": arguments.max_total_tokens,
+            "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
+            "upstreamAttemptsPerTurn": arguments.upstream_attempts_per_turn,
+            "billingOverheadUSDPerCall": arguments.billing_overhead_usd_per_call,
+            "rolloutTimeoutSeconds": arguments.rollout_timeout_seconds,
+            "wallTimeoutSeconds": arguments.wall_timeout_seconds,
+            "minimumStartIntervalSeconds": arguments.minimum_start_interval_seconds,
+        },
+        "marginSha256": sha256(arguments.margin_bin),
+        "rawOutputIgnored": "Evals/marginbench/runs/",
+        "runManifestRequested": arguments.run_manifest_file is not None,
+        "command": command,
+    }
+    if not arguments.execute:
+        print(canonical(plan))
+        return 0
+    if arguments.confirm_paid != CONFIRMATION:
+        raise SystemExit(f"paid execution requires --confirm-paid {CONFIRMATION}")
+
+    try:
+        claim_paid_start(
+            PACKAGE_ROOT / "runs" / ".last-paid-start",
+            now=time.time(),
+            minimum_interval_seconds=arguments.minimum_start_interval_seconds,
+        )
+    except RuntimeError as error:
+        raise SystemExit(str(error)) from error
+
+    output.mkdir(parents=True, exist_ok=False)
+    before = wallet(prime)
+    environment = os.environ.copy()
+    environment.update({"PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(PACKAGE_ROOT)})
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    started = time.perf_counter()
+    timed_out = False
+    with (output / "runner.log").open("wb") as log:
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=PACKAGE_ROOT.parent.parent,
+                env=environment,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                check=False,
+                timeout=arguments.wall_timeout_seconds,
+            )
+            exit_code = completed.returncode
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            exit_code = 124
+    after = wallet(prime)
+    trace_summary = _summarize_traces(output)
+    log_text = (output / "runner.log").read_text(encoding="utf-8", errors="replace")
+    infrastructure_codes = []
+    if "upstream 429" in log_text or "rate_limit" in log_text:
+        infrastructure_codes.append("PROVIDER_RATE_LIMIT")
+    if timed_out:
+        infrastructure_codes.append("WALL_TIMEOUT")
+    status = (
+        "completed"
+        if exit_code == 0
+        and trace_summary["traceCount"]
+        and trace_summary["traceConsistencyPassed"]
+        else "infrastructure_error"
+    )
+    duration_ms = round((time.perf_counter() - started) * 1000)
+    observed_wallet_debit = round(before["balanceUSD"] - after["balanceUSD"], 6)
+    summary = {
+        "schema": "urn:marginbench:prime-run-summary:v1",
+        "status": status,
+        "paidModelsInvoked": True,
+        "model": arguments.model,
+        "candidate": arguments.candidate,
+        "scenarios": arguments.scenario,
+        "repetitions": arguments.repetitions,
+        "marginSha256": plan["marginSha256"],
+        "durationMs": duration_ms,
+        "exitCode": exit_code,
+        "wallet": {
+            "before": before,
+            "after": after,
+            "observedDebitUSD": observed_wallet_debit,
+        },
+        "estimatedMaximumCostUSD": estimate,
+        "costBoundBasis": plan["costBoundBasis"],
+        "infrastructureCodes": infrastructure_codes,
+        **trace_summary,
+        "rawTracesCommitted": False,
+    }
+    rendered = canonical(summary)
+    print(rendered)
+    if arguments.summary_file:
+        arguments.summary_file.parent.mkdir(parents=True, exist_ok=True)
+        arguments.summary_file.write_text(rendered + "\n", encoding="utf-8")
+    if arguments.run_manifest_file and trace_summary["episodeCount"]:
+        manifest = _run_manifest(
+            arguments,
+            trace_summary,
+            status=status,
+            started_at=started_at,
+            duration_ms=duration_ms,
+            observed_wallet_debit=observed_wallet_debit,
+        )
+        arguments.run_manifest_file.parent.mkdir(parents=True, exist_ok=True)
+        arguments.run_manifest_file.write_text(canonical(manifest) + "\n", encoding="utf-8")
+    return 0 if status == "completed" else 75
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

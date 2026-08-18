@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:control-catalog:v1",
+  "title": "MarginBench control profile catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "default", "profiles", "rules"],
+  "properties": {
+    "schema": {"const": "urn:marginbench:control-catalog:v1"},
+    "default": {"type": "string", "minLength": 1},
+    "profiles": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id", "status", "agentTopology", "transcriptSharing", "durableSurface",
+          "toolSurface", "shellAccess", "isolationRequirement", "scoreComparability", "purpose"
+        ],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "status": {"enum": ["implemented", "specified-not-runnable"]},
+          "agentTopology": {"type": "string", "minLength": 1},
+          "transcriptSharing": {"type": "string", "minLength": 1},
+          "durableSurface": {"type": "string", "minLength": 1},
+          "toolSurface": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "shellAccess": {"type": "boolean"},
+          "isolationRequirement": {"type": "string", "minLength": 1},
+          "scoreComparability": {"type": "string", "minLength": 1},
+          "purpose": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

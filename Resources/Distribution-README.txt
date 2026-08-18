@@ -1,4 +1,4 @@
-Margin 0.3.1
+Margin 0.3.2
 
 Double-click Margin.app, or move it to ~/Applications or /Applications.
 

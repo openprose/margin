@@ -1,0 +1,11 @@
+{
+  "id": "read-alias-status-and-next-action-v2",
+  "manual_sha256": "050cad1b772552aa402db9258c4a3a09c36d90dff2e8d54fb3a28452e7e0233d",
+  "margin_sha256": "812bdefe34c72908c35fb8e3408c1622f940b3bb6df1cc4b5944659f9bf09475",
+  "schema": "urn:marginbench:candidate:v1",
+  "settings": {
+    "aliases": ["cat", "show"],
+    "replyReceipt": "status-and-next-action-v2"
+  },
+  "settings_sha256": "c423234cd5f088ff79700edd19733b7515883068c79cdf90e35b5e41b3524fb3"
+}

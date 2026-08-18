@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://margin.tools/schemas/marginbench/v1/episode-definition.schema.json",
+  "title": "MarginBench private episode definition v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "scenario_id", "repetition", "fingerprint", "files", "roles", "events", "oracle", "controls"],
+  "properties": {
+    "schema": {"const": "urn:marginbench:episode:v1"},
+    "scenario_id": {"type": "string", "minLength": 1},
+    "repetition": {"type": "integer", "minimum": 0},
+    "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "files": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"type": "string", "minLength": 1, "not": {"pattern": "(^/|(^|/)\\.\\.(/|$)|\\u0000)"}},
+      "additionalProperties": {"type": "string"}
+    },
+    "roles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/role"}
+    },
+    "events": {"type": "array", "items": {"$ref": "#/$defs/event"}},
+    "oracle": {"type": "object"},
+    "controls": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+  },
+  "$defs": {
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "type"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "type": {"enum": ["person", "software", "organization"]}
+      }
+    },
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seat", "actor", "phase", "prompt", "workflow"],
+      "properties": {
+        "seat": {"enum": ["author", "reviewer"]},
+        "actor": {"$ref": "#/$defs/actor"},
+        "phase": {"type": "integer", "minimum": 0},
+        "prompt": {"type": "string", "minLength": 1},
+        "workflow": {"type": "string", "minLength": 1}
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "timing", "kind", "payload"],
+      "properties": {
+        "phase": {"type": "integer", "minimum": 0},
+        "timing": {"enum": ["before", "after"]},
+        "kind": {"enum": ["comment_add", "source_replace"]},
+        "payload": {"type": "object"}
+      }
+    }
+  }
+}

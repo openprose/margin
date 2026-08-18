@@ -8,7 +8,7 @@ import Glibc
 #endif
 
 enum MarginCommand {
-    static let version = "0.3.1"
+    static let version = "0.3.2"
     static let service = CommentService()
     static let reviewService = ReviewService()
     static let codec = EmbeddedCommentCodec()
@@ -182,7 +182,8 @@ enum MarginCommand {
     private static func runInspect(_ cursor: inout ArgumentCursor) throws {
         let pretty = cursor.takeFlag("--pretty")
         let json = cursor.takeFlag("--json")
-        let file = try PathResolver.existingFile(cursor.require("Markdown file"))
+        let fileArgument = try cursor.require("Markdown file")
+        let file = try PathResolver.existingFile(fileArgument)
         try cursor.rejectRemaining()
         let document = try loadDocument(file)
         let comments = try service.list(at: file)
@@ -296,9 +297,7 @@ enum MarginCommand {
 
     private static func runReview(_ cursor: inout ArgumentCursor) throws {
         let pretty = cursor.takeFlag("--pretty")
-        guard cursor.takeFlag("--json") else {
-            throw CLIError.usage("review requires --json so its bounded result is unambiguous for agents.")
-        }
+        _ = cursor.takeFlag("--json")
         let sinceRevision = try cursor.takeInt("--since-revision")
         if let sinceRevision, sinceRevision < 0 {
             throw CLIError.usage("--since-revision must be nonnegative.")
@@ -386,7 +385,8 @@ enum MarginCommand {
         let annotationID = try cursor.takeValue("--id")
         let preconditions = try takePreconditions(cursor: &cursor)
         let anchorArguments = try takeAnchorArguments(cursor: &cursor)
-        let file = try PathResolver.existingFile(cursor.require("Markdown file"))
+        let fileArgument = try cursor.require("Markdown file")
+        let file = try PathResolver.existingFile(fileArgument)
         try cursor.rejectRemaining()
         let document = try loadDocument(file)
         let anchor = try anchorArguments.resolve(in: document.body)
@@ -405,6 +405,7 @@ enum MarginCommand {
             }
             try CollaborationCLI.addTypedContribution(
                 file: file,
+                fileArgument: fileArgument,
                 message: message,
                 creator: creator,
                 kind: kind,
@@ -657,6 +658,26 @@ enum MarginCommand {
         receipt: CommentMutationReceipt,
         pretty: Bool
     ) throws {
+        let nextActions: [CommentNextAction]?
+        let notice: String?
+        if command == "comments.reply" {
+            notice = "Reply saved; the root thread remains open. Replying never resolves a thread. If the task says resolve or close, run comments resolve with result.rootID and this revision."
+            nextActions = [
+                CommentNextAction(
+                    condition: "when the task asks to resolve or close, or the reply addresses the concern",
+                    command: "comments resolve",
+                    arguments: ["file", "result.rootID", "--if-revision", "revision"]
+                ),
+                CommentNextAction(
+                    condition: "always verify the durable thread",
+                    command: "comments list",
+                    arguments: ["file", "--thread", "result.rootID", "--status", "all"]
+                ),
+            ]
+        } else {
+            notice = nil
+            nextActions = nil
+        }
         try CLIOutput.json(
             CommentCommandEnvelope(
                 command: command,
@@ -664,7 +685,9 @@ enum MarginCommand {
                 documentID: receipt.documentID,
                 revision: receipt.revision,
                 contentSha256: receipt.contentSha256,
-                result: receipt
+                result: receipt,
+                notice: notice,
+                nextActions: nextActions
             ),
             pretty: pretty
         )
@@ -883,6 +906,14 @@ private struct CommentCommandEnvelope<Result: Encodable>: Encodable {
     let revision: Int
     let contentSha256: String
     let result: Result
+    var notice: String? = nil
+    var nextActions: [CommentNextAction]? = nil
+}
+
+private struct CommentNextAction: Encodable {
+    let condition: String
+    let command: String
+    let arguments: [String]
 }
 
 private struct InspectionResult: Encodable {
@@ -974,6 +1005,8 @@ private extension MarginCommand {
 
     ALIASES
       comment = comments
+      show = read
+      cat = read
       -h = --help
       -v = --version
 

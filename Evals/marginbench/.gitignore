@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+marginbench/bin/
+dist/
+runs/
+outputs/
+keys/
+private/
+*.key
+*.key.*
+*.secret
+*.secret.*

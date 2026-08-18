@@ -1,0 +1,37 @@
+[project]
+name = "marginbench"
+version = "0.1.0"
+description = "Execution-scored human-agent-agent collaboration over Markdown workspaces."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["verifiers==0.3.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+marginbench = "marginbench.cli:main"
+
+[tool.hatch.build]
+# A source checkout remains usable before the release artifact exists. When the
+# pinned Linux build has been produced, Hatch includes it despite the local
+# binary directory being ignored by Git.
+artifacts = ["marginbench/bin/margin-linux-x86_64"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["marginbench"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "hatch_build.py"
+
+[tool.hatch.build.targets.wheel.force-include]
+"BINARY_MANIFEST.json" = "marginbench/bin/manifest.json"
+"schemas" = "marginbench/schemas"
+
+[tool.verifiers.eval]
+num_tasks = 5
+num_rollouts = 1
+
+[tool.ruff]
+ignore = ["E501"]

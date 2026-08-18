@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:experiment-ledger:v1",
+  "title": "MarginBench redacted paid experiment ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "benchmarkVersion", "recordedAt", "provider", "model", "harness",
+    "taskSet", "wallet", "totals", "attempts", "privacy"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:experiment-ledger:v1"},
+    "benchmarkVersion": {"type": "string", "minLength": 1},
+    "recordedAt": {"type": "string", "format": "date-time"},
+    "provider": {"type": "string", "minLength": 1},
+    "model": {"type": "string", "minLength": 1},
+    "harness": {"type": "string", "minLength": 1},
+    "taskSet": {"type": "string", "minLength": 1},
+    "wallet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["openingBalanceUSD", "closingBalanceUSD", "observedDebitUSD", "traceReportedUSD", "unreconciledUSD"],
+      "properties": {
+        "openingBalanceUSD": {"type": "number", "minimum": 0},
+        "closingBalanceUSD": {"type": "number", "minimum": 0},
+        "observedDebitUSD": {"type": "number", "minimum": 0},
+        "traceReportedUSD": {"type": "number", "minimum": 0},
+        "unreconciledUSD": {"type": "number", "minimum": 0}
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempts", "completed", "infrastructureErrors", "modelCalls", "promptTokens", "completionTokens", "cachedInputTokens", "reasoningTokens"],
+      "properties": {
+        "attempts": {"type": "integer", "minimum": 1},
+        "completed": {"type": "integer", "minimum": 0},
+        "infrastructureErrors": {"type": "integer", "minimum": 0},
+        "modelCalls": {"type": "integer", "minimum": 0},
+        "promptTokens": {"type": "integer", "minimum": 0},
+        "completionTokens": {"type": "integer", "minimum": 0},
+        "cachedInputTokens": {"type": "integer", "minimum": 0},
+        "reasoningTokens": {"type": "integer", "minimum": 0}
+      }
+    },
+    "attempts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id", "gate", "scenario", "candidate", "status", "recordedScore",
+          "exactDurableOutcome", "safetyPassed", "durationMs", "modelCalls",
+          "invalidCommandCount", "traceReportedCostUSD", "walletDebitUSD",
+          "artifact", "findingCodes"
+        ],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "gate": {"type": "integer", "minimum": 1},
+          "scenario": {"type": "string", "minLength": 1},
+          "candidate": {"type": "string", "minLength": 1},
+          "status": {"enum": ["completed", "infrastructure-error"]},
+          "recordedScore": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+          "exactDurableOutcome": {"type": ["boolean", "null"]},
+          "safetyPassed": {"type": ["boolean", "null"]},
+          "durationMs": {"type": ["integer", "null"], "minimum": 0},
+          "modelCalls": {"type": "integer", "minimum": 0},
+          "invalidCommandCount": {"type": "integer", "minimum": 0},
+          "traceReportedCostUSD": {"type": ["number", "null"], "minimum": 0},
+          "walletDebitUSD": {"type": ["number", "null"], "minimum": 0},
+          "artifact": {"type": ["string", "null"]},
+          "findingCodes": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rawTracesCommitted", "credentialsCommitted", "holdoutKeyCommitted", "paidModelsInvoked"],
+      "properties": {
+        "rawTracesCommitted": {"const": false},
+        "credentialsCommitted": {"const": false},
+        "holdoutKeyCommitted": {"const": false},
+        "paidModelsInvoked": {"const": true}
+      }
+    }
+  }
+}

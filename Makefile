@@ -6,7 +6,7 @@ BUILD_SCRATCH_PATH ?= $(SCRATCH_ROOT)/command-line-tools
 TEST_SCRATCH_PATH ?= $(SCRATCH_ROOT)/xcode-15.4
 OUTPUT_DIR ?= $(PROJECT_DIR)/build
 
-.PHONY: debug test test-linux release package installer install smoke benchmark eval eval-preflight eval-collaboration clean
+.PHONY: debug test test-linux marginbench-test marginbench-preflight marginbench-remote-plan marginbench-linux-binary marginbench-package release package installer install smoke benchmark eval eval-preflight eval-collaboration clean
 
 debug:
 	DEVELOPER_DIR="$(BUILD_DEVELOPER_DIR)" \
@@ -21,6 +21,30 @@ test:
 
 test-linux:
 	"$(PROJECT_DIR)/Scripts/test-linux.sh"
+
+marginbench-test: release
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(PROJECT_DIR)/Evals/marginbench" \
+		python3 -m unittest discover -s "$(PROJECT_DIR)/Evals/marginbench/tests" -p 'test_*.py'
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(PROJECT_DIR)/Evals/marginbench" \
+		"$(HOME)/.local/share/uv/tools/prime/bin/python" -m unittest discover \
+		-s "$(PROJECT_DIR)/Evals/marginbench/tests" -p 'test_*.py'
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(PROJECT_DIR)/Evals/marginbench" \
+		python3 -m marginbench.cli self-test --margin-bin "$(OUTPUT_DIR)/margin"
+
+marginbench-linux-binary:
+	"$(PROJECT_DIR)/Scripts/build-marginbench-linux.sh" amd64 arm64
+
+marginbench-package:
+	"$(PROJECT_DIR)/Scripts/package-marginbench.sh"
+
+marginbench-preflight: release
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(PROJECT_DIR)/Evals/marginbench" \
+		"$(PROJECT_DIR)/Evals/marginbench/preflight.py" --margin-bin "$(OUTPUT_DIR)/margin"
+
+marginbench-remote-plan:
+	PYTHONDONTWRITEBYTECODE=1 \
+		"$(PROJECT_DIR)/Evals/marginbench/remote_runtime_probe.py" \
+		--margin-bin "$(PROJECT_DIR)/Evals/marginbench/marginbench/bin/margin-linux-x86_64"
 
 release:
 	DEVELOPER_DIR="$(BUILD_DEVELOPER_DIR)" \

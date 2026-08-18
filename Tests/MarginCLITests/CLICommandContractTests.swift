@@ -77,6 +77,14 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertTrue(suggestions.commands.contains { $0.path == ["suggest", "add"] })
         XCTAssertFalse(suggestions.commands.contains { $0.path == ["merge"] })
 
+        let staging = CLICommandCatalog.capabilitiesProjection(
+            cliVersion: MarginCommand.version,
+            workflow: .staging
+        )
+        XCTAssertTrue(staging.commands.contains { $0.path == ["stage", "refresh"] })
+        XCTAssertFalse(staging.commands.contains { $0.path == ["transact"] })
+        XCTAssertLessThanOrEqual(try compact.encode(staging).count + 1, 16 * 1_024)
+
         let output = runCapturing(["capabilities", "--json", "--for", "suggestions"])
         XCTAssertEqual(output.exit, CLIExit.success.rawValue)
         let json = try jsonObject(output.output)
@@ -91,6 +99,8 @@ final class CLICommandContractTests: XCTestCase {
 
     func testAliasesAndCommandLocalHelpComeFromTheSameCatalog() throws {
         XCTAssertEqual(CLICommandCatalog.canonicalTopLevel("comment"), "comments")
+        XCTAssertEqual(CLICommandCatalog.canonicalTopLevel("show"), "read")
+        XCTAssertEqual(CLICommandCatalog.canonicalTopLevel("cat"), "read")
         XCTAssertEqual(CLICommandCatalog.canonicalTopLevel("-h"), "help")
         XCTAssertEqual(CLICommandCatalog.canonicalTopLevel("--version"), "version")
         XCTAssertEqual(
@@ -105,10 +115,19 @@ final class CLICommandContractTests: XCTestCase {
         let add = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["comments", "add"]))
         XCTAssertTrue(add.contains("-m, --message, --body TEXT"))
         XCTAssertTrue(add.contains("--if-content-sha SHA"))
+        XCTAssertTrue(add.contains("use comments reply instead"))
+
+        let reply = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["comments", "reply"]))
+        XCTAssertTrue(reply.contains("(-m TEXT | --message-file PATH | --stdin)"))
+        XCTAssertTrue(reply.contains("never resolves the root thread"))
+
+        let show = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["show"]))
+        XCTAssertTrue(show.contains("margin show FILE"))
 
         let context = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["context"]))
         XCTAssertFalse(context.contains("Unsupported"))
-        XCTAssertTrue(context.contains("margin context TARGET --json"))
+        XCTAssertTrue(context.contains("margin context TARGET [--json]"))
+        XCTAssertTrue(context.contains("exact available command paths"))
 
         let stageCreate = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["stage", "create"]))
         XCTAssertTrue(stageCreate.contains("--operations-file PLAN_JSON_OR_-"))
@@ -175,6 +194,7 @@ final class CLICommandContractTests: XCTestCase {
         for topic in MarginManual.canonicalTopics {
             XCTAssertTrue(listedText.contains(topic), "Missing manual topic \(topic)")
         }
+        XCTAssertEqual(MarginManual.page(for: "WORKFLOW"), MarginManual.overview)
 
         let expectedHeadings = [
             "review": "MARGIN MANUAL: REVIEW",
@@ -196,6 +216,11 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertEqual(runSilently(["man", "comment"]), CLIExit.success.rawValue)
         XCTAssertEqual(runSilently(["man", "stage"]), CLIExit.success.rawValue)
         XCTAssertEqual(runSilently(["man", "security"]), CLIExit.success.rawValue)
+        let marginAlias = runCapturing(["man", "margin"])
+        XCTAssertEqual(marginAlias.exit, CLIExit.success.rawValue)
+        XCTAssertEqual(marginAlias.output, overview.output)
+        let commentsManual = try XCTUnwrap(MarginManual.page(for: "comments"))
+        XCTAssertTrue(commentsManual.contains("--document --kind issue"))
 
         let unknown = runCapturingError(["man", "unknown"])
         XCTAssertEqual(unknown.exit, CLIExit.usage.rawValue)
@@ -249,18 +274,25 @@ final class CLICommandContractTests: XCTestCase {
             ]),
             CLIExit.success.rawValue
         )
-        XCTAssertEqual(
-            runSilently([
-                "comments", "reply",
-                "--id", replyUUID,
-                "--body", "Initial reply",
-                file.path,
-                rootID,
-                "--actor-name", "CLI contract tests",
-                "--if-revision", "1"
-            ]),
-            CLIExit.success.rawValue
-        )
+        let reply = runCapturing([
+            "comments", "reply",
+            "--id", replyUUID,
+            "--body", "Initial reply",
+            file.path,
+            rootID,
+            "--actor-name", "CLI contract tests",
+            "--if-revision", "1"
+        ])
+        XCTAssertEqual(reply.exit, CLIExit.success.rawValue)
+        let replyJSON = try jsonObject(reply.output)
+        let replyResult = try XCTUnwrap(replyJSON["result"] as? [String: Any])
+        XCTAssertEqual(replyResult["threadStatus"] as? String, "open")
+        let notice = try XCTUnwrap(replyJSON["notice"] as? String)
+        XCTAssertTrue(notice.contains("remains open"))
+        XCTAssertTrue(notice.contains("never resolves"))
+        let nextActions = try XCTUnwrap(replyJSON["nextActions"] as? [[String: Any]])
+        XCTAssertEqual(nextActions.first?["command"] as? String, "comments resolve")
+        XCTAssertTrue((nextActions.first?["condition"] as? String)?.contains("task asks") == true)
         XCTAssertEqual(
             runSilently([
                 "comments", "edit",
@@ -346,7 +378,16 @@ final class CLICommandContractTests: XCTestCase {
                 "--actor-id", "urn:test:agent:author", "--actor-type", "software",
                 "--actor-name", "Author", "--id", typedID
         ]
-        XCTAssertEqual(runSilently(typedArguments), CLIExit.success.rawValue)
+        let typedCreate = runCapturing(typedArguments)
+        XCTAssertEqual(typedCreate.exit, CLIExit.success.rawValue)
+        let typedCreateJSON = try jsonObject(typedCreate.output)
+        XCTAssertTrue((typedCreateJSON["notice"] as? String)?.contains("do not carry --document") == true)
+        let typedNextActions = try XCTUnwrap(typedCreateJSON["nextActions"] as? [[String: Any]])
+        XCTAssertEqual(typedNextActions.map { $0["command"] as? String }, ["comments get", "comments list"])
+        XCTAssertEqual(
+            typedNextActions.last?["arguments"] as? [String],
+            [file.path, "--status", "all"]
+        )
         XCTAssertEqual(runSilently(typedArguments), CLIExit.success.rawValue)
 
         let decoded = try EmbeddedCommentCodec().decode(Data(contentsOf: file))
@@ -368,6 +409,32 @@ final class CLICommandContractTests: XCTestCase {
         let contextJSON = try jsonObject(context.output)
         let contextResult = try XCTUnwrap(contextJSON["result"] as? [String: Any])
         XCTAssertTrue((contextResult["cursor"] as? String)?.hasPrefix("mcur1:") == true)
+        let contextActions = try XCTUnwrap(contextResult["availableActions"] as? [String])
+        XCTAssertTrue(contextActions.contains("comments reply"))
+        XCTAssertTrue(contextActions.contains("comments resolve"))
+        let guidance = try XCTUnwrap(contextResult["workflowGuidance"] as? [[String: Any]])
+        XCTAssertEqual(guidance.first?["command"] as? String, "comments reply")
+        XCTAssertEqual(
+            guidance.first?["arguments"] as? [String],
+            ["FILE", "ROOT_ID", "-m", "TEXT", "--id", "UUID", "--if-revision", "OBSERVED_ANNOTATION_REVISION"]
+        )
+        XCTAssertTrue((guidance.first?["note"] as? String)?.contains("no source-range calculation") == true)
+        let typedWork = try XCTUnwrap(guidance.first { ($0["command"] as? String) == "comments add" })
+        XCTAssertEqual(
+            typedWork["arguments"] as? [String],
+            [
+                "FILE", "--document", "--kind", "KIND", "-m", "TEXT", "--id", "UUID",
+                "--if-revision", "OBSERVED_ANNOTATION_REVISION",
+            ]
+        )
+
+        let contextWithoutJSONFlag = runCapturing(["context", file.path, "--max-files", "1"])
+        XCTAssertEqual(contextWithoutJSONFlag.exit, CLIExit.success.rawValue)
+        XCTAssertEqual(try jsonObject(contextWithoutJSONFlag.output)["command"] as? String, "context")
+
+        let reviewWithoutJSONFlag = runCapturing(["review", file.path])
+        XCTAssertEqual(reviewWithoutJSONFlag.exit, CLIExit.success.rawValue)
+        XCTAssertEqual(try jsonObject(reviewWithoutJSONFlag.output)["command"] as? String, "review")
 
         let collaborators = runCapturing(["collaborators", file.path])
         XCTAssertEqual(collaborators.exit, CLIExit.success.rawValue)
@@ -397,22 +464,51 @@ final class CLICommandContractTests: XCTestCase {
                 "-m", "Prefer gamma", "--id", rejectedUUID,
                 "--actor-id", "urn:test:agent:suggester", "--actor-type", "agent"
         ]
-        XCTAssertEqual(runSilently(rejectedAdd), CLIExit.success.rawValue)
+        let rejectedCreate = runCapturing(rejectedAdd)
+        XCTAssertEqual(rejectedCreate.exit, CLIExit.success.rawValue)
+        let rejectedCreateJSON = try jsonObject(rejectedCreate.output)
+        let suggestionActions = try XCTUnwrap(
+            rejectedCreateJSON["nextActions"] as? [[String: Any]]
+        )
+        XCTAssertEqual(
+            suggestionActions.compactMap { $0["command"] as? String },
+            ["suggest list", "comments get"]
+        )
+        XCTAssertEqual(
+            suggestionActions.first?["arguments"] as? [String],
+            [file.path]
+        )
         XCTAssertEqual(runSilently(rejectedAdd), CLIExit.success.rawValue)
         XCTAssertEqual(try EmbeddedCommentCodec().decode(Data(contentsOf: file)).envelope?.revision, 1)
+        let suggestionContext = runCapturing(["context", file.path])
+        XCTAssertEqual(suggestionContext.exit, CLIExit.success.rawValue)
+        let suggestionContextResult = try XCTUnwrap(
+            try jsonObject(suggestionContext.output)["result"] as? [String: Any]
+        )
+        let suggestionGuidance = try XCTUnwrap(
+            suggestionContextResult["workflowGuidance"] as? [[String: Any]]
+        )
+        XCTAssertEqual(
+            Array(suggestionGuidance.prefix(3)).compactMap { $0["command"] as? String },
+            ["suggest list", "suggest accept", "suggest reject"]
+        )
         var changedRejectedAdd = rejectedAdd
         let suggestionMessageIndex = try XCTUnwrap(changedRejectedAdd.firstIndex(of: "Prefer gamma"))
         changedRejectedAdd[suggestionMessageIndex] = "Different suggestion payload"
         XCTAssertEqual(runSilently(changedRejectedAdd), CLIExit.data.rawValue)
         let rejectedID = "urn:uuid:\(rejectedUUID)"
         let beforeReject = try EmbeddedCommentCodec().decode(Data(contentsOf: file)).bodyData
-        XCTAssertEqual(
-            runSilently([
+        let rejectedDisposition = runCapturing([
                 "suggest", "reject", file.path, rejectedID,
                 "--request-id", "urn:test:request:reject-decision",
                 "--actor-id", "urn:test:agent:reviewer", "--actor-type", "software"
-            ]),
-            CLIExit.success.rawValue
+            ])
+        XCTAssertEqual(rejectedDisposition.exit, CLIExit.success.rawValue)
+        let rejectedDispositionJSON = try jsonObject(rejectedDisposition.output)
+        XCTAssertEqual(
+            (rejectedDispositionJSON["nextActions"] as? [[String: Any]])?
+                .compactMap { $0["command"] as? String },
+            ["read", "comments validate"]
         )
         XCTAssertEqual(try EmbeddedCommentCodec().decode(Data(contentsOf: file)).bodyData, beforeReject)
 
@@ -482,7 +578,17 @@ final class CLICommandContractTests: XCTestCase {
                 "--id", handoffUUID,
                 "--actor-id", "urn:test:agent:current", "--actor-type", "software"
         ]
-        XCTAssertEqual(runSilently(handoffAdd), CLIExit.success.rawValue)
+        let handoffCreate = runCapturing(handoffAdd)
+        XCTAssertEqual(handoffCreate.exit, CLIExit.success.rawValue)
+        let handoffCreateJSON = try jsonObject(handoffCreate.output)
+        let handoffActions = try XCTUnwrap(
+            handoffCreateJSON["nextActions"] as? [[String: Any]]
+        )
+        XCTAssertEqual(
+            handoffActions.compactMap { $0["command"] as? String },
+            ["handoff list", "comments get"]
+        )
+        XCTAssertEqual(handoffActions.first?["arguments"] as? [String], [file.path])
         XCTAssertEqual(runSilently(handoffAdd), CLIExit.success.rawValue)
         XCTAssertEqual(try EmbeddedCommentCodec().decode(Data(contentsOf: file)).envelope?.revision, 1)
         var changedHandoff = handoffAdd

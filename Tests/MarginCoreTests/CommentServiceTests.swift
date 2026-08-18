@@ -29,6 +29,7 @@ final class CommentServiceTests: XCTestCase {
             creator: agent,
             annotationID: "00000000-0000-4000-8000-000000000202"
         )
+        XCTAssertEqual(reply.threadStatus, .open)
         _ = try service.reply(
             at: fixture.file,
             parentID: reply.annotation.id,
@@ -46,6 +47,7 @@ final class CommentServiceTests: XCTestCase {
         let resolved = try service.resolve(at: fixture.file, id: reply.annotation.id, actor: agent)
         XCTAssertTrue(resolved.changed)
         XCTAssertEqual(resolved.rootID, root.annotation.id)
+        XCTAssertEqual(resolved.threadStatus, .resolved)
         XCTAssertEqual(resolved.annotation.status, .resolved)
         let idempotentResolve = try service.resolve(at: fixture.file, id: root.annotation.id, actor: agent)
         XCTAssertFalse(idempotentResolve.changed)

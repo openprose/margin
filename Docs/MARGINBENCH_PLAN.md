@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-17 22:01 ET
+Last updated: 2026-08-18 01:24 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -25,13 +25,14 @@ This document is the live checklist for the build phase ending at 08:00 ET on
 
 ## Credit ledger and spending gates
 
-Available Prime Intellect credit: **$200.00**.
+Opening Prime Intellect credit: **$199.9861**. Latest observed balance:
+**$199.9594**. Total debit so far: **$0.0267**.
 
 | Gate | Maximum cumulative spend | Purpose | Status |
 | --- | ---: | --- | --- |
 | 0 | $0 | Install, login, local tests, container builds, dry runs | Complete |
-| 1 | $2 | One tiny end-to-end hosted smoke test | Not started |
-| 2 | $15 | Cheap-model calibration on a small public-development slice | Not started |
+| 1 | $2 | One tiny end-to-end hosted smoke test | Complete; $0.0017 first valid smoke |
+| 2 | $15 | Cheap-model calibration on a small public-development slice | Complete; cumulative debit $0.0267 |
 | 3 | $50 | Paired comparisons of promising CLI/manual variants | Not started |
 | 4 | $120 | Broader model/team matrix only after stable signal | Not started |
 | Reserve | $80 | Held for follow-up, failures, and a meaningful final run | Untouched |
@@ -40,7 +41,9 @@ Rules:
 
 1. No paid run before all local oracles pass and the exact proposed run is
    emitted by a no-model preflight.
-2. Every paid command has a hard process, turn, token, timeout, and dollar cap.
+2. Every paid command has hard process, turn, response-token, and timeout caps,
+   plus a conservative pre-run dollar admission gate. Prime does not provide a
+   live per-run wallet cutoff, so the distinction is explicit.
 3. A new phase runs only if the previous phase produced useful signal.
 4. Never spend the final $80 during this build phase without a written proposal
    explaining the expected information gained and estimated full-run cost.
@@ -73,56 +76,68 @@ Rules:
 
 ### 3. Build the provider-independent benchmark core
 
-- [ ] Define versioned task, role, event, tool-policy, trace, and score schemas.
-- [ ] Generate deterministic, secret-seeded Markdown workspace episodes.
-- [ ] Support sequential roles, concurrent roles, scripted human events,
+- [x] Define versioned task, role, event, tool-policy, trace, candidate, binary,
+  and run schemas.
+- [x] Generate deterministic, secret-seeded Markdown workspace episodes.
+- [x] Support sequential roles, concurrent roles, scripted human events,
   external edits, stale state, interruption, and retry.
-- [ ] Place a strict Margin gateway between agents and the shared workspace.
-- [ ] Score exact outcomes, source preservation, all-or-none transactions,
+- [x] Place a strict Margin gateway between agents and the shared workspace.
+- [x] Score exact outcomes, source preservation, all-or-none transactions,
   attribution, recovery, calls, tokens, latency, human attention, and cost.
 - [ ] Add single-agent, no-collaboration, and unconstrained-shell controls.
-- [ ] Add local fake-agent and adversarial tests with no paid model calls.
+- [x] Add reference, idle, spam, fake-agent, and adversarial tests with no paid
+  model calls. The remaining control variants are benchmark breadth, not a
+  correctness blocker.
+  The control catalog and fail-closed execution gates are now frozen; only the
+  primary Margin-only profile is marked runnable until the other three meet
+  their identity, task-neutral scoring, and remote-isolation requirements.
 
 ### 4. Add the Prime Verifiers adapter
 
-- [ ] Package a Verifiers v1 environment with named role agents and one shared
+- [x] Package a Verifiers v1 environment with named role agents and one shared
   per-episode Margin workspace/gateway.
-- [ ] Keep the benchmark's task generator and scorer provider-independent.
-- [ ] Support local Docker execution first, then Prime-managed runtime execution.
-- [ ] Verify concurrent roles cannot access hidden fixtures, credentials,
+- [x] Keep the benchmark's task generator and scorer provider-independent.
+- [x] Support local Docker execution and verify the same pinned Linux binary in
+  a Prime-managed sandbox without invoking a model.
+- [ ] Run the complete hosted role environment after it can be published under
+  an Environment Hub owner handle.
+- [x] Verify concurrent roles cannot access hidden fixtures, credentials,
   scorer state, ambient tools, or one another's private briefs.
-- [ ] Produce a Hub-ready package manifest and reproducible setup instructions.
+- [x] Produce a Hub-ready wheel/source package and reproducible setup
+  instructions. Private Hub publication is blocked only because the selected
+  OpenProse team has no registry handle configured; packaging and local Prime
+  execution do not depend on that setting.
 
 ### 5. Establish the hill-climbing loop
 
-- [ ] Freeze a baseline Margin binary/manual/settings bundle by digest.
-- [ ] Express CLI/manual/default changes as named candidates.
-- [ ] Compare candidates on identical seeded episodes with paired ordering and
+- [x] Freeze Margin binary/manual/settings bundles by digest.
+- [x] Express CLI/manual/default changes as named candidates.
+- [x] Compare candidates on identical seeded episodes with paired ordering and
   repeated trials.
-- [ ] Require safety/integrity parity and statistically meaningful improvement
+- [x] Require safety/integrity parity and statistically meaningful improvement
   before promotion.
-- [ ] Keep prompt optimization, CLI optimization, model comparison, and team
+- [x] Keep prompt optimization, CLI optimization, model comparison, and team
   orchestration as separate benchmark tracks.
-- [ ] Store redacted run summaries and a machine-readable experiment ledger.
+- [x] Store redacted run summaries and a machine-readable experiment ledger.
 
 ### 6. De-risk with staged Prime runs
 
-- [ ] Run no-cost install/auth/runtime/model discovery.
-- [ ] Run one cheapest useful hosted smoke test (Gate 1).
-- [ ] Run a small cheap-model calibration only if the smoke is valid (Gate 2).
-- [ ] Hill-climb at least one bounded CLI/manual candidate pair if calibration
-  shows non-ceiling behavior.
-- [ ] Stop on infrastructure ambiguity, vacuous scoring, or safety leakage and
+- [x] Run no-cost install/auth/runtime/model discovery.
+- [x] Run one cheapest useful hosted smoke test (Gate 1).
+- [x] Run a small cheap-model calibration only if the smoke is valid (Gate 2).
+- [x] Hill-climb at least one bounded CLI/manual candidate pair after
+  calibration exposed concrete failures.
+- [x] Stop on infrastructure ambiguity, vacuous scoring, or safety leakage and
   repair locally before spending again.
 
 ### 7. Publishable benchmark foundation
 
-- [ ] Use the distinct working name **MarginBench**; avoid the existing
+- [x] Use the distinct working name **MarginBench**; avoid the existing
   “CollabBench” name collision.
-- [ ] Document public development tasks versus private, rotating test tasks.
-- [ ] Define four result tracks: model, interface, team, and open systems.
-- [ ] Add explicit code/data licensing recommendations and contamination policy.
-- [ ] Draft a benchmark card covering scope, limits, metrics, reproducibility,
+- [x] Document public development tasks versus private, rotating test tasks.
+- [x] Define four result tracks: model, interface, team, and open systems.
+- [x] Add explicit code/data licensing recommendations and contamination policy.
+- [x] Draft a benchmark card covering scope, limits, metrics, reproducibility,
   security, and leaderboard submission rules.
 
 ## Acceptance gates for 08:00 ET
@@ -166,15 +181,116 @@ The phase is successful if the repository contains:
   median / 341.175 ms p95, with 159.219 MiB median / 159.641 MiB p95 RSS. This
   is better than the pre-port candidate's 331.928 ms median and 161.875 MiB
   median RSS; no startup or memory regression was introduced.
+- 2026-08-17 23:00 ET — The provider-independent core reached five deterministic
+  scenario families, eight public schemas, exact topology/type/provenance
+  scoring, strict workspace confinement, reproducible candidate digests, and a
+  100/100 no-model reference matrix on macOS and Linux x86-64/arm64.
+- 2026-08-17 23:30 ET — Built a manylinux x86-64 wheel and source archive with
+  the pinned Margin binary and self-tests. A private Environment Hub push
+  reached registry validation but stopped before upload because the OpenProse
+  team has no team handle; no secret or paid inference was involved.
+- 2026-08-17 23:58 ET — Expanded the local Prime Verifiers rehearsal to every
+  role in all five scenarios. All five episodes scored 100 with one exposed
+  `margin` tool and no paid model calls. The rehearsal also caught and fixed a
+  provider portability edge where JSON-looking standard input arrives as a
+  structured object.
+- 2026-08-18 00:00 ET — Cheap Qwen Flash development runs exposed successive
+  interface failures: missing read aliases, reply-versus-root confusion,
+  omitted resolution, distracting source-offset work, and pseudo-action labels
+  that resembled commands. Exact command paths and argument shapes in bounded
+  context lifted the human-relay outcome to the correct durable state; an old
+  scorer requirement recorded 96.25 although the post-run oracle now recognizes
+  the equivalent bounded read and scores that state at 100.
+- 2026-08-18 00:05 ET — The first handoff attempt scored 66.25 because a
+  1,200-token response ceiling ended the author before its first tool call. A
+  fair 2,400-token per-call window plus optional `--json` on always-JSON reads
+  produced 100/100, zero invalid commands, and correct author/reviewer work for
+  $0.0028. Total Prime debit since the opening balance is $0.0139.
+- 2026-08-18 00:28 ET — Gate 2 now covers all five collaboration families with
+  real Qwen Flash agents. The strongest current candidates reached the exact
+  required state in human relay, handoff, concurrent review, suggestion
+  decision, and stale multi-file recovery. Recorded scores were 100, 100,
+  92.083, 89.821, and 92.5 respectively; the sub-100 scores expose avoidable
+  commands and syntax errors rather than lost document state. Cumulative debit
+  is $0.0267, leaving $199.9594.
+- 2026-08-18 00:35 ET — Audit found that the first paid wrapper called
+  Verifiers' soft, deduplicated graph-token limit a billing maximum. The staged
+  run made the error visible: its recorded $0.0044 exceeded the old $0.00396
+  estimate. Further paid calls stopped immediately. The wrapper now requires a
+  provider/model input ceiling per call, multiplies it across every allowed
+  turn and SDK retry attempt, and includes a billing-rounding allowance. A dry
+  test refuses the old $0.01 cap and admits only a plan whose stated bound fits.
+  Earlier result files remain unchanged historical records; their estimate
+  field is nominal, not a valid upper bound.
+- 2026-08-18 00:51 ET — A separately gated, no-model Prime runtime probe
+  uploaded the rebuilt x86-64 Linux binary to a minimal managed sandbox, ran a
+  real typed comment write, and validated the resulting Markdown. It completed
+  in 39.302 seconds on a cached image, deleted the sandbox, left zero active
+  sandboxes, and produced no visible wallet debit. The plan estimated $0.000203
+  for two minutes and admitted only against a $0.1464 worst-case 24-hour cleanup
+  bound. The redacted result is tracked and schema-validated.
+- 2026-08-18 01:15 ET — Margin 0.3.2 passed the complete macOS package suite:
+  164 tests, zero failures. The final agent-facing mutation responses include
+  exact read-only verification commands for typed work, suggestions, and
+  handoffs; this directly addresses the remaining avoidable syntax failures in
+  the cheap calibration traces without adding startup work.
+- 2026-08-18 01:20 ET — The frozen 0.3.2 source passed all 112 portable tests in
+  Swift 5.10 Jammy. Fresh x86-64 and arm64 Linux binaries both report 0.3.2 and
+  score 100 on all five reference episodes. Rebuilding x86-64 from the same
+  source produced the identical SHA-256
+  `ba5daecb6d7fb1874a9726313cf2c871ad37691dba1cf59bb655642f03314919`.
+- 2026-08-18 01:21 ET — MarginBench now has 12 public schemas, a deterministic
+  20-pair counterbalanced study planner, a fail-closed control catalog, safe
+  private holdout-key creation, benchmark-implementation provenance, bounded
+  candidate promotion tests, a complete 13-attempt experiment ledger, and a
+  corrected worst-case paid-run admission calculation. The 25 benchmark tests
+  pass under both the system and Prime runtimes; Prime's five-workflow fake-model
+  rehearsal scored 100 throughout with one exposed `margin` tool and no paid
+  calls.
+- 2026-08-18 01:23 ET — The final manylinux wheel and source archive passed
+  their tests inside clean Linux containers. Their SHA-256 values are
+  `4907f4e21b052a42f0dd0d4528604c2e90d2d7bd67713fbd3b7134b1dd520cd6`
+  and `074f75f5e45d41a0830f37092939b10c4ee7455919c7567b0a0d80cd0c271071`.
+  Packaging now removes obsolete MarginBench artifacts from the release folder
+  so an older pure-Python wheel cannot be shipped beside the Linux build.
+- 2026-08-18 01:23 ET — The signed-for-local-use Mac app passed its live smoke
+  test and was packaged together with the CLI as both a zip and installer.
+  Warm launch measured 308.819 ms median / 345.535 ms p95, with 158.078 MiB
+  median RSS. This remains within ordinary run-to-run variance of the 304.169 ms
+  post-port baseline and keeps all benchmark/provider code off the launch path.
+
+## Next statistically useful paid run
+
+The next useful experiment is not another one-off. It is a paired interface
+comparison over all five workflows with four private repetitions: 20 matched
+episodes per candidate, 36 role processes per candidate, and exactly balanced
+AB/BA ordering. That is the smallest default study eligible for promotion.
+
+At Qwen Flash's current API price of $0.03/M input tokens and $0.13/M output
+tokens, a **provisional** 65,536-input-token ceiling, 2,400 output tokens,
+12 turns, three possible upstream attempts per turn, and $0.0002 rounding
+allowance gives a conservative bound of $3.211592 per candidate or $6.423184
+for the pair. This is well inside Gate 3's $50 envelope and far above observed
+cost, which is intentional. It is not execution-ready until Prime or the model
+publisher documents that 65,536-token per-call ceiling. Prime's current Models
+API exposes price but not context length, so substituting an assumed value would
+repeat the billing-bound error already caught here. No broader paid run should
+start until that contract fact is verified and a no-model plan is reviewed.
 
 ## Decisions still to earn with evidence
 
 - Whether the first public release should live inside this repository or in a
   standalone `marginbench` repository once the schemas stabilize.
-- Whether concurrent agents should share one container or use separate
-  containers connected to a per-episode Margin gateway. The secure default is
-  separate agent runtimes plus one narrow shared gateway.
-- Which cheap Prime-hosted model gives enough failure diversity for economical
-  interface hill-climbing before using stronger models.
-- How much of the $200 produces statistically useful evidence after measuring a
-  real episode's token and runtime cost.
+- Whether the published hosted environment should use one container per role or
+  separate agent runtimes connected to the same narrow gateway. Local Prime
+  subprocess isolation is working; remote isolation remains the publication
+  gate.
+- Qwen 3.7 Flash is inexpensive enough for interface calibration and produces
+  useful failure diversity. One-role runs have cost about $0.0004-$0.0017;
+  the successful two-role handoff cost $0.0028 and the longest staged run cost
+  $0.0044.
+- At observed prices, the $200 balance is far larger than the development need.
+  Broad runs should still wait for stable cases: 100 two-role episodes at the
+  observed handoff cost would be roughly $0.28, before retries or model changes.
+  This is an empirical planning figure, not an admission bound; future run
+  proposals must also report the corrected worst-case calculation.

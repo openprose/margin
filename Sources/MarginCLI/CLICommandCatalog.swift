@@ -185,18 +185,18 @@ enum CLICapabilityWorkflow: String, CaseIterable, Encodable {
             ])
         case .staging:
             selected = Set([
-                "workspace", "workspace init", "workspace show", "context", "inbox", "stage",
+                "workspace init", "context",
                 "stage create", "stage list", "stage show", "stage refresh", "stage discard",
-                "stage submit", "transact",
+                "stage submit",
             ])
         case .suggestions:
             selected = Set([
-                "context", "inbox", "suggest", "suggest add", "suggest list",
+                "context", "inbox", "suggest add", "suggest list",
                 "suggest accept", "suggest reject",
             ])
         case .handoff:
             selected = Set([
-                "context", "collaborators", "inbox", "handoff", "handoff add", "handoff list",
+                "context", "collaborators", "inbox", "handoff add", "handoff list",
             ])
         case .merge:
             selected = Set(["context", "reconcile", "merge"])
@@ -376,8 +376,13 @@ enum CLICommandCatalog {
             ),
             command(
                 "read",
+                aliases: [["show"], ["cat"]],
                 summary: "Read literal Markdown with the terminal Margin metadata envelope removed.",
-                usage: ["margin read FILE [--json] [--with-comments] [--pretty]"],
+                usage: [
+                    "margin read FILE [--json] [--with-comments] [--pretty]",
+                    "margin show FILE [--json] [--with-comments] [--pretty]",
+                    "margin cat FILE [--json] [--with-comments] [--pretty]",
+                ],
                 arguments: [file],
                 options: [json, option("--with-comments", description: "Include the comment snapshot in JSON output."), pretty],
                 sideEffects: "reads-file",
@@ -402,9 +407,9 @@ enum CLICommandCatalog {
             command(
                 "review",
                 summary: "Return bounded outline, thread groups, excerpts, anchor health, and revision.",
-                usage: ["margin review FILE --json [--since-revision N] [--pretty]"],
+                usage: ["margin review FILE [--json] [--since-revision N] [--pretty]"],
                 arguments: [file],
-                options: [requiredOption("--json", description: "Required so the bounded agent result is unambiguous."), option("--since-revision", value: "N", description: "Return a not-modified projection when possible."), pretty],
+                options: [option("--json", description: "Accepted for uniform invocation; review always emits JSON."), option("--since-revision", value: "N", description: "Return a not-modified projection when possible."), pretty],
                 sideEffects: "reads-file",
                 output: cliJSON
             ),
@@ -417,8 +422,8 @@ enum CLICommandCatalog {
             ),
             command(
                 "comments", "add",
-                summary: "Add a passage- or document-level comment or typed contribution.",
-                usage: ["margin comments add FILE MESSAGE ANCHOR [--kind KIND] [TYPED_OPTIONS] [MUTATION_OPTIONS]"],
+                summary: "Start a new passage- or document-level thread. To answer an existing thread, use comments reply instead.",
+                usage: ["margin comments add FILE (-m TEXT | --message-file PATH | --stdin) ANCHOR [--kind KIND] [TYPED_OPTIONS] [MUTATION_OPTIONS]"],
                 arguments: [file],
                 options: messageOptions + anchorOptions + typedContributionOptions + [option("--id", value: "UUID", description: "Client-chosen annotation UUID and idempotency identity.")] + commentMutationOptions,
                 sideEffects: "mutates-file",
@@ -444,8 +449,8 @@ enum CLICommandCatalog {
             ),
             command(
                 "comments", "reply",
-                summary: "Reply to any annotation in a comment tree.",
-                usage: ["margin comments reply FILE PARENT MESSAGE [--reopen] [MUTATION_OPTIONS]"],
+                summary: "Reply to any annotation in a comment tree. A reply never resolves the root thread; run comments resolve separately when the concern is closed.",
+                usage: ["margin comments reply FILE PARENT (-m TEXT | --message-file PATH | --stdin) [--reopen] [MUTATION_OPTIONS]"],
                 arguments: [file, argument("PARENT", kind: "annotation-id", description: "Parent annotation UUID or urn:uuid identifier.")],
                 options: messageOptions + [option("--reopen", description: "Reopen the root thread while replying."), option("--id", value: "UUID", description: "Client-chosen annotation UUID and idempotency identity.")] + commentMutationOptions,
                 sideEffects: "mutates-file",
@@ -454,7 +459,7 @@ enum CLICommandCatalog {
             command(
                 "comments", "edit",
                 summary: "Edit a comment body while preserving identity, creator, anchor, and tree position.",
-                usage: ["margin comments edit FILE ID MESSAGE [MUTATION_OPTIONS]"],
+                usage: ["margin comments edit FILE ID (-m TEXT | --message-file PATH | --stdin) [MUTATION_OPTIONS]"],
                 arguments: [file, commentID],
                 options: messageOptions + commentMutationOptions,
                 sideEffects: "mutates-file",
@@ -515,6 +520,8 @@ enum CLICommandCatalog {
 
     static let topLevelAliases: [String: String] = [
         "comment": "comments",
+        "show": "read",
+        "cat": "read",
         "-h": "help",
         "--help": "help",
         "-v": "version",
@@ -640,10 +647,10 @@ enum CLICommandCatalog {
             ),
             command(
                 "context",
-                summary: "Return canonical bounded agent context, including an mcur1 cursor.",
-                usage: ["margin context TARGET --json [SELECTION_OPTIONS] [--pretty]"],
+                summary: "Return bounded context with root thread IDs, current revisions, exact available command paths, argument guidance, and an mcur1 cursor.",
+                usage: ["margin context TARGET [--json] [SELECTION_OPTIONS] [--pretty]"],
                 arguments: [target],
-                options: selection + [requiredOption("--json", description: "Required bounded JSON result."), pretty],
+                options: selection + [option("--json", description: "Accepted for uniform invocation; context always emits JSON."), pretty],
                 sideEffects: "reads-selected-files",
                 output: output
             ),

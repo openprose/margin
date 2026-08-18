@@ -67,18 +67,31 @@ for suite in "${SUITES[@]}"; do
     QUALIFIED_SUITES+=("$test_module.$suite")
 done
 
-# Reuse one container but launch a new XCTest process for each suite. Repeated
-# rapid Docker Desktop container creation is itself prone to sporadic stalls.
+# Reuse one container but launch a new XCTest process for each test. Swift 5.10
+# corelibs XCTest wraps even synchronous discovered tests in an async task. On
+# Linux that runner can intermittently stop scheduling the next test in a
+# multi-test process, while the selected test itself has already returned and
+# no file descriptor or lock remains open. Selecting one test per process keeps
+# the product gate deterministic without repeating SwiftPM planning or hiding a
+# test timeout. Repeated Docker Desktop container creation is also avoided.
 run_linux sh -c '
     set -eu
-    per_suite_timeout=$1
+    per_test_timeout=$1
     shift
     test_binary=$(find /build -type f -name MarginPackageTests.xctest -print -quit)
     test -n "$test_binary"
+    listed_tests=$("$test_binary" --list-tests)
+    executed=0
     for qualified_suite do
         echo "Linux suite: ${qualified_suite##*.}"
-        timeout "${per_suite_timeout}s" "$test_binary" "$qualified_suite"
+        matching_tests=$(printf "%s\n" "$listed_tests" | grep -F "$qualified_suite/")
+        test -n "$matching_tests"
+        for qualified_test in $matching_tests; do
+            timeout "${per_test_timeout}s" "$test_binary" "$qualified_test"
+            executed=$((executed + 1))
+        done
     done
+    echo "Linux XCTest processes passed: $executed"
 ' sh "$TEST_TIMEOUT" "${QUALIFIED_SUITES[@]}"
 
 print "Linux gate passed: ${#SUITES[@]} isolated suites (112 tests)."

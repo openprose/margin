@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:study-plan:v1",
+  "title": "MarginBench paired study plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "benchmarkVersion", "taskSet", "developmentCases", "controlProfile",
+    "baselineCandidate", "candidate", "scenarioIDs", "repetitions",
+    "episodeCount", "roleRunsPerCandidate", "totalRoleRuns",
+    "minimumPairsForPromotion", "sampleSizeSufficient", "episodes"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:study-plan:v1"},
+    "benchmarkVersion": {"type": "string", "minLength": 1},
+    "taskSet": {"type": "string", "minLength": 1},
+    "developmentCases": {"type": "boolean"},
+    "controlProfile": {"type": "string", "minLength": 1},
+    "baselineCandidate": {"type": "string", "minLength": 1, "maxLength": 256},
+    "candidate": {"type": "string", "minLength": 1, "maxLength": 256},
+    "scenarioIDs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "repetitions": {"type": "integer", "minimum": 1, "maximum": 100},
+    "episodeCount": {"type": "integer", "minimum": 1},
+    "roleRunsPerCandidate": {"type": "integer", "minimum": 1},
+    "totalRoleRuns": {"type": "integer", "minimum": 2},
+    "minimumPairsForPromotion": {"type": "integer", "minimum": 2},
+    "sampleSizeSufficient": {"type": "boolean"},
+    "episodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "scenario", "repetition", "fingerprint", "roles", "candidateOrder"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "scenario": {"type": "string", "minLength": 1},
+          "repetition": {"type": "integer", "minimum": 0},
+          "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "roles": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "candidateOrder": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    }
+  }
+}

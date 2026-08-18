@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://margin.tools/schemas/marginbench/v1/public-manifest.schema.json",
+  "title": "MarginBench public episode manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "scenario", "repetition", "fingerprint", "fileCount", "roles", "controls"],
+  "properties": {
+    "schema": {"const": "urn:marginbench:episode:v1"},
+    "id": {"type": "string", "minLength": 1},
+    "scenario": {"type": "string", "minLength": 1},
+    "repetition": {"type": "integer", "minimum": 0},
+    "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "fileCount": {"type": "integer", "minimum": 1},
+    "roles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["seat", "phase", "workflow"],
+        "properties": {
+          "seat": {"enum": ["author", "reviewer"]},
+          "phase": {"type": "integer", "minimum": 0},
+          "workflow": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "controls": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+  }
+}

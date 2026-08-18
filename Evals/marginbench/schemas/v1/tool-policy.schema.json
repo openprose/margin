@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://margin.tools/schemas/marginbench/v1/tool-policy.schema.json",
+  "title": "MarginBench gateway policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["max_arguments", "max_argument_bytes", "max_stdin_bytes", "max_output_bytes", "timeout_seconds"],
+  "properties": {
+    "max_arguments": {"type": "integer", "minimum": 1},
+    "max_argument_bytes": {"type": "integer", "minimum": 1},
+    "max_stdin_bytes": {"type": "integer", "minimum": 1},
+    "max_output_bytes": {"type": "integer", "minimum": 1},
+    "timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 120}
+  }
+}

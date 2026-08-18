@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://margin.tools/schemas/marginbench/v1/binary-manifest.schema.json",
+  "title": "MarginBench Linux binary manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "marginVersion", "build", "artifacts", "verification"],
+  "properties": {
+    "schema": {"const": "urn:marginbench:binary-manifest:v1"},
+    "marginVersion": {"type": "string", "minLength": 1},
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["containerImage", "dockerfileSha256", "packageManifestSha256", "scriptSha256", "sourceTreeSha256", "staticSwiftStandardLibrary"],
+      "properties": {
+        "containerImage": {"type": "string", "pattern": "@sha256:[0-9a-f]{64}$"},
+        "dockerfileSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "packageManifestSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "scriptSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "sourceTreeSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "staticSwiftStandardLibrary": {"const": true}
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["architecture", "platform", "path", "bytes", "sha256"],
+        "properties": {
+          "architecture": {"type": "string", "enum": ["x86_64", "aarch64"]},
+          "platform": {"type": "string", "enum": ["linux/amd64", "linux/arm64"]},
+          "path": {"type": "string", "pattern": "^marginbench/bin/margin-linux-"},
+          "bytes": {"type": "integer", "minimum": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["referenceEpisodesPerArtifact", "score", "safetyPassed"],
+      "properties": {
+        "referenceEpisodesPerArtifact": {"type": "integer", "minimum": 1},
+        "score": {"type": "number", "minimum": 0, "maximum": 100},
+        "safetyPassed": {"type": "boolean"}
+      }
+    }
+  }
+}

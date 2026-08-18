@@ -6,6 +6,7 @@ public struct CommentMutationReceipt: Codable, Sendable {
     public var revision: Int
     public var contentSha256: String
     public var rootID: String
+    public var threadStatus: MarginCommentStatus
     public var annotation: MarginComment
 
     public init(
@@ -14,6 +15,7 @@ public struct CommentMutationReceipt: Codable, Sendable {
         revision: Int,
         contentSha256: String,
         rootID: String,
+        threadStatus: MarginCommentStatus = .open,
         annotation: MarginComment
     ) {
         self.changed = changed
@@ -21,6 +23,7 @@ public struct CommentMutationReceipt: Codable, Sendable {
         self.revision = revision
         self.contentSha256 = contentSha256
         self.rootID = rootID
+        self.threadStatus = threadStatus
         self.annotation = annotation
     }
 }
@@ -846,6 +849,7 @@ public struct CommentService: Sendable {
             revision: envelope.revision,
             contentSha256: EmbeddedCommentCodec.contentHash(bodyData),
             rootID: rootID,
+            threadStatus: envelope.items.first(where: { $0.id == rootID })?.status ?? .open,
             annotation: annotation
         )
     }

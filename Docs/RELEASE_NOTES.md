@@ -1,5 +1,47 @@
 # Margin release notes
 
+## 0.3.2 — portable collaboration and MarginBench
+
+Release date: 2026-08-18
+
+- Runs the same collaboration core and CLI on macOS and Linux while keeping the
+  native Mac application isolated from benchmark and provider code.
+- Adds compact workflow-specific capability guides and makes `margin man`,
+  including `margin man workflow`, a progressive agent-facing entry point.
+- Hardens bounded collaboration reads and the CLI's machine-readable guidance
+  for comments, handoffs, suggestions, stages, and recovery.
+- Adds MarginBench: deterministic human-to-agent and agent-to-agent tasks,
+  exact execution scoring, a narrow tool gateway, a Prime Verifiers adapter,
+  reproducible Linux builds, and budget-gated evaluation tooling.
+
+### Verification and artifacts
+
+- All 164 macOS tests and all 112 portable Linux tests pass. Twenty-five
+  MarginBench tests pass under both the system and Prime runtimes; the five-case
+  reference matrix and Prime fake-model rehearsal both score 100 with no paid
+  calls. The existing CLI and directory-collaboration evals also remain fully
+  green.
+- The final x86-64 Linux binary rebuild is byte-for-byte reproducible. Both
+  Linux architectures report Margin 0.3.2 and pass the reference matrix. The
+  installable manylinux wheel and source archive pass in clean containers.
+- `Margin-0.3.2-macOS-arm64.zip`: 3,525,771 bytes, SHA-256
+  `6f6a0b8d7a9ab83bad4a39c7f450c5b09d1b4133cb2a392af29559762c8ba9eb`.
+- `Margin-0.3.2-macOS-arm64.pkg`: 3,521,281 bytes, SHA-256
+  `b374f8411a0ce90c6b2f402d3951796db5efdb0a1acd4b5108154a040d33fe79`.
+- `marginbench-0.1.0-py3-none-manylinux_2_35_x86_64.whl`: SHA-256
+  `4907f4e21b052a42f0dd0d4528604c2e90d2d7bd67713fbd3b7134b1dd520cd6`.
+- `marginbench-0.1.0.tar.gz`: SHA-256
+  `074f75f5e45d41a0830f37092939b10c4ee7455919c7567b0a0d80cd0c271071`.
+
+### Performance
+
+On the current M1 Max Mac, the exact 0.3.2 app reaches a visible real editor
+window in **308.819 ms median / 345.535 ms p95** across fifteen warm launches,
+with **158.078 MiB median RSS**. This is within ordinary run-to-run variance of
+the post-port 304.169 ms median and slightly lowers median memory. MarginBench
+and Prime adapter code are packaged separately and are absent from the app and
+CLI startup path.
+
 ## 0.3.1 — self-teaching CLI and unified installer
 
 Release date: 2026-08-17

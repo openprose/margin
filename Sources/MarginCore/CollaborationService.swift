@@ -95,12 +95,27 @@ public struct CollaborationContextTruncation: Codable, Hashable, Sendable {
 }
 
 public enum CollaborationAvailableAction: String, Codable, CaseIterable, Sendable {
-    case addContribution = "add-contribution"
-    case stageChangeSet = "stage-change-set"
-    case submitChangeSet = "submit-change-set"
-    case acceptSuggestion = "accept-suggestion"
-    case createHandoff = "create-handoff"
+    case listThreads = "comments list"
+    case getComment = "comments get"
+    case replyToThread = "comments reply"
+    case resolveThread = "comments resolve"
+    case reopenThread = "comments reopen"
+    case addContribution = "comments add"
+    case validateDocument = "comments validate"
+    case stageChangeSet = "stage create"
+    case listChangeSets = "stage list"
+    case showChangeSet = "stage show"
+    case refreshChangeSet = "stage refresh"
+    case discardChangeSet = "stage discard"
+    case submitChangeSet = "stage submit"
+    case createSuggestion = "suggest add"
+    case listSuggestions = "suggest list"
+    case acceptSuggestion = "suggest accept"
+    case rejectSuggestion = "suggest reject"
+    case createHandoff = "handoff add"
+    case listHandoffs = "handoff list"
     case reconcile
+    case merge
 }
 
 public struct CollaborationContextSnapshot: Codable, Hashable, Sendable {

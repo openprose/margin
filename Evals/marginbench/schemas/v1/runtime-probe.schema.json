@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:prime-runtime-probe:v1",
+  "title": "MarginBench Prime runtime probe",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "status",
+    "paidModelsInvoked",
+    "marginSha256",
+    "expectedCostUSD",
+    "failureBoundUSD",
+    "hardAdmissionCapUSD",
+    "resources",
+    "result",
+    "wallet"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:prime-runtime-probe:v1"},
+    "status": {"enum": ["completed", "infrastructure-error"]},
+    "paidModelsInvoked": {"const": false},
+    "marginSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "expectedCostUSD": {"type": "number", "minimum": 0},
+    "failureBoundUSD": {"type": "number", "minimum": 0},
+    "failureBoundHours": {"type": "number", "exclusiveMinimum": 0},
+    "hardAdmissionCapUSD": {"type": "number", "exclusiveMinimum": 0},
+    "image": {"type": "string", "minLength": 1},
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpu", "memoryGB", "diskGB", "idleTimeoutSeconds"],
+      "properties": {
+        "cpu": {"type": "number", "exclusiveMinimum": 0},
+        "memoryGB": {"type": "number", "exclusiveMinimum": 0},
+        "diskGB": {"type": "number", "exclusiveMinimum": 0},
+        "idleTimeoutSeconds": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "pricingUSDPerHour": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpuPerCore", "memoryPerGB", "diskPerGB"],
+      "properties": {
+        "cpuPerCore": {"type": "number", "minimum": 0},
+        "memoryPerGB": {"type": "number", "minimum": 0},
+        "diskPerGB": {"type": "number", "minimum": 0}
+      }
+    },
+    "result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["runtimeType", "imageCached", "marginVersion", "documentValid", "durationMs"],
+          "properties": {
+            "runtimeType": {"const": "prime"},
+            "imageCached": {"type": ["boolean", "null"]},
+            "marginVersion": {"type": "string", "minLength": 1},
+            "documentValid": {"const": true},
+            "durationMs": {"type": "integer", "minimum": 0}
+          }
+        },
+        {"type": "null"}
+      ]
+    },
+    "error": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "message"],
+          "properties": {
+            "type": {"type": "string", "minLength": 1},
+            "message": {"type": "string", "maxLength": 1000}
+          }
+        },
+        {"type": "null"}
+      ]
+    },
+    "wallet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["beforeBalanceUSD", "afterBalanceUSD", "observedDebitUSD"],
+      "properties": {
+        "beforeBalanceUSD": {"type": "number", "minimum": 0},
+        "afterBalanceUSD": {"type": "number", "minimum": 0},
+        "observedDebitUSD": {"type": "number", "minimum": 0}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "completed"}}},
+      "then": {
+        "properties": {
+          "result": {"type": "object"},
+          "error": {"type": "null"}
+        }
+      },
+      "else": {
+        "properties": {
+          "result": {"type": "null"},
+          "error": {"type": "object"}
+        },
+        "required": ["error"]
+      }
+    }
+  ]
+}

@@ -54,6 +54,7 @@ enum CollaborationCLI {
 
     static func addTypedContribution(
         file: URL,
+        fileArgument: String,
         message: String,
         creator: MarginActor,
         kind: CollaborationContributionKind,
@@ -155,7 +156,20 @@ enum CollaborationCLI {
             command: "comments.add",
             root: root,
             result: ContributionMutationResult(contribution: contribution, transaction: receipt),
-            pretty: pretty
+            pretty: pretty,
+            notice: "Typed \(kind.rawValue) saved. Verification commands use read-only arguments; do not carry --document or --kind into comments get/list.",
+            nextActions: [
+                CollaborationNextAction(
+                    condition: "verify the exact durable contribution",
+                    command: "comments get",
+                    arguments: [fileArgument, normalizedID]
+                ),
+                CollaborationNextAction(
+                    condition: "observe concurrent work in the document",
+                    command: "comments list",
+                    arguments: [fileArgument, "--status", "all"]
+                ),
+            ]
         )
     }
 
@@ -209,11 +223,10 @@ enum CollaborationCLI {
 
     private static func runContext(_ cursor: inout ArgumentCursor) throws {
         let pretty = cursor.takeFlag("--pretty")
-        guard cursor.takeFlag("--json") else {
-            throw CLIError.usage("context requires --json so its bounded result is unambiguous for agents.")
-        }
+        _ = cursor.takeFlag("--json")
         let options = try takeContextOptions(&cursor)
-        let target = try PathResolver.existingItem(cursor.require("file or directory"))
+        let targetArgument = try cursor.require("file or directory")
+        let target = try PathResolver.existingItem(targetArgument)
         try cursor.rejectRemaining()
         let selection = try resolveSelection(target: target, options: options)
         let snapshot = try contextService.context(
@@ -227,7 +240,8 @@ enum CollaborationCLI {
             actors: snapshot.actors,
             activity: snapshot.activity,
             truncation: snapshot.truncation,
-            availableActions: snapshot.availableActions
+            availableActions: snapshot.availableActions,
+            workflowGuidance: ContextWorkflowHint.forSnapshot(snapshot)
         )
         try write(command: "context", root: selection.root, result: result, pretty: pretty)
     }
@@ -236,7 +250,8 @@ enum CollaborationCLI {
         let pretty = cursor.takeFlag("--pretty")
         _ = cursor.takeFlag("--json")
         let options = try takeContextOptions(&cursor)
-        let target = try PathResolver.existingItem(cursor.require("file or directory"))
+        let targetArgument = try cursor.require("file or directory")
+        let target = try PathResolver.existingItem(targetArgument)
         try cursor.rejectRemaining()
         let selection = try resolveSelection(target: target, options: options)
         let snapshot = try contextService.context(
@@ -593,7 +608,8 @@ enum CollaborationCLI {
             cursor: &cursor,
             fallbackContributionID: normalizedContributionID
         )
-        let target = try PathResolver.existingItem(cursor.require("file or directory"))
+        let targetArgument = try cursor.require("file or directory")
+        let target = try PathResolver.existingItem(targetArgument)
         try cursor.rejectRemaining()
         let selection = try resolveMutationSelection(
             target: target,
@@ -633,7 +649,20 @@ enum CollaborationCLI {
             command: "suggest.add",
             root: selection.root,
             result: ContributionMutationResult(contribution: contribution, transaction: receipt),
-            pretty: pretty
+            pretty: pretty,
+            notice: "Suggestion saved without changing source. Review and disposition commands require the target before the suggestion ID.",
+            nextActions: [
+                CollaborationNextAction(
+                    condition: "always verify the durable suggestion",
+                    command: "suggest list",
+                    arguments: [targetArgument]
+                ),
+                CollaborationNextAction(
+                    condition: "inspect the exact annotation and anchor",
+                    command: "comments get",
+                    arguments: [targetArgument, contributionID]
+                ),
+            ]
         )
     }
 
@@ -699,7 +728,8 @@ enum CollaborationCLI {
         let explicitPath = try cursor.takeValue("--path")
         let actor = try takeActor(cursor: &cursor)
         let identities = try takeIdentities(cursor: &cursor)
-        let target = try PathResolver.existingItem(cursor.require("file or directory"))
+        let targetArgument = try cursor.require("file or directory")
+        let target = try PathResolver.existingItem(targetArgument)
         let contributionID = MarginID.annotation(try cursor.require("suggestion id"))
         try cursor.rejectRemaining()
         let selection = try resolveMutationSelection(
@@ -732,7 +762,20 @@ enum CollaborationCLI {
                 disposition: disposition,
                 transaction: receipt
             ),
-            pretty: pretty
+            pretty: pretty,
+            notice: "Suggestion \(disposition.rawValue). Verify the Markdown source and embedded annotation state separately.",
+            nextActions: [
+                CollaborationNextAction(
+                    condition: "verify the source after the disposition",
+                    command: "read",
+                    arguments: [targetArgument, "--json"]
+                ),
+                CollaborationNextAction(
+                    condition: "always validate the embedded annotation graph",
+                    command: "comments validate",
+                    arguments: [targetArgument]
+                ),
+            ]
         )
     }
 
@@ -767,7 +810,8 @@ enum CollaborationCLI {
             cursor: &cursor,
             fallbackContributionID: normalizedContributionID
         )
-        let target = try PathResolver.existingItem(cursor.require("file or directory"))
+        let targetArgument = try cursor.require("file or directory")
+        let target = try PathResolver.existingItem(targetArgument)
         try cursor.rejectRemaining()
         let selection = try resolveMutationSelection(
             target: target,
@@ -821,7 +865,20 @@ enum CollaborationCLI {
             command: "handoff.add",
             root: selection.root,
             result: ContributionMutationResult(contribution: contribution, transaction: receipt),
-            pretty: pretty
+            pretty: pretty,
+            notice: "Handoff saved as durable document state. The next collaborator can discover it without this transcript.",
+            nextActions: [
+                CollaborationNextAction(
+                    condition: "always verify the durable handoff",
+                    command: "handoff list",
+                    arguments: [targetArgument]
+                ),
+                CollaborationNextAction(
+                    condition: "inspect the handoff annotation by id",
+                    command: "comments get",
+                    arguments: [targetArgument, contributionID]
+                ),
+            ]
         )
     }
 
@@ -1762,10 +1819,18 @@ enum CollaborationCLI {
         root: CollaborationRoot?,
         result: Result,
         pretty: Bool,
-        maximumBytes: Int? = nil
+        maximumBytes: Int? = nil,
+        notice: String? = nil,
+        nextActions: [CollaborationNextAction]? = nil
     ) throws {
         try CLIOutput.json(
-            CollaborationCommandEnvelope(command: command, root: root, result: result),
+            CollaborationCommandEnvelope(
+                command: command,
+                root: root,
+                result: result,
+                notice: notice,
+                nextActions: nextActions
+            ),
             pretty: pretty,
             maximumBytes: maximumBytes
         )
@@ -1778,6 +1843,14 @@ private struct CollaborationCommandEnvelope<Result: Encodable>: Encodable {
     let command: String
     let root: CollaborationRoot?
     let result: Result
+    var notice: String? = nil
+    var nextActions: [CollaborationNextAction]? = nil
+}
+
+private struct CollaborationNextAction: Encodable {
+    let condition: String
+    let command: String
+    let arguments: [String]
 }
 
 private struct ContextOptions {
@@ -1875,6 +1948,83 @@ private struct ContextResult: Encodable {
     let activity: [CollaborationActorActivity]
     let truncation: CollaborationContextTruncation
     let availableActions: [CollaborationAvailableAction]
+    let workflowGuidance: [ContextWorkflowHint]
+}
+
+private struct ContextWorkflowHint: Encodable {
+    let purpose: String
+    let command: String
+    let arguments: [String]
+    let note: String
+
+    static let defaults = [
+        ContextWorkflowHint(
+            purpose: "answer an existing open thread",
+            command: "comments reply",
+            arguments: [
+                "FILE", "ROOT_ID", "-m", "TEXT", "--id", "UUID",
+                "--if-revision", "OBSERVED_ANNOTATION_REVISION",
+            ],
+            note: "Reply with the rootID directly; no source-range calculation is needed."
+        ),
+        ContextWorkflowHint(
+            purpose: "close an addressed thread",
+            command: "comments resolve",
+            arguments: ["FILE", "ROOT_ID", "--if-revision", "REPLY_REVISION"],
+            note: "Replying does not resolve the root. Resolve only when the task authorizes closure."
+        ),
+        ContextWorkflowHint(
+            purpose: "verify a complete durable thread",
+            command: "comments list",
+            arguments: ["FILE", "--thread", "ROOT_ID", "--status", "all"],
+            note: "Use --thread ROOT_ID and then validate the document."
+        ),
+        ContextWorkflowHint(
+            purpose: "start typed document-level work",
+            command: "comments add",
+            arguments: [
+                "FILE", "--document", "--kind", "KIND", "-m", "TEXT",
+                "--id", "UUID", "--if-revision", "OBSERVED_ANNOTATION_REVISION",
+            ],
+            note: "Choose the requested kind explicitly: comment, question, issue, decision, task, or approval."
+        ),
+    ]
+
+    static func forSnapshot(_ snapshot: CollaborationContextSnapshot) -> [ContextWorkflowHint] {
+        let kinds = Set(snapshot.files.flatMap(\.contributions).map(\.kind))
+        var relevant: [ContextWorkflowHint] = []
+        if kinds.contains(.suggestion) {
+            relevant += [
+                ContextWorkflowHint(
+                    purpose: "inspect durable suggestions",
+                    command: "suggest list",
+                    arguments: ["TARGET"],
+                    note: "Use the returned contribution IDs with suggest accept or suggest reject."
+                ),
+                ContextWorkflowHint(
+                    purpose: "accept an authorized source change",
+                    command: "suggest accept",
+                    arguments: ["TARGET", "SUGGESTION_ID"],
+                    note: "Acceptance edits Markdown and may fail on stale source; reread instead of forcing it."
+                ),
+                ContextWorkflowHint(
+                    purpose: "reject a suggestion without editing source",
+                    command: "suggest reject",
+                    arguments: ["TARGET", "SUGGESTION_ID"],
+                    note: "Rejection is safe after source drift and records the deciding actor."
+                ),
+            ]
+        }
+        if kinds.contains(.handoff) {
+            relevant.append(ContextWorkflowHint(
+                purpose: "inspect durable handoffs",
+                command: "handoff list",
+                arguments: ["TARGET"],
+                note: "Use the handoff rootID for a reply; the next collaborator does not need the prior transcript."
+            ))
+        }
+        return relevant + defaults
+    }
 }
 
 private struct CollaboratorsResult: Encodable {

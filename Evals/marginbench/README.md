@@ -1,0 +1,239 @@
+# MarginBench
+
+MarginBench measures whether agents can collaborate with a human and with one
+another through durable Markdown state. It runs real Margin commands in an
+isolated workspace and scores the resulting files. It does not ask another
+model to judge the transcript.
+
+The benchmark is provider-independent. `marginbench/` contains the generator,
+gateway, runner, scorer, and candidate comparison code. `marginbench.prime` is
+the first hosted adapter, built for Prime Intellect Verifiers v1.
+
+## What v1 measures
+
+The five initial scenario families cover:
+
+- replying to and resolving a human's existing review thread;
+- leaving a durable handoff that a second agent can find without a transcript;
+- two agents writing concurrently without losing or duplicating work;
+- proposing two exact source changes and accepting one while safely rejecting
+  the other after its source cursor becomes stale;
+- staging one all-or-none change across two files, observing stale metadata,
+  refreshing the immutable stage, and submitting it atomically.
+
+Each case is generated deterministically from a secret key and repetition
+number. Public development cases use a documented key. Private evaluation cases
+use a rotating key supplied only to the task generator.
+
+## Trust boundary
+
+An agent receives its role brief and one tool named `margin`. The gateway:
+
+- binds the role's actor identity;
+- confines paths to the episode workspace;
+- blocks GUI launch routes, identity overrides, oversized input and output, and
+  non-Margin commands;
+- invokes the real Margin executable with a shared lock/state directory;
+- records only role, command path, byte counts, timing, exit code, and stable
+  error code. Arguments, document text, comment bodies, prompts, and credentials
+  are not written to the benchmark event log.
+
+The hidden fixture and executable oracle remain in the environment process, not
+in the task data or agent runtime. Raw provider traces can still contain task
+prompts and tool responses; `runs/` is ignored and must be treated as private.
+
+## Local, no-model gates
+
+From the Margin repository root:
+
+```sh
+make marginbench-test
+make marginbench-preflight
+```
+
+`marginbench-test` runs the Python contracts under both the system interpreter
+and Prime's Verifiers environment, then requires the deterministic reference
+policy to score 100 on every scenario. `marginbench-preflight` runs every role
+in all five Verifiers v1 scenarios through a local fake OpenAI-compatible model.
+Neither command invokes a paid model.
+
+Individual commands are also available:
+
+```sh
+PYTHONPATH=Evals/marginbench python3 -m marginbench.cli generate \
+  --scenario human_agent_relay --repetition 0
+
+PYTHONPATH=Evals/marginbench python3 -m marginbench.cli reference \
+  --margin-bin build/margin --scenario concurrent_review
+
+PYTHONPATH=Evals/marginbench python3 -m marginbench.cli self-test \
+  --margin-bin build/margin
+```
+
+An installed Linux package may simply run `marginbench self-test`; it discovers
+its bundled executable, verifies the binary against the embedded manifest, and
+never downloads code at runtime.
+
+## Linux artifact
+
+Prime-hosted and other container evaluations use the same Swift core and CLI as
+the Mac application. Build reproducible x86-64 and arm64 Linux executables with:
+
+```sh
+make marginbench-linux-binary
+```
+
+The build uses the pinned Swift 5.10 Jammy image in
+`docker/Dockerfile.margin`. Generated executables live in
+`marginbench/bin/`; they are intentionally not committed because together they
+are roughly 90 MB. Release packaging includes them, while a source checkout can
+rebuild them or set `MARGINBENCH_MARGIN_BIN` to an existing Linux executable.
+Published binary digests belong in `BINARY_MANIFEST.json`.
+
+## Prime Verifiers v1
+
+The package exports one task set and one multi-agent environment, both named
+`marginbench`. Prime authentication follows the official CLI login and selected
+team; no key is copied into this repository.
+
+A configuration-only check is safe and free:
+
+```sh
+PYTHONPATH=Evals/marginbench \
+  ~/.local/share/uv/tools/prime/bin/eval marginbench \
+  --model qwen/qwen3.7-flash \
+  --num-tasks 1 --num-rollouts 1 --max-concurrent 1 \
+  --env.taskset.scenario-ids human_agent_relay \
+  --env.taskset.margin-binary "$PWD/build/margin" \
+  --push false --rich false --dry-run true
+```
+
+Remove `--dry-run true` only under an explicit spend gate. Always set finite
+turn, input, output, total-token, and rollout-time limits. Do not publish or
+commit the resulting raw trace directory.
+
+The repository's safer paid wrapper is dry-run by default, requires a literal
+confirmation, refuses estimates over its per-run cap, serializes starts behind
+a cooldown, records wallet deltas, aggregates multiple role traces into one
+episode result, and can emit a schema-validated public run manifest:
+
+```sh
+Evals/marginbench/prime_pilot.py \
+  --margin-bin build/margin --model qwen/qwen3.7-flash \
+  --scenario agent_agent_handoff --max-tokens-per-call 2400 \
+  --input-token-ceiling-per-call 1048576 \
+  --input-price-per-million 0.03 --output-price-per-million 0.13 \
+  --max-cost-usd 2.50 --candidate CANDIDATE_ID \
+  --summary-file SUMMARY.json --run-manifest-file RUN.json
+```
+
+`--input-token-ceiling-per-call` must come from the provider/model contract. It
+is deliberately separate from Verifiers' `max-input-tokens`: Verifiers counts a
+deduplicated conversation graph and checks it between turns, while the provider
+bills the complete prompt on every call. The wrapper multiplies the asserted
+per-call ceiling by every permitted turn and by an SDK-retry allowance, then
+adds a per-call billing-rounding allowance. `--max-cost-usd` is a conservative
+admission gate, not a live wallet cutoff. Turn, response-token, and wall-time
+limits remain the live bounds. The example uses a one-million-token ceiling for
+illustration; replace it only with a provider-published bound for the chosen
+model.
+
+The printed plan must be reviewed before adding the separately documented paid
+execution flags. Raw traces remain under ignored `runs/`; only redacted summaries
+and run manifests are publication artifacts.
+
+### Prime-managed runtime probe
+
+The model-free development matrix uses local subprocesses. Before claiming the
+same package works in Prime-managed infrastructure, use the separate sandbox
+probe. It uploads the pinned Linux executable, runs a real typed comment write,
+validates the resulting Markdown, and tears the sandbox down without calling a
+model:
+
+```sh
+Evals/marginbench/remote_runtime_probe.py \
+  --margin-bin Evals/marginbench/marginbench/bin/margin-linux-x86_64
+```
+
+Dry-run is the default. The plan reports both the expected two-minute cost and
+the deliberately pessimistic cost if cleanup and the one-minute idle timer both
+failed until Prime's 24-hour backend lifetime limit. Execution additionally
+requires the literal confirmation printed by `--help`. Prime's published
+sandbox rates are supplied as explicit flags and recorded so a future price
+change cannot silently alter the estimate.
+
+## Candidate hill climbing
+
+A candidate is a precise bundle: Margin executable digest, manual digest, and
+settings digest. Compare it to the baseline on identical episode IDs. Promotion
+requires:
+
+1. no safety or source-integrity regression;
+2. a positive lower bound on the paired bootstrap confidence interval;
+3. disclosed model, harness, task version, limits, retries, cost, and latency;
+4. confirmation on private rotating cases, not only public development cases.
+
+Use `marginbench compare BASE_RESULTS CANDIDATE_RESULTS` for the deterministic
+paired comparison. Promotion requires at least 20 matching episodes by default,
+a positive paired-bootstrap lower bound, and no safety regression; a single
+development case can diagnose a failure but can never be labeled promotable.
+CLI/manual changes, model changes, team-layout changes, and prompt changes
+should be reported as separate tracks rather than mixed into one claim.
+
+`marginbench controls` publishes the frozen control catalog. The primary
+role-separated, Margin-only profile is runnable. Single-context, plain-Markdown,
+and Margin-plus-shell controls are specified but fail closed until their
+identity, task-neutral scoring, and disposable-sandbox requirements are
+implemented. This prevents an attractive but incomparable control result from
+quietly entering the main track.
+
+Before model execution, freeze the paired cases and counterbalanced candidate
+order without exposing prompts or answers:
+
+```sh
+marginbench study-plan --baseline released --candidate compact-guidance \
+  --repetitions 4 > study-plan.json
+```
+
+Four repetitions across all five workflows produce the default 20 matching
+episodes required for promotion. Supplying `--key-file` marks the plan as a
+private holdout; the emitted file contains only public fingerprints and role
+names, never the key, fixture text, prompts, or oracle.
+
+Create a rotating private key without placing its value in shell history or
+stdout:
+
+```sh
+mkdir -p .private-marginbench
+marginbench keygen .private-marginbench/holdout.key
+```
+
+The command creates a new mode-0600 file and refuses to overwrite any existing
+path. Its JSON receipt contains only a one-way key ID. Keep that directory out
+of version control and pass the file only to the task generator, never to an
+agent runtime or public result.
+
+## Public benchmark policy
+
+- Public development seeds, schemas, reference policies, and scoring code are
+  open for debugging.
+- Leaderboard test keys and instantiated fixtures remain private and rotate
+  after suspected exposure.
+- Submissions identify every binary and setting by digest and disclose retries.
+- A result with a failed integrity or workspace-policy check is capped at 25,
+  regardless of partial task completion.
+- Raw transcripts are not required for public submission. A redacted run
+  manifest, aggregate usage, and digest-identified candidate bundle are.
+  Cryptographic submitter signatures are not part of v1 and must not be
+  implied by a checksum alone.
+
+The benchmark card and known limitations are tracked in
+[`Docs/MARGINBENCH.md`](../../Docs/MARGINBENCH.md). The build and spending ledger
+is [`Docs/MARGINBENCH_PLAN.md`](../../Docs/MARGINBENCH_PLAN.md). The paid-wrapper
+cost-bound correction is preserved in
+[`results/COST_BOUND_AUDIT.md`](results/COST_BOUND_AUDIT.md).
+
+The package is ready for Prime's Environment Hub, but a private upload under the
+current OpenProse team requires that team to have a registry handle. This account
+setting does not block local development, Prime Inference, or reproducible wheel
+and source-package builds.

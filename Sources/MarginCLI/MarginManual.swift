@@ -14,7 +14,7 @@ enum MarginManual {
     static func page(for rawTopic: String?) -> String? {
         guard let rawTopic, !rawTopic.isEmpty else { return overview }
         switch rawTopic.lowercased() {
-        case "start", "overview", "agent", "agents":
+        case "start", "overview", "agent", "agents", "margin", "workflow", "workflows":
             return overview
         case "review":
             return review
@@ -48,7 +48,7 @@ enum MarginManual {
 
     Run: margin man TOPIC
     Exact grammar: margin COMMAND --help
-    Machine contract: margin capabilities --json --for WORKFLOW
+    Machine contract example: margin capabilities --json --for staging
     """
 
     static let overview = """
@@ -126,10 +126,19 @@ enum MarginManual {
       margin comments add FILE --quote "exact passage" -m "Specific finding" \\
         --actor-id ACTOR_ID --actor-type software --actor-name NAME --id UUID
 
+    ADD TYPED DOCUMENT WORK
+      margin comments add FILE --document --kind issue -m "Concrete defect" \\
+        --id UUID --if-revision OBSERVED_REVISION
+
+      Kinds: comment, question, issue, decision, task, approval.
+      If the gateway already binds your identity, omit all actor flags.
+
     CONTINUE AND CHECK
       margin comments list FILE --status all
-      margin comments reply FILE COMMENT_ID -m "Verified response" --id UUID
-      margin comments resolve FILE COMMENT_ID
+      margin comments reply FILE ROOT_ID -m "Verified response" --id UUID \\
+        --if-revision OBSERVED_REVISION
+      margin comments resolve FILE ROOT_ID --if-revision REPLY_REVISION
+      margin comments list FILE --thread ROOT_ID --status all
       margin comments validate FILE
 
     PRACTICE
@@ -138,6 +147,11 @@ enum MarginManual {
       - Keep one stable actor identity throughout the task.
       - Create one stable UUID for an intended contribution and reuse it on retry.
       - Use revision or content preconditions when continuing from an earlier read.
+      - Context and inbox already return path, rootID, body preview, thread status,
+        and the file's annotation revision. Reply with rootID directly; do not
+        calculate a source range to answer an existing thread.
+      - A reply receipt returns the new revision and threadStatus. Replying never
+        resolves the root; resolve separately only when the concern is closed.
       - Never record a proposal as a decision or your preference as human approval.
       - Inspect the resulting thread after every mutation.
 
@@ -280,6 +294,6 @@ enum MarginManual {
       - Report identifiers, pending work, and validation without exposing hidden
         metadata or credentials.
 
-    Machine contract: margin capabilities --json --for WORKFLOW
+    Machine contract example: margin capabilities --json --for staging
     """
 }
