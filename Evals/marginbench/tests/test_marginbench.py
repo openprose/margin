@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
 from marginbench.binary import resolve_margin_binary, validate_packaged_binary
-from marginbench.candidates import CandidateManifest, paired_compare
+from marginbench.candidates import CandidateManifest, load_results, paired_compare
 from marginbench.controls import DEFAULT_CONTROL_PROFILE, control_catalog, require_implemented_profile
 from marginbench.fake_model import scripted_response
 from marginbench.gateway import MarginGateway
@@ -16,9 +19,10 @@ from marginbench.keys import create_holdout_key
 from marginbench.provenance import implementation_files, implementation_sha256
 from marginbench.runner import ReferenceDriver, run_episode
 from marginbench.scenarios import SCENARIO_IDS, generate_episode
-from marginbench.schema import Actor, EpisodeResult
+from marginbench.schema import Actor, CommandEvent, EpisodeResult
 from marginbench.scorer import score_episode
 from marginbench.studies import build_study_plan
+from marginbench.validation import validate_artifact, validate_bytes
 from prime_pilot import _run_manifest, _summarize_traces, claim_paid_start, estimate_maximum_cost
 
 
@@ -28,6 +32,7 @@ ROOT = REPOSITORY_CANDIDATE if (REPOSITORY_CANDIDATE / "Package.swift").is_file(
 BINARY = ROOT / "build" / "margin"
 KEY = b"marginbench-unit-test-secret-key-v1"
 SCHEMA_ROOT = PACKAGE_ROOT / "schemas" / "v1"
+JSONSCHEMA_AVAILABLE = importlib.util.find_spec("jsonschema") is not None
 
 
 def available_binary() -> Path | None:
@@ -76,6 +81,47 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertNotIn("oracle", manifest)
         self.assertNotIn("files", manifest)
         self.assertNotIn(first.oracle["reference"]["handoffBody"], json.dumps(manifest))
+
+    def test_result_contract_rejects_nonfinite_unsafe_and_inconsistent_values(self) -> None:
+        values = {
+            "episode_id": "episode",
+            "candidate_id": "candidate",
+            "score": 25.0,
+            "dimensions": {"outcome": 25.0},
+            "checks": {"ok": False},
+            "command_count": 0,
+            "invalid_command_count": 0,
+            "duration_ms": 1.0,
+            "safety_passed": False,
+            "source_preserved": True,
+            "margin_sha256": "0" * 64,
+        }
+        self.assertEqual(EpisodeResult(**values).score, 25.0)
+        with self.assertRaisesRegex(ValueError, "capped at 25"):
+            EpisodeResult(**{**values, "score": 25.1})
+        with self.assertRaisesRegex(ValueError, "finite"):
+            EpisodeResult(**{**values, "score": float("nan")})
+        event = CommandEvent(
+            role="author",
+            command="version",
+            exit_code=0,
+            duration_ms=1,
+            stdin_bytes=0,
+            stdout_bytes=1,
+            stderr_bytes=0,
+        )
+        with self.assertRaisesRegex(ValueError, "match command_count"):
+            EpisodeResult(**{**values, "command_count": 2, "events": (event,)})
+        with self.assertRaisesRegex(ValueError, "nonnegative"):
+            CommandEvent(
+                role="author",
+                command="version",
+                exit_code=0,
+                duration_ms=-1,
+                stdin_bytes=0,
+                stdout_bytes=0,
+                stderr_bytes=0,
+            )
 
     def test_free_prime_preflight_script_understands_every_role_brief(self) -> None:
         expected_roles = 0
@@ -168,6 +214,7 @@ class MarginBenchCoreTests(unittest.TestCase):
         )
         self.assertEqual(len(manifest["episodes"]), 1)
         self.assertEqual(manifest["execution"]["roles"], ["author", "reviewer"])
+        self.assertEqual(manifest["execution"]["agentProcessCount"], 2)
         self.assertEqual(manifest["execution"]["controlProfile"], DEFAULT_CONTROL_PROFILE)
         self.assertEqual(len(manifest["benchmark"]["implementationSha256"]), 64)
         self.assertEqual(manifest["cost"]["admissionBound"], 0.008529)
@@ -175,6 +222,17 @@ class MarginBenchCoreTests(unittest.TestCase):
             manifest["cost"]["admissionBound"],
             manifest["cost"]["hardAdmissionCap"],
         )
+        partial = json.loads(json.dumps(summary))
+        partial["episodes"][0]["roleRuns"] = partial["episodes"][0]["roleRuns"][:1]
+        partial_manifest = _run_manifest(
+            arguments,
+            partial,
+            status="infrastructure_error",
+            started_at="2026-08-18T00:00:00Z",
+            duration_ms=123,
+            observed_wallet_debit=0.003,
+        )
+        self.assertEqual(partial_manifest["execution"]["agentProcessCount"], 2)
         try:
             from jsonschema import Draft202012Validator
         except ImportError:
@@ -202,7 +260,7 @@ class MarginBenchCoreTests(unittest.TestCase):
             self.assertEqual(payload["$schema"], "https://json-schema.org/draft/2020-12/schema")
             self.assertNotIn(payload["$id"], schemas)
             schemas[payload["$id"]] = payload
-        self.assertEqual(len(schemas), 12)
+        self.assertEqual(len(schemas), 16)
 
         try:
             from jsonschema import Draft202012Validator
@@ -487,10 +545,15 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertLess(result.score, 100.0)
 
     def test_paired_comparison_requires_identical_cases_and_safety_parity(self) -> None:
-        def result(identifier: str, score: float, safe: bool = True) -> EpisodeResult:
+        def result(
+            identifier: str,
+            score: float,
+            candidate_id: str,
+            safe: bool = True,
+        ) -> EpisodeResult:
             return EpisodeResult(
                 episode_id=identifier,
-                candidate_id="candidate",
+                candidate_id=candidate_id,
                 score=score,
                 dimensions={"outcome": score},
                 checks={"ok": safe},
@@ -502,23 +565,30 @@ class MarginBenchCoreTests(unittest.TestCase):
                 margin_sha256="0" * 64,
             )
 
-        baseline = [result("a", 40), result("b", 50)]
-        candidate = [result("a", 60), result("b", 70)]
+        baseline = [result("a", 40, "baseline"), result("b", 50, "baseline")]
+        candidate = [result("a", 60, "candidate"), result("b", 70, "candidate")]
         comparison = paired_compare(baseline, candidate, bootstrap_samples=1_000)
+        self.assertEqual(comparison["baselineCandidateID"], "baseline")
+        self.assertEqual(comparison["candidateID"], "candidate")
         self.assertEqual(comparison["meanScoreDelta"], 20.0)
         self.assertFalse(comparison["sampleSizeSufficient"])
         self.assertFalse(comparison["promotable"])
-        repeated_baseline = [result(f"case-{index}", 40) for index in range(20)]
-        repeated_candidate = [result(f"case-{index}", 60) for index in range(20)]
+        repeated_baseline = [result(f"case-{index}", 40, "baseline") for index in range(20)]
+        repeated_candidate = [result(f"case-{index}", 60, "candidate") for index in range(20)]
         repeated = paired_compare(repeated_baseline, repeated_candidate, bootstrap_samples=1_000)
         self.assertTrue(repeated["sampleSizeSufficient"])
         self.assertTrue(repeated["promotable"])
-        unsafe = [result("a", 60, False), result("b", 70)]
+        unsafe = [result("a", 25, "candidate", False), result("b", 70, "candidate")]
         self.assertFalse(paired_compare(baseline, unsafe, bootstrap_samples=100)["promotable"])
         with self.assertRaises(ValueError):
-            paired_compare(baseline, [result("a", 60)])
+            paired_compare(baseline, [result("a", 60, "candidate")])
         with self.assertRaisesRegex(ValueError, "duplicate episode IDs"):
-            paired_compare([result("a", 40), result("a", 50)], candidate)
+            paired_compare(
+                [result("a", 40, "baseline"), result("a", 50, "baseline")],
+                candidate,
+            )
+        with self.assertRaisesRegex(ValueError, "distinct candidate IDs"):
+            paired_compare(baseline, [result("a", 60, "baseline"), result("b", 70, "baseline")])
 
     def test_candidate_manifest_freezes_binary_manual_and_canonical_settings(self) -> None:
         repository_manual = ROOT / "Sources" / "MarginCLI" / "MarginManual.swift"
@@ -557,6 +627,269 @@ class MarginBenchCoreTests(unittest.TestCase):
         manifest = json.loads((PACKAGE_ROOT / "BINARY_MANIFEST.json").read_text(encoding="utf-8"))
         artifact = next(item for item in manifest["artifacts"] if item["architecture"] == "x86_64")
         self.assertEqual(len(data), artifact["bytes"])
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_public_artifact_validation_is_bounded_schema_backed_and_semantic(self) -> None:
+        plan = build_study_plan(
+            baseline="baseline",
+            candidate="candidate-v2",
+            scenarios=list(SCENARIO_IDS),
+            repetitions=4,
+            key=KEY,
+            development_cases=False,
+        )
+        valid = validate_bytes(json.dumps(plan).encode("utf-8"))
+        self.assertTrue(valid["valid"])
+        self.assertEqual(valid["artifactSchema"], "urn:marginbench:study-plan:v1")
+        self.assertRegex(valid["sha256"], "^[0-9a-f]{64}$")
+        self.assertEqual(valid["errors"], [])
+        self.assertTrue(validate_bytes(json.dumps(valid).encode("utf-8"))["valid"])
+
+        plan["episodes"][1]["id"] = plan["episodes"][0]["id"]
+        invalid = validate_bytes(json.dumps(plan).encode("utf-8"))
+        self.assertFalse(invalid["valid"])
+        self.assertEqual(invalid["error"]["code"], "ARTIFACT_INVALID")
+        self.assertTrue(any("duplicate episode" in item for item in invalid["errors"]))
+
+        duplicate_key = validate_bytes(b'{"schema":"urn:marginbench:candidate:v1","schema":"again"}')
+        self.assertFalse(duplicate_key["valid"])
+        self.assertEqual(duplicate_key["error"]["code"], "DUPLICATE_JSON_KEY")
+        nonfinite = validate_bytes(b'{"schema":NaN}')
+        self.assertFalse(nonfinite["valid"])
+        self.assertEqual(nonfinite["error"]["code"], "INVALID_JSON_NUMBER")
+        oversized = validate_bytes(b" " * (16 * 1_024 * 1_024 + 1))
+        self.assertFalse(oversized["valid"])
+        self.assertEqual(oversized["error"]["code"], "ARTIFACT_TOO_LARGE")
+        self.assertIsNone(oversized["sha256"])
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_run_manifest_validation_recomputes_cost_and_rejects_tampering(self) -> None:
+        result = {
+            "episodeID": "agent_agent_handoff:0:" + "a" * 12,
+            "score": 100.0,
+            "safetyPassed": True,
+            "commandCount": 7,
+            "invalidCommandCount": 0,
+            "checks": {"valid_documents": True},
+            "dimensions": {"outcome": 100.0},
+        }
+        traces = []
+        for seat, cost in (("author", 0.001), ("reviewer", 0.002)):
+            traces.append({
+                "task": {"data": {
+                    "name": f"agent_agent_handoff:0:{'a' * 12}:{seat}",
+                    "scenario_id": "agent_agent_handoff",
+                    "repetition": 0,
+                    "fingerprint": "a" * 64,
+                }},
+                "calls": [{"usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 20,
+                    "cached_input_tokens": 10,
+                    "reasoning_tokens": 5,
+                    "cost": cost,
+                }}],
+                "info": {"marginbench": result},
+                "stop_condition": "agent_completed",
+            })
+        with tempfile.TemporaryDirectory(prefix="marginbench-validation-test-") as temporary:
+            output = Path(temporary)
+            (output / "traces.jsonl").write_text(
+                json.dumps({"traces": traces}, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+            summary = _summarize_traces(output)
+            arguments = SimpleNamespace(
+                candidate="validation-test",
+                margin_bin=self.binary,
+                track="interface",
+                model="test/model",
+                max_concurrent=1,
+                max_input_tokens=1000,
+                max_output_tokens=500,
+                max_total_tokens=1500,
+                input_token_ceiling_per_call=4096,
+                upstream_attempts_per_turn=3,
+                billing_overhead_usd_per_call=0.0002,
+                max_tokens_per_call=250,
+                max_turns=4,
+                rollout_timeout_seconds=30.0,
+                temperature=0.0,
+                prior_infrastructure_attempts=0,
+                scenario=["agent_agent_handoff"],
+                repetitions=1,
+                input_price_per_million=0.03,
+                output_price_per_million=0.13,
+                max_cost_usd=1.0,
+                control_profile=DEFAULT_CONTROL_PROFILE,
+            )
+            manifest = _run_manifest(
+                arguments,
+                summary,
+                status="completed",
+                started_at="2026-08-18T00:00:00Z",
+                duration_ms=123,
+                observed_wallet_debit=0.003,
+            )
+            artifact = output / "run.json"
+            artifact.write_text(json.dumps(manifest), encoding="utf-8")
+            self.assertTrue(validate_artifact(artifact)["valid"])
+            manifest["cost"]["admissionBound"] += 0.01
+            artifact.write_text(json.dumps(manifest), encoding="utf-8")
+            receipt = validate_artifact(artifact)
+            self.assertFalse(receipt["valid"])
+            self.assertTrue(any("recorded basis" in item for item in receipt["errors"]))
+            manifest = _run_manifest(
+                arguments,
+                summary,
+                status="completed",
+                started_at="2026-08-18T00:00:00Z",
+                duration_ms=123,
+                observed_wallet_debit=0.003,
+            )
+            del manifest["execution"]["agentProcessCount"]
+            artifact.write_text(json.dumps(manifest), encoding="utf-8")
+            receipt = validate_artifact(artifact)
+            self.assertFalse(receipt["valid"])
+            self.assertTrue(any("cost bound requires" in item for item in receipt["errors"]))
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_tracked_prime_evidence_is_independently_checkable(self) -> None:
+        expected_invalid = {
+            "EXPERIMENTS.json": "legacy ledger shape reused the v1 identifier",
+            "PRIME_GATE2_HANDOFF_V5.json": "duplicate episode ids",
+            "PRIME_GATE2_HANDOFF_V6.json": "duplicate episode ids",
+            "PRIME_GATE2_STAGED_V10.json": "old cost estimate was exceeded",
+        }
+        observed_invalid: set[str] = set()
+        for artifact in sorted((PACKAGE_ROOT / "results").glob("*.json")):
+            receipt = validate_artifact(artifact)
+            self.assertNotEqual(receipt["error"].get("code") if receipt["error"] else None, "UNSUPPORTED_SCHEMA")
+            if not receipt["valid"]:
+                observed_invalid.add(artifact.name)
+        self.assertEqual(observed_invalid, set(expected_invalid))
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_metadata_validation_recomputes_ledger_binary_and_runtime_claims(self) -> None:
+        ledger = json.loads(
+            (PACKAGE_ROOT / "results" / "EXPERIMENT_LEDGER.json").read_text(encoding="utf-8")
+        )
+        ledger["totals"]["modelCalls"] += 1
+        receipt = validate_bytes(json.dumps(ledger).encode("utf-8"))
+        self.assertFalse(receipt["valid"])
+        self.assertTrue(any("model-call total" in item for item in receipt["errors"]))
+        ledger = json.loads(
+            (PACKAGE_ROOT / "results" / "EXPERIMENT_LEDGER.json").read_text(encoding="utf-8")
+        )
+        ledger["recordedAt"] = "yesterday"
+        receipt = validate_bytes(json.dumps(ledger).encode("utf-8"))
+        self.assertFalse(receipt["valid"])
+        self.assertTrue(any("date-time" in item for item in receipt["errors"]))
+
+        binary = json.loads((PACKAGE_ROOT / "BINARY_MANIFEST.json").read_text(encoding="utf-8"))
+        binary["artifacts"][0]["platform"] = "linux/arm64"
+        receipt = validate_bytes(json.dumps(binary).encode("utf-8"))
+        self.assertFalse(receipt["valid"])
+        self.assertTrue(any("platform does not match" in item for item in receipt["errors"]))
+
+        runtime = json.loads(
+            (PACKAGE_ROOT / "results" / "PRIME_REMOTE_RUNTIME_PROBE.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        runtime["failureBoundUSD"] = runtime["hardAdmissionCapUSD"] + 0.01
+        receipt = validate_bytes(json.dumps(runtime).encode("utf-8"))
+        self.assertFalse(receipt["valid"])
+        self.assertTrue(any("hard admission cap" in item for item in receipt["errors"]))
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_paired_comparison_validation_recomputes_promotion_policy(self) -> None:
+        def result(identifier: str, score: float, candidate_id: str) -> EpisodeResult:
+            return EpisodeResult(
+                episode_id=identifier,
+                candidate_id=candidate_id,
+                score=score,
+                dimensions={},
+                checks={},
+                command_count=1,
+                invalid_command_count=0,
+                duration_ms=1,
+                safety_passed=True,
+                source_preserved=True,
+                margin_sha256="0" * 64,
+            )
+
+        baseline = [result(f"episode-{index}", 50, "baseline") for index in range(20)]
+        candidate = [result(f"episode-{index}", 60, "candidate") for index in range(20)]
+        comparison = paired_compare(baseline, candidate)
+        self.assertTrue(comparison["promotable"])
+        self.assertTrue(validate_bytes(json.dumps(comparison).encode("utf-8"))["valid"])
+        comparison["losses"] = 1
+        receipt = validate_bytes(json.dumps(comparison).encode("utf-8"))
+        self.assertFalse(receipt["valid"])
+        self.assertTrue(any("win/tie/loss" in item for item in receipt["errors"]))
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_reference_run_validation_checks_result_events_and_pass_flag(self) -> None:
+        episode = generate_episode("human_agent_relay", KEY, 0)
+        with tempfile.TemporaryDirectory(prefix="marginbench-reference-validation-") as temporary:
+            result = run_episode(
+                episode,
+                self.binary,
+                Path(temporary) / "workspace",
+                ReferenceDriver(),
+            )
+        artifact = {
+            "schema": "urn:marginbench:reference-run:v1",
+            "paidModelsInvoked": False,
+            "passed": True,
+            "results": [result.to_dict()],
+        }
+        self.assertTrue(validate_bytes(json.dumps(artifact).encode("utf-8"))["valid"])
+        with tempfile.TemporaryDirectory(prefix="marginbench-load-results-") as temporary:
+            artifact_path = Path(temporary) / "reference.json"
+            artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
+            loaded = load_results(artifact_path)
+            self.assertEqual(len(loaded), 1)
+            self.assertEqual(loaded[0].events, result.events)
+        artifact["results"][0]["command_count"] += 1
+        receipt = validate_bytes(json.dumps(artifact).encode("utf-8"))
+        self.assertFalse(receipt["valid"])
+        self.assertTrue(any("event count" in item for item in receipt["errors"]))
+        with tempfile.TemporaryDirectory(prefix="marginbench-reject-results-") as temporary:
+            artifact_path = Path(temporary) / "reference.json"
+            artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "event count"):
+                load_results(artifact_path)
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_validate_command_accepts_bounded_stdin_and_uses_data_error_exit(self) -> None:
+        artifact = (PACKAGE_ROOT / "results" / "EXPERIMENT_LEDGER.json").read_bytes()
+        environment = dict(os.environ)
+        environment["PYTHONPATH"] = str(PACKAGE_ROOT)
+        valid = subprocess.run(
+            [sys.executable, "-m", "marginbench.cli", "validate", "-"],
+            input=artifact,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+            check=False,
+        )
+        self.assertEqual(valid.returncode, 0, valid.stderr.decode("utf-8", errors="replace"))
+        self.assertTrue(json.loads(valid.stdout)["valid"])
+        invalid = subprocess.run(
+            [sys.executable, "-m", "marginbench.cli", "validate", "-"],
+            input=b'{"schema":"unknown"}',
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+            check=False,
+        )
+        self.assertEqual(invalid.returncode, 65)
+        receipt = json.loads(invalid.stdout)
+        self.assertFalse(receipt["valid"])
+        self.assertEqual(receipt["error"]["code"], "UNSUPPORTED_SCHEMA")
+        self.assertEqual(invalid.stderr, b"")
 
 
 if __name__ == "__main__":

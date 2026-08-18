@@ -49,6 +49,14 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def agent_process_count(scenarios: list[str], repetitions: int) -> int:
+    return sum(
+        len(generate_episode(scenario, PUBLIC_DEVELOPMENT_KEY, repetition).roles)
+        for repetition in range(repetitions)
+        for scenario in scenarios
+    )
+
+
 def estimate_maximum_cost(
     scenarios: list[str],
     repetitions: int,
@@ -68,11 +76,7 @@ def estimate_maximum_cost(
     asserted maximum billable prompt size for *each* possible model call.
     ``max_tokens_per_call`` is the hard sampling ceiling for each response.
     """
-    role_runs = sum(
-        len(generate_episode(scenario, PUBLIC_DEVELOPMENT_KEY, repetition).roles)
-        for repetition in range(repetitions)
-        for scenario in scenarios
-    )
+    role_runs = agent_process_count(scenarios, repetitions)
     billable_call_attempts = max_turns * upstream_attempts_per_turn
     value = role_runs * billable_call_attempts * (
         input_token_ceiling_per_call * input_price_per_million / 1_000_000
@@ -328,6 +332,10 @@ def _run_manifest(
             "harness": "null-with-one-margin-tool",
             "runtime": "local-subprocess-environment-with-prime-inference",
             "controlProfile": arguments.control_profile,
+            "agentProcessCount": agent_process_count(
+                arguments.scenario,
+                arguments.repetitions,
+            ),
             "roles": roles,
             "startedAt": started_at,
             "durationMs": duration_ms,
@@ -495,10 +503,9 @@ def main() -> int:
         "controlProfile": arguments.control_profile,
         "scenarios": arguments.scenario,
         "repetitions": arguments.repetitions,
-        "agentProcessCount": sum(
-            len(generate_episode(scenario, PUBLIC_DEVELOPMENT_KEY, repetition).roles)
-            for repetition in range(arguments.repetitions)
-            for scenario in arguments.scenario
+        "agentProcessCount": agent_process_count(
+            arguments.scenario,
+            arguments.repetitions,
         ),
         "estimatedMaximumCostUSD": estimate,
         "costBoundBasis": {

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from contextlib import AsyncExitStack
 from pathlib import Path
+from unittest.mock import patch
 
 try:
     import verifiers.v1 as vf
@@ -143,7 +145,17 @@ class PrimeAdapterTests(unittest.TestCase):
         # Prime's upstream server launcher allows a long provisioning window for
         # remote runtimes. This is a local contract test, so fail promptly and
         # leave a useful test failure instead of waiting for that remote timeout.
-        asyncio.run(asyncio.wait_for(probe(), timeout=30))
+        # The subprocess runtime changes its working directory. Resolve a
+        # source-checkout PYTHONPATH before launch so the server does not depend
+        # on the caller having used an absolute path (installed wheels need no
+        # adjustment).
+        python_path = os.pathsep.join(
+            value
+            for value in (str(PACKAGE_ROOT.resolve()), os.environ.get("PYTHONPATH", ""))
+            if value
+        )
+        with patch.dict(os.environ, {"PYTHONPATH": python_path}):
+            asyncio.run(asyncio.wait_for(probe(), timeout=30))
 
 
 if __name__ == "__main__":

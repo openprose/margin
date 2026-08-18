@@ -18,6 +18,7 @@ from .runner import ReferenceDriver, run_episode
 from .scenarios import SCENARIO_IDS, generate_episode
 from .schema import canonical_json
 from .studies import build_study_plan
+from .validation import validate_artifact
 
 
 def _key(path: str | None) -> bytes:
@@ -114,6 +115,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     keygen.add_argument("path")
 
+    validate = subparsers.add_parser(
+        "validate",
+        help="validate a bounded public artifact against its schema and semantic totals",
+    )
+    validate.add_argument("artifact", help="JSON artifact path, or - for bounded stdin")
+
     arguments = parser.parse_args(argv)
     if arguments.command == "generate":
         episode = generate_episode(arguments.scenario, _key(arguments.key_file), arguments.repetition)
@@ -189,6 +196,10 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.command == "keygen":
         _write(create_holdout_key(Path(arguments.path)))
         return 0
+    if arguments.command == "validate":
+        receipt = validate_artifact(Path(arguments.artifact))
+        _write(receipt)
+        return 0 if receipt["valid"] else 65
     return 64
 
 

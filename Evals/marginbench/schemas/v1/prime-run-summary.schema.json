@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:prime-run-summary:v1",
+  "title": "MarginBench redacted Prime execution summary v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "status", "paidModelsInvoked", "model", "candidate", "scenarios",
+    "repetitions", "marginSha256", "durationMs", "exitCode", "wallet",
+    "estimatedMaximumCostUSD", "infrastructureCodes", "traceCount", "episodes",
+    "rawTracesCommitted"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:prime-run-summary:v1"},
+    "status": {"enum": ["completed", "infrastructure_error"]},
+    "paidModelsInvoked": {"const": true},
+    "model": {"type": "string", "minLength": 1, "maxLength": 256},
+    "candidate": {"type": "string", "minLength": 1, "maxLength": 256},
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 256}
+    },
+    "repetitions": {"type": "integer", "minimum": 1, "maximum": 100},
+    "marginSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "durationMs": {"type": "integer", "minimum": 0},
+    "exitCode": {"type": "integer", "minimum": 0, "maximum": 255},
+    "wallet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["before", "after", "observedDebitUSD"],
+      "properties": {
+        "before": {"$ref": "#/$defs/walletSnapshot"},
+        "after": {"$ref": "#/$defs/walletSnapshot"},
+        "observedDebitUSD": {"type": "number", "minimum": 0}
+      }
+    },
+    "estimatedMaximumCostUSD": {"type": "number", "minimum": 0},
+    "costBoundBasis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modelCallsPerAgentAtMost", "upstreamAttemptsPerTurnAtMost",
+        "inputTokenCeilingPerCall", "outputTokenCeilingPerCall",
+        "billingOverheadUSDPerCall", "note"
+      ],
+      "properties": {
+        "modelCallsPerAgentAtMost": {"type": "integer", "minimum": 1},
+        "upstreamAttemptsPerTurnAtMost": {"type": "integer", "minimum": 1},
+        "inputTokenCeilingPerCall": {"type": "integer", "minimum": 1},
+        "outputTokenCeilingPerCall": {"type": "integer", "minimum": 1},
+        "billingOverheadUSDPerCall": {"type": "number", "minimum": 0},
+        "note": {"type": "string", "minLength": 1, "maxLength": 2048}
+      }
+    },
+    "infrastructureCodes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 128}
+    },
+    "traceCount": {"type": "integer", "minimum": 0},
+    "episodeCount": {"type": "integer", "minimum": 0},
+    "traceConsistencyPassed": {"type": "boolean"},
+    "episodes": {"type": "array", "items": {"$ref": "#/$defs/episode"}},
+    "rawTracesCommitted": {"const": false}
+  },
+  "$defs": {
+    "walletSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["balanceUSD", "totalBillings"],
+      "properties": {
+        "balanceUSD": {"type": "number", "minimum": 0},
+        "totalBillings": {"type": "integer", "minimum": 0}
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modelCalls", "promptTokens", "completionTokens", "cachedInputTokens",
+        "reasoningTokens", "reportedCostUSD"
+      ],
+      "properties": {
+        "modelCalls": {"type": "integer", "minimum": 0},
+        "promptTokens": {"type": "integer", "minimum": 0},
+        "completionTokens": {"type": "integer", "minimum": 0},
+        "cachedInputTokens": {"type": "integer", "minimum": 0},
+        "reasoningTokens": {"type": "integer", "minimum": 0},
+        "reportedCostUSD": {"type": "number", "minimum": 0}
+      }
+    },
+    "roleRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seat", "stopCondition", "usage"],
+      "properties": {
+        "seat": {"type": "string", "minLength": 1, "maxLength": 128},
+        "stopCondition": {"type": ["string", "null"], "maxLength": 256},
+        "usage": {"$ref": "#/$defs/usage"}
+      }
+    },
+    "episode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "episodeID", "score", "safetyPassed", "commandCount",
+        "invalidCommandCount", "checks", "dimensions", "usage"
+      ],
+      "properties": {
+        "episodeID": {"type": "string", "minLength": 1, "maxLength": 512},
+        "scenario": {"type": "string", "minLength": 1, "maxLength": 256},
+        "repetition": {"type": "integer", "minimum": 0},
+        "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "score": {"type": "number", "minimum": 0, "maximum": 100},
+        "safetyPassed": {"type": "boolean"},
+        "commandCount": {"type": "integer", "minimum": 0},
+        "invalidCommandCount": {"type": "integer", "minimum": 0},
+        "checks": {"type": "object", "additionalProperties": {"type": "boolean"}},
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": {"type": "number", "minimum": 0, "maximum": 100},
+          "required": ["outcome", "integrity", "protocol", "recovery", "efficiency"]
+        },
+        "usage": {"$ref": "#/$defs/usage"},
+        "stopCondition": {"type": ["string", "null"], "maxLength": 256},
+        "roleRuns": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/roleRun"}}
+      },
+      "dependentRequired": {
+        "roleRuns": ["scenario", "repetition", "fingerprint"]
+      }
+    }
+  }
+}

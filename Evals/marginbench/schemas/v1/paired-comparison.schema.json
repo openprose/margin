@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:paired-comparison:v1",
+  "title": "MarginBench paired candidate comparison v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "baselineCandidateID", "candidateID", "baselineMarginSha256",
+    "candidateMarginSha256", "episodeCount", "minimumPairsForPromotion", "sampleSizeSufficient",
+    "meanScoreDelta", "scoreDelta95CI", "meanCommandCountDelta",
+    "meanInvalidCommandCountDelta", "meanDurationMsDelta", "wins", "ties", "losses",
+    "safetyRegressions", "promotable"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:paired-comparison:v1"},
+    "baselineCandidateID": {"type": "string", "minLength": 1, "maxLength": 256},
+    "candidateID": {"type": "string", "minLength": 1, "maxLength": 256},
+    "baselineMarginSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidateMarginSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "episodeCount": {"type": "integer", "minimum": 0},
+    "minimumPairsForPromotion": {"type": "integer", "minimum": 2},
+    "sampleSizeSufficient": {"type": "boolean"},
+    "meanScoreDelta": {"type": "number", "minimum": -100, "maximum": 100},
+    "scoreDelta95CI": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"type": "number", "minimum": -100, "maximum": 100}
+    },
+    "meanCommandCountDelta": {"type": "number"},
+    "meanInvalidCommandCountDelta": {"type": "number"},
+    "meanDurationMsDelta": {"type": "number"},
+    "wins": {"type": "integer", "minimum": 0},
+    "ties": {"type": "integer", "minimum": 0},
+    "losses": {"type": "integer", "minimum": 0},
+    "safetyRegressions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 512}
+    },
+    "promotable": {"type": "boolean"}
+  }
+}

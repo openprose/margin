@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from .schema import EpisodeResult, canonical_json, sha256_bytes
+from .schema import CommandEvent, EpisodeResult, canonical_json, sha256_bytes
 
 
 @dataclass(frozen=True)
@@ -87,6 +87,20 @@ def paired_compare(
         raise ValueError("minimum_pairs must be at least two.")
     baseline_values = list(baseline)
     candidate_values = list(candidate)
+    if not baseline_values or not candidate_values:
+        raise ValueError("Paired comparisons require at least one result per candidate.")
+    baseline_ids = {item.candidate_id for item in baseline_values}
+    candidate_ids = {item.candidate_id for item in candidate_values}
+    if len(baseline_ids) != 1 or len(candidate_ids) != 1:
+        raise ValueError("Each comparison side must contain exactly one candidate ID.")
+    baseline_id = next(iter(baseline_ids))
+    candidate_id = next(iter(candidate_ids))
+    if baseline_id == candidate_id:
+        raise ValueError("Paired comparisons require two distinct candidate IDs.")
+    baseline_builds = {item.margin_sha256 for item in baseline_values}
+    candidate_builds = {item.margin_sha256 for item in candidate_values}
+    if len(baseline_builds) != 1 or len(candidate_builds) != 1:
+        raise ValueError("Each comparison side must contain exactly one Margin build.")
     left = {item.episode_id: item for item in baseline_values}
     right = {item.episode_id: item for item in candidate_values}
     if len(left) != len(baseline_values) or len(right) != len(candidate_values):
@@ -110,6 +124,10 @@ def paired_compare(
     sample_size_sufficient = len(identifiers) >= minimum_pairs
     return {
         "schema": "urn:marginbench:paired-comparison:v1",
+        "baselineCandidateID": baseline_id,
+        "candidateID": candidate_id,
+        "baselineMarginSha256": next(iter(baseline_builds)),
+        "candidateMarginSha256": next(iter(candidate_builds)),
         "episodeCount": len(identifiers),
         "minimumPairsForPromotion": minimum_pairs,
         "sampleSizeSufficient": sample_size_sufficient,
@@ -149,12 +167,30 @@ def paired_compare(
 
 
 def load_results(path: Path) -> list[EpisodeResult]:
+    # Keep comparison inputs on the same fail-closed publication path without
+    # making the provider-neutral candidate module import jsonschema at startup.
+    from .validation import validate_artifact
+
+    receipt = validate_artifact(path)
+    allowed = {
+        "urn:marginbench:result:v1",
+        "urn:marginbench:result-set:v1",
+        "urn:marginbench:reference-run:v1",
+    }
+    if not receipt["valid"] or receipt["artifactSchema"] not in allowed:
+        error = receipt.get("error") or {"code": "UNSUPPORTED_RESULT_ARTIFACT", "message": ""}
+        details = "; ".join(receipt.get("errors", ())[:3]) or error.get("message", "")
+        raise ValueError(f"Invalid MarginBench result artifact ({error['code']}): {details}")
     payload = json.loads(path.read_text(encoding="utf-8"))
-    values = payload if isinstance(payload, list) else payload.get("results", [])
+    if isinstance(payload, list):
+        values = payload
+    elif payload.get("schema") == "urn:marginbench:result:v1":
+        values = [payload]
+    else:
+        values = payload["results"]
     results: list[EpisodeResult] = []
     for value in values:
-        events = tuple()
         clean = dict(value)
-        clean["events"] = events
+        clean["events"] = tuple(CommandEvent(**event) for event in value["events"])
         results.append(EpisodeResult(**clean))
     return results

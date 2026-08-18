@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 01:24 ET
+Last updated: 2026-08-18 02:06 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -258,6 +258,26 @@ The phase is successful if the repository contains:
   Warm launch measured 308.819 ms median / 345.535 ms p95, with 158.078 MiB
   median RSS. This remains within ordinary run-to-run variance of the 304.169 ms
   post-port baseline and keeps all benchmark/provider code off the launch path.
+- 2026-08-18 01:55 ET — Added an offline, 16 MiB-bounded publication validator
+  with 16 bundled schemas, duplicate-key/non-finite-number rejection, and
+  semantic checks for identities, event and role counts, cost reconciliation,
+  counterbalancing, candidate digests, and promotion claims. It checks all 17
+  tracked JSON evidence files and explicitly reports the four known historical
+  defects rather than rewriting them. The system runtime passes 29 tests with
+  four Prime-only skips, while Prime's runtime passes all 33; the five-workflow
+  reference and fake-model matrices remain perfect with no paid call. The
+  candidate comparator now rejects unvalidated or tampered result inputs and
+  preserves privacy-minimized command events instead of discarding them. A
+  source-checkout runtime test also resolves its package path before changing
+  directories, eliminating a reproducible 30-second MCP startup timeout when a
+  caller supplied a relative `PYTHONPATH`. The frozen benchmark implementation
+  digest is
+  `b393cb4fd2cc1d8097a2f928e7076ceffd4291d86d69cbfb3125f45f4c3b6fb2`.
+  The repackaged, clean-container
+  verified wheel is
+  `4accb41d0579039e80d6c57fd93f5c14c460390d36f2903e878ca3e97323238b`;
+  the source archive is
+  `00b355103f8e840d53486eadfe345c24b152d59e8078b63eb10f3b232fa42af1`.
 
 ## Next statistically useful paid run
 

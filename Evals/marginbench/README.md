@@ -74,6 +74,26 @@ An installed Linux package may simply run `marginbench self-test`; it discovers
 its bundled executable, verifies the binary against the embedded manifest, and
 never downloads code at runtime.
 
+## Validate publication artifacts
+
+Every current publication format has a bundled JSON Schema plus bounded
+cross-field checks. Validation is local, reads at most 16 MiB, rejects duplicate
+JSON keys and non-finite numbers, and never calls a model or network service:
+
+```sh
+marginbench validate run.json
+cat study-plan.json | marginbench validate -
+```
+
+The command prints a `urn:marginbench:validation:v1` receipt containing the
+artifact's declared schema, byte count, and SHA-256. Exit status is 0 only when
+both the schema and semantic totals agree; malformed, unsupported, or tampered
+artifacts return status 65. Supported evidence includes episode results,
+reference runs, candidate manifests, study plans, paired comparisons, paid-run
+summaries, redacted run manifests and ledgers, runtime probes, control catalogs,
+and binary manifests. The validator itself is packaged with MarginBench, so a
+reviewer does not need this source checkout.
+
 ## Linux artifact
 
 Prime-hosted and other container evaluations use the same Swift core and CLI as

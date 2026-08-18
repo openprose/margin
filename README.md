@@ -262,6 +262,10 @@ make marginbench-package   # Linux-verified wheel and source archive
 
 The original real-agent benchmark lives in `Benchmarks/agent_benchmark`. The hill-climbing suite in `Evals/cli` expands it into six single-document task families. `Evals/collaboration` adds twelve secret-seeded relay environments for human-to-agent, agent-to-agent, concurrent, staged multi-file, suggestion, recovery, and merge workflows. `Evals/marginbench` packages the provider-independent public benchmark, reproducible Linux CLI, and Prime Verifiers adapter. All three systems grade final protocol state rather than model prose and keep paid execution behind explicit caps and confirmation.
 
+An installed benchmark package can check a publication artifact offline with
+`marginbench validate ARTIFACT`; it emits a digest-bearing JSON receipt and
+returns status 65 for malformed, inconsistent, or unsupported evidence.
+
 Measured launch results, agent benchmarks/evals, and the complete verification record are in `Docs/PERFORMANCE.md`, `Docs/AGENT_BENCHMARK.md`, `Docs/CLI_EVALS.md`, and `Docs/RELEASE_NOTES.md`.
 
 ## Scope

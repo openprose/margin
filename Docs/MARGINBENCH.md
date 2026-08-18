@@ -130,6 +130,16 @@ The Linux Margin executable is built from the same source as the macOS app using
 a pinned multi-architecture Swift container. The binary itself is a release
 artifact rather than a Git object; its digest and byte size are recorded.
 
+Public JSON evidence can be checked independently with `marginbench validate`.
+The installed command bundles all versioned schemas and adds bounded semantic
+checks for totals that JSON Schema alone cannot prove: event counts, episode
+identity, candidate digests, counterbalancing, promotion rules, role-run usage,
+wallet reconciliation, and paid-run admission bounds. It reads no more than
+16 MiB, rejects duplicate keys and non-finite numbers, makes no network call,
+and returns a machine-readable validation receipt with a SHA-256. A receipt is
+evidence that bytes satisfy the published rules; it is not a submitter
+signature.
+
 ## Leaderboard tracks
 
 Results should not collapse unlike interventions into one ranking:
@@ -194,6 +204,13 @@ recommendation, not a claim that those licenses already apply.
   interface improvement. Promotion requires repeated paired private cases.
 - Provider rate limits and transient errors must be reported as infrastructure
   outcomes, never scored as model failures or silently retried as new episodes.
+- The validator deliberately identifies four tracked historical artifacts as
+  invalid instead of normalizing them away: the original experiment log reused
+  a later ledger identifier with a different shape, two early handoff summaries
+  contain duplicate episode IDs, and the staged summary exceeded the old
+  nominal cost estimate. The corrected redacted run manifests and experiment
+  ledger are valid. Keeping both the evidence and the explicit failure is part
+  of the audit trail.
 
 ## Current evidence
 
@@ -202,7 +219,9 @@ x86-64, and Linux arm64. Margin 0.3.2 passes 164 macOS tests and 112 portable
 Linux tests; a repeat x86-64 build is byte-for-byte identical. The Verifiers v1
 adapter completes the whole five-case local fake-agent matrix at 100 with only
 one exposed tool. The installable manylinux wheel and source archive also pass
-their tests in clean containers.
+their tests in clean containers. The system Python runtime passes 29 benchmark
+contracts with four Prime-only skips; Prime's runtime passes all 33. The wheel
+bundles all 16 schemas.
 
 Real Qwen Flash runs exercised every family. The initial human-relay smoke
 scored 25; successive general CLI guidance improvements reached the exact

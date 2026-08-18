@@ -13,14 +13,19 @@ Release date: 2026-08-18
 - Adds MarginBench: deterministic human-to-agent and agent-to-agent tasks,
   exact execution scoring, a narrow tool gateway, a Prime Verifiers adapter,
   reproducible Linux builds, and budget-gated evaluation tooling.
+- Adds an offline `marginbench validate` command with bundled schemas and
+  cross-field checks for publication artifacts. It rejects duplicate JSON
+  keys, inconsistent counts and costs, unsafe promotion claims, and payloads
+  over 16 MiB while producing a digest-bearing machine-readable receipt.
 
 ### Verification and artifacts
 
-- All 164 macOS tests and all 112 portable Linux tests pass. Twenty-five
-  MarginBench tests pass under both the system and Prime runtimes; the five-case
-  reference matrix and Prime fake-model rehearsal both score 100 with no paid
-  calls. The existing CLI and directory-collaboration evals also remain fully
-  green.
+- All 164 macOS tests and all 112 portable Linux tests pass. The system runtime
+  passes 29 MarginBench tests with four Prime-only skips; Prime's runtime passes
+  all 33. The five-case reference matrix and Prime fake-model rehearsal both
+  score 100 with no paid calls. Sixteen public schemas are bundled in the
+  installable package. The existing CLI and directory-collaboration evals also
+  remain fully green.
 - The final x86-64 Linux binary rebuild is byte-for-byte reproducible. Both
   Linux architectures report Margin 0.3.2 and pass the reference matrix. The
   installable manylinux wheel and source archive pass in clean containers.
@@ -29,9 +34,9 @@ Release date: 2026-08-18
 - `Margin-0.3.2-macOS-arm64.pkg`: 3,521,281 bytes, SHA-256
   `b374f8411a0ce90c6b2f402d3951796db5efdb0a1acd4b5108154a040d33fe79`.
 - `marginbench-0.1.0-py3-none-manylinux_2_35_x86_64.whl`: SHA-256
-  `4907f4e21b052a42f0dd0d4528604c2e90d2d7bd67713fbd3b7134b1dd520cd6`.
+  `4accb41d0579039e80d6c57fd93f5c14c460390d36f2903e878ca3e97323238b`.
 - `marginbench-0.1.0.tar.gz`: SHA-256
-  `074f75f5e45d41a0830f37092939b10c4ee7455919c7567b0a0d80cd0c271071`.
+  `00b355103f8e840d53486eadfe345c24b152d59e8078b63eb10f3b232fa42af1`.
 
 ### Performance
 
