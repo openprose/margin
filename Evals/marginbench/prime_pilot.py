@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -50,6 +51,62 @@ def sha256(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _require_fresh_output_targets(
+    output: Path,
+    summary: Path | None,
+    run_manifest: Path | None,
+) -> None:
+    """Fail before a paid start if any durable output could be replaced."""
+    original_named = [path.expanduser() for path in (summary, run_manifest) if path is not None]
+    named = [path.resolve(strict=False) for path in original_named]
+    if len(named) != len(set(named)):
+        raise ValueError("Summary and run manifest must use distinct paths.")
+    originals = (output.expanduser(), *original_named)
+    for original in originals:
+        path = original.resolve(strict=False)
+        if original.is_symlink() or path.exists():
+            raise ValueError(f"Refusing to replace an existing output: {original}")
+
+
+def _write_new_artifact(path: Path, raw: bytes, *, mode: int = 0o600) -> None:
+    """Publish a complete new artifact atomically without replacing another file."""
+    path = path.expanduser()
+    if path.is_symlink():
+        raise ValueError(f"Refusing to replace an existing output: {path}")
+    path = path.resolve(strict=False)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, mode)
+        written = 0
+        while written < len(raw):
+            count = os.write(descriptor, raw[written:])
+            if count <= 0:
+                raise OSError("Artifact write did not make progress.")
+            written += count
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = -1
+        try:
+            os.link(temporary, path, follow_symlinks=False)
+        except FileExistsError as error:
+            raise ValueError(f"Refusing to replace an existing output: {path}") from error
+        if hasattr(os, "O_DIRECTORY"):
+            directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def load_candidate_manifest(
@@ -665,6 +722,15 @@ def main() -> int:
         raise SystemExit(f"paid execution requires --confirm-paid {CONFIRMATION}")
 
     try:
+        _require_fresh_output_targets(
+            output,
+            arguments.summary_file,
+            arguments.run_manifest_file,
+        )
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+
+    try:
         claim_paid_start(
             PACKAGE_ROOT / "runs" / ".last-paid-start",
             now=time.time(),
@@ -739,8 +805,11 @@ def main() -> int:
     rendered = canonical(summary)
     print(rendered)
     if arguments.summary_file:
-        arguments.summary_file.parent.mkdir(parents=True, exist_ok=True)
-        arguments.summary_file.write_text(rendered + "\n", encoding="utf-8")
+        encoded = (rendered + "\n").encode("utf-8")
+        receipt = validate_bytes(encoded)
+        if not receipt["valid"] or receipt["artifactSchema"] != summary["schema"]:
+            raise SystemExit("Generated Prime summary failed validation.")
+        _write_new_artifact(arguments.summary_file, encoded)
     if arguments.run_manifest_file and trace_summary["episodeCount"]:
         manifest = _run_manifest(
             arguments,
@@ -750,8 +819,11 @@ def main() -> int:
             duration_ms=duration_ms,
             observed_wallet_debit=observed_wallet_debit,
         )
-        arguments.run_manifest_file.parent.mkdir(parents=True, exist_ok=True)
-        arguments.run_manifest_file.write_text(canonical(manifest) + "\n", encoding="utf-8")
+        encoded = (canonical(manifest) + "\n").encode("utf-8")
+        receipt = validate_bytes(encoded)
+        if not receipt["valid"] or receipt["artifactSchema"] != manifest["schema"]:
+            raise SystemExit("Generated run manifest failed validation.")
+        _write_new_artifact(arguments.run_manifest_file, encoded)
     return 0 if status == "completed" else 75
 
 

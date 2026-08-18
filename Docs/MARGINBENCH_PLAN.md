@@ -367,6 +367,15 @@ The phase is successful if the repository contains:
   `609ce9ffa6aa300c41c9ee687c59f55472fe021b1e327b4e5a4e18494addb632`;
   the source archive is
   `d078228427b5afa4856240d09bbd865edd0ee6c81c15eec1a428106bd5f1f5ab`.
+- 2026-08-18 03:34 ET — Hardened the paid worker's final evidence boundary.
+  Before claiming a paid start it now rejects an existing output directory,
+  summary, run manifest, duplicate output names, or dangling symbolic-link
+  target. Redacted summary and run records are schema-checked, written with
+  private permissions, flushed, and atomically linked into place without ever
+  replacing prior evidence. A collision regression proves the original bytes
+  survive. The ordinary runtime passes 36 tests with five intentional
+  Prime-only skips, and Prime's pinned runtime passes all 41. No model or paid
+  service was invoked.
 
 ## Next statistically useful paid run
 

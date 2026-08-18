@@ -31,6 +31,8 @@ from marginbench.validation import submission_identifier, validate_artifact, val
 from prime_pilot import (
     _run_manifest,
     _summarize_traces,
+    _require_fresh_output_targets,
+    _write_new_artifact,
     build_eval_command,
     claim_paid_start,
     estimate_maximum_cost,
@@ -588,6 +590,30 @@ class MarginBenchCoreTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "200 seconds remaining"):
                 claim_paid_start(marker, now=1_100.0, minimum_interval_seconds=300.0)
             claim_paid_start(marker, now=1_300.0, minimum_interval_seconds=300.0)
+
+    def test_paid_worker_outputs_are_atomic_private_and_never_replaced(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="marginbench-output-test-") as temporary:
+            root = Path(temporary)
+            output = root / "raw"
+            summary = root / "summary.json"
+            run = root / "run.json"
+            _require_fresh_output_targets(output, summary, run)
+            with self.assertRaisesRegex(ValueError, "distinct paths"):
+                _require_fresh_output_targets(output, summary, summary)
+
+            _write_new_artifact(summary, b'{"first":true}\n')
+            self.assertEqual(summary.read_bytes(), b'{"first":true}\n')
+            self.assertEqual(summary.stat().st_mode & 0o777, 0o600)
+            with self.assertRaisesRegex(ValueError, "Refusing to replace"):
+                _write_new_artifact(summary, b'{"second":true}\n')
+            self.assertEqual(summary.read_bytes(), b'{"first":true}\n')
+            with self.assertRaisesRegex(ValueError, "Refusing to replace"):
+                _require_fresh_output_targets(output, summary, run)
+
+            dangling = root / "dangling.json"
+            dangling.symlink_to(root / "missing.json")
+            with self.assertRaisesRegex(ValueError, "Refusing to replace"):
+                _require_fresh_output_targets(output, dangling, run)
 
     def test_gateway_blocks_escape_gui_and_identity_override_without_raw_log(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-gateway-test-") as temporary:
