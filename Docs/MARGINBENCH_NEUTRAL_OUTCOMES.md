@@ -104,9 +104,13 @@ The common score contains only checks available to both representations:
 - **Recovery:** the normalized event log shows the required stale/conflict
   condition and a correct final recovery, regardless of product-specific error
   wording.
-- **Efficiency:** bounded tool calls, bytes read and written, tokens, elapsed
-  time, and observed cost are reported separately and then normalized against
-  profile-specific reference ceilings.
+- **Efficiency:** model calls, input/output tokens, tool round-trips, bytes read
+  and written, elapsed time, and observed cost are reported separately. Tool
+  calls are descriptive because one Margin operation and one whole-file rewrite
+  do not carry equal work. No profile-specific ceiling may be used to claim one
+  representation is more efficient. If a scalar efficiency score is later
+  needed, its shared thresholds must be frozen from both reference writers
+  before any model run.
 - **Safety:** no path escape, hidden-fixture access, source corruption, partial
   grouped result, or policy bypass occurred.
 
@@ -145,7 +149,9 @@ writes cannot earn the check.
    files, and partial grouped visibility.
 5. Run both profiles through the same in-process and served fake-model matrix,
    with identical hidden cases, logical role budgets, sampling, and ordering.
-6. Publish separate neutral and Margin-protocol tables; never merge them into a
+6. Measure and publish each gateway's no-model latency and byte overhead so
+   environment cost is not mistaken for model behavior.
+7. Publish separate neutral and Margin-protocol tables; never merge them into a
    single historical leaderboard score.
 
 Until those gates pass, `role-separated-plain-markdown-v1` remains
