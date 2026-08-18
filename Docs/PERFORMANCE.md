@@ -93,6 +93,15 @@ ms (0.2%)**, and median RSS by **0.507 MiB (0.3%)**. Those distributions
 show no meaningful launch or sampled-memory regression. The real source editor
 is visible at the measurement boundary—there is no placeholder window.
 
+## Final v0.3.2 release gate
+
+The exact signed v0.3.2 build completed the standard three-warm-up/fifteen-run
+small-file probe at **286.610 ms median** and **289.237 ms p95**; median RSS was
+**159.016 MiB**. This overlaps the controlled v0.3.0 distribution and shows no
+launch or sampled-memory regression after adding the self-teaching CLI and the
+portable benchmark. Benchmark and provider integrations remain entirely
+outside the application launch path.
+
 The final v0.3.2 app bundle is 5,732,157 logical bytes and its main executable
 is 2,790,704 bytes; the standalone release CLI is 2,609,168 bytes. The larger
 artifact contains the shared collaboration, transaction, recovery,
