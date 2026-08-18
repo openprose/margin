@@ -38,8 +38,9 @@ best-effort guess.
 
 ## Plain Markdown interchange
 
-Each benchmark fixture supplies an initially empty `COLLABORATION.md` with this
-human-readable record shape:
+Each benchmark fixture supplies a scaffolded `COLLABORATION.md` containing the
+heading and format marker but no fact records. Records use this human-readable
+shape:
 
 ```markdown
 # Collaboration
