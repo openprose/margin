@@ -82,7 +82,7 @@ jobs:
           PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli self-test \
             --margin-bin "$MARGINBENCH_BINARY"
           PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli neutral-feasibility
-          for bundle in "$MARGINBENCH_ROOT"/results/crossover/v*; do
+          for bundle in "$MARGINBENCH_ROOT"/results/crossover/v*/; do
             PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli audit-crossover \
               "$bundle"
           done
