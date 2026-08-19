@@ -195,18 +195,20 @@ jobs:
       - name: Create or refresh the draft release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
           VERSION: ${{ needs.metadata.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           assets=(release-assets/*)
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true
-            gh release upload "$TAG" "${assets[@]}" --clobber
+          if gh release view "$TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+            test "$(gh release view "$TAG" --repo "$GH_REPO" --json isDraft --jq .isDraft)" = true
+            gh release upload "$TAG" "${assets[@]}" --repo "$GH_REPO" --clobber
           else
             notes="The macOS app is ad-hoc signed and the installer is unsigned for this first public release. macOS will require explicit approval in System Settings. Developer ID signing and notarization are planned."
             gh release create "$TAG" "${assets[@]}" \
+              --repo "$GH_REPO" \
               --draft \
               --generate-notes \
               --title "Margin $VERSION" \
