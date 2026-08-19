@@ -183,7 +183,7 @@ jobs:
           PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli validate \
             "$MARGINBENCH_ROOT/results/EXPERIMENT_LEDGER.json" \
             > build/ci-marginbench-dist/validation-receipt.json
-          for bundle in "$MARGINBENCH_ROOT"/results/crossover/v*; do
+          for bundle in "$MARGINBENCH_ROOT"/results/crossover/v*/; do
             version="$(basename "$bundle")"
             PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli audit-crossover \
               "$bundle" > "build/ci-marginbench-dist/crossover-$version-audit.json"
