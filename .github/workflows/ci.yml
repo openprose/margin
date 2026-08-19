@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS app and CLI
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check release metadata
+        run: Scripts/check-version.sh
+
+      - name: Run Swift tests
+        run: make test
+
+      - name: Build the app and CLI
+        run: make release
+
+      - name: Verify built versions and signatures
+        run: |
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          test "$(build/margin --version)" = "Margin $version"
+          /usr/bin/plutil -lint build/Margin.app/Contents/Info.plist
+          /usr/bin/codesign --verify --deep --strict build/Margin.app
+          /usr/bin/cmp -s build/margin build/Margin.app/Contents/Helpers/margin
+          test -f build/Margin.app/Contents/Resources/LICENSE
+          test -f build/Margin.app/Contents/Resources/NOTICE
+
+  linux:
+    name: Linux core and CLI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      MARGIN_LINUX_SWIFT_IMAGE: swift:5.10-jammy@sha256:ffc42e399ad0cad324f68d58f65e4d5f2c22eb9df73c4dfa249e898d497254b3
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install host tools
+        run: sudo apt-get update && sudo apt-get install --yes zsh
+
+      - name: Check release metadata
+        run: zsh Scripts/check-version.sh
+
+      - name: Run portable Swift tests
+        run: zsh Scripts/test-linux.sh

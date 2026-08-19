@@ -1,0 +1,214 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    name: Validate release metadata
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install host tools
+        run: sudo apt-get update && sudo apt-get install --yes zsh
+
+      - name: Validate tag and version sources
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          version="${tag#v}"
+          zsh Scripts/check-version.sh "$version"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+  macos:
+    name: Package macOS arm64
+    needs: metadata
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Require the native arm64 runner
+        run: test "$(uname -m)" = arm64
+
+      - name: Test and package the app and CLI
+        run: |
+          make test
+          make package
+
+      - name: Verify macOS release payloads
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          archive="build/Margin-$VERSION-macOS-arm64.zip"
+          installer="build/Margin-$VERSION-macOS-arm64.pkg"
+          test -f "$archive"
+          test -f "$installer"
+          test "$(build/margin --version)" = "Margin $VERSION"
+          /usr/bin/codesign --verify --deep --strict build/Margin.app
+          /usr/bin/cmp -s build/margin build/Margin.app/Contents/Helpers/margin
+          test -f build/Margin.app/Contents/Resources/LICENSE
+          test -f build/Margin.app/Contents/Resources/NOTICE
+          /usr/sbin/pkgutil --payload-files "$installer" > build/installer-payload.txt
+          grep -F 'Applications/Margin.app/Contents/MacOS/Margin' build/installer-payload.txt
+          grep -F 'usr/local/bin/margin' build/installer-payload.txt
+          grep -F 'Applications/Margin.app/Contents/Resources/LICENSE' build/installer-payload.txt
+          grep -F 'Applications/Margin.app/Contents/Resources/NOTICE' build/installer-payload.txt
+          /usr/bin/unzip -tq "$archive"
+          /usr/bin/unzip -l "$archive" > build/archive-contents.txt
+          grep -E '/LICENSE$' build/archive-contents.txt
+          grep -E '/NOTICE$' build/archive-contents.txt
+
+      - name: Retain macOS release assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-macos-arm64
+          path: |
+            build/Margin-${{ needs.metadata.outputs.version }}-macOS-arm64.pkg
+            build/Margin-${{ needs.metadata.outputs.version }}-macOS-arm64.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  linux:
+    name: Package Linux ${{ matrix.machine }}
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            docker_arch: amd64
+            machine: x86_64
+          - runner: ubuntu-24.04-arm
+            docker_arch: arm64
+            machine: aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      MARGIN_LINUX_SWIFT_IMAGE: swift:5.10-jammy@sha256:ffc42e399ad0cad324f68d58f65e4d5f2c22eb9df73c4dfa249e898d497254b3
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install host tools
+        run: sudo apt-get update && sudo apt-get install --yes zsh
+
+      - name: Test portable Swift code
+        run: zsh Scripts/test-linux.sh
+
+      - name: Package standalone CLI
+        run: zsh Scripts/package-linux-release.sh "${{ matrix.docker_arch }}"
+
+      - name: Verify Linux archive
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          MACHINE: ${{ matrix.machine }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="build/Margin-CLI-$VERSION-linux-$MACHINE.tar.gz"
+          root="Margin-CLI-$VERSION-linux-$MACHINE"
+          test -f "$archive"
+          temporary="$(mktemp -d)"
+          trap 'rm -rf "$temporary"' EXIT
+          tar -xzf "$archive" -C "$temporary"
+          cli="$temporary/$root/margin"
+          test -x "$cli"
+          test -f "$temporary/$root/LICENSE"
+          test -f "$temporary/$root/NOTICE"
+          test "$($cli --version)" = "Margin $VERSION"
+          "$cli" man >/dev/null
+          "$cli" inspect Fixtures/example.md --json >/dev/null
+          "$cli" comments validate Fixtures/example.md >/dev/null
+
+      - name: Retain Linux release asset
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-linux-${{ matrix.machine }}
+          path: build/Margin-CLI-${{ needs.metadata.outputs.version }}-linux-${{ matrix.machine }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Create draft GitHub release
+    needs: [metadata, macos, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+    steps:
+      - name: Download checked release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify asset set and write checksums
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          expected=(
+            "Margin-$VERSION-macOS-arm64.pkg"
+            "Margin-$VERSION-macOS-arm64.zip"
+            "Margin-CLI-$VERSION-linux-aarch64.tar.gz"
+            "Margin-CLI-$VERSION-linux-x86_64.tar.gz"
+          )
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 4
+          for asset in "${expected[@]}"; do
+            test -f "$asset"
+          done
+          LC_ALL=C printf '%s\n' "${expected[@]}" | xargs sha256sum > SHA256SUMS
+          sha256sum --check SHA256SUMS
+
+      - name: Attest release build provenance
+        uses: actions/attest@c32b4b8b198b65d0bd9d63490e847ff7b53989d4 # v4.0.0
+        with:
+          subject-path: |
+            release-assets/*.pkg
+            release-assets/*.zip
+            release-assets/*.tar.gz
+            release-assets/SHA256SUMS
+
+      - name: Create or refresh the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets=(release-assets/*)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true
+            gh release upload "$TAG" "${assets[@]}" --clobber
+          else
+            notes="The macOS app is ad-hoc signed and the installer is unsigned for this first public release. macOS will require explicit approval in System Settings. Developer ID signing and notarization are planned."
+            gh release create "$TAG" "${assets[@]}" \
+              --draft \
+              --generate-notes \
+              --title "Margin $VERSION" \
+              --notes "$notes"
+          fi

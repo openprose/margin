@@ -1,0 +1,33 @@
+name: Feature proposal
+description: Propose a focused improvement to Margin.
+title: "[Proposal]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What writing, reading, review, or collaboration problem should Margin solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful behavior, including app and CLI implications.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: principles
+    attributes:
+      label: Product constraints
+      options:
+        - label: The proposal preserves ordinary Markdown as the authority.
+          required: true
+        - label: The proposal does not require an OpenProse account or service.
+          required: true

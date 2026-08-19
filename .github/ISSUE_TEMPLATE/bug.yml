@@ -1,0 +1,81 @@
+name: Bug report
+description: Report reproducible incorrect behavior in Margin.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Margin. Do not include secrets, private
+        documents, holdout keys, or raw model traces. Report security issues
+        privately using the link below.
+  - type: input
+    id: version
+    attributes:
+      label: Margin version
+      description: Run `margin version`, or provide the commit SHA.
+      placeholder: "Margin 0.4.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - macOS app
+        - macOS CLI
+        - Linux CLI (x86-64)
+        - Linux CLI (ARM64)
+        - Embedded comment or collaboration protocol
+        - MarginBench
+        - Build, packaging, or documentation
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS version, architecture, and installation method.
+      placeholder: "macOS 15 on Apple silicon, installed from the .pkg"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use a minimal non-sensitive Markdown fixture when possible.
+      placeholder: |
+        1. Run ...
+        2. Open ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add redacted logs or screenshots if they help.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched for an existing issue.
+          required: true
+        - label: This report contains no secrets or private document contents.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

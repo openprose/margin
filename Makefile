@@ -6,7 +6,10 @@ BUILD_SCRATCH_PATH ?= $(SCRATCH_ROOT)/command-line-tools
 TEST_SCRATCH_PATH ?= $(SCRATCH_ROOT)/xcode-15.4
 OUTPUT_DIR ?= $(PROJECT_DIR)/build
 
-.PHONY: debug test test-linux marginbench-test marginbench-audit marginbench-preflight marginbench-control-preflight marginbench-neutral-preflight marginbench-remote-plan marginbench-linux-binary marginbench-package release package installer install smoke benchmark eval eval-preflight eval-collaboration clean
+.PHONY: debug test test-linux check-version marginbench-test marginbench-audit marginbench-preflight marginbench-control-preflight marginbench-neutral-preflight marginbench-remote-plan marginbench-linux-binary marginbench-package release package package-linux installer install smoke benchmark eval eval-preflight eval-collaboration clean
+
+check-version:
+	"$(PROJECT_DIR)/Scripts/check-version.sh"
 
 debug:
 	DEVELOPER_DIR="$(BUILD_DEVELOPER_DIR)" \
@@ -127,6 +130,10 @@ package: release
 		"$(PROJECT_DIR)/Scripts/package-release.sh"
 	MARGIN_BUILD_OUTPUT_DIR="$(OUTPUT_DIR)" \
 		"$(PROJECT_DIR)/Scripts/package-installer.sh"
+
+package-linux:
+	MARGIN_BUILD_OUTPUT_DIR="$(OUTPUT_DIR)" \
+		"$(PROJECT_DIR)/Scripts/package-linux-release.sh" amd64 arm64
 
 installer: release
 	MARGIN_BUILD_OUTPUT_DIR="$(OUTPUT_DIR)" \

@@ -1,5 +1,43 @@
 # Margin release notes
 
+## 0.4.0 — first public release
+
+Release date: 2026-08-19
+
+- Opens Margin as an Apache-2.0 project maintained by OpenProse, Inc. Margin is
+  an independent tool used by the OpenProse team; it is not the OpenProse
+  product and is not required to use the OpenProse platform.
+- Establishes GitHub Releases as the distribution channel: one Apple-silicon
+  macOS installer containing `Margin.app` and the `margin` command, a portable
+  Mac archive, and standalone Linux CLI archives for x86-64 and ARM64.
+- Adds focused installation, CLI, architecture, contribution, security, and
+  release documentation, with a concise product-first repository front page.
+- Makes `stage list` discover the nearest initialized workspace when no root is
+  supplied, including from nested directories, and improves actionable stage
+  recovery guidance throughout the self-teaching CLI.
+- Adds representation-neutral MarginBench controls, outcome scoring, trace
+  shape analysis, candidate checkpoints, crossover studies, publication
+  audits, and independently verifiable redacted result bundles.
+- Hardens paid evaluation controls with explicit accounting, provider-bound
+  checks, safer pacing and resumption, private-fixture isolation, and
+  fail-closed publication validation.
+
+### Verification and distribution
+
+- All 172 native Swift tests pass.
+- Both MarginBench Python environments pass all 156 tests; the deterministic
+  nine-scenario self-test, neutral preflights, and every tracked public result
+  audit pass without paid model calls.
+- The public stage-recovery comparison is retained as useful single-case
+  development evidence, not as a general performance or superiority claim.
+- The first public Mac build is ad-hoc signed at the app and executable level;
+  the installer is unsigned and the release is not notarized. Users must make
+  a per-app or per-installer Gatekeeper exception after verifying the published
+  checksum. Developer ID signing and notarization remain planned follow-up
+  distribution work.
+- Exact artifact hashes are published in the GitHub Release `SHA256SUMS` file
+  generated from the tagged build.
+
 ## 0.3.2 — portable collaboration and MarginBench
 
 Release date: 2026-08-18

@@ -2,17 +2,17 @@
   "artifacts": [
     {
       "architecture": "x86_64",
-      "bytes": 47720624,
+      "bytes": 47806640,
       "path": "marginbench/bin/margin-linux-x86_64",
       "platform": "linux/amd64",
-      "sha256": "ba5daecb6d7fb1874a9726313cf2c871ad37691dba1cf59bb655642f03314919"
+      "sha256": "47f058f87ce171c0239b658a2307918ef79a6757969085cfe299dd10ec3ea655"
     },
     {
       "architecture": "aarch64",
-      "bytes": 46823520,
+      "bytes": 46901344,
       "path": "marginbench/bin/margin-linux-aarch64",
       "platform": "linux/arm64",
-      "sha256": "1f61270ab104891c34a981faa84a540dcf0d3b620ff561984f4b6455df7f062d"
+      "sha256": "e13024c1bf6d0fc9815b73fc793d2d029b1704d8bce3589010a01694c8044de5"
     }
   ],
   "build": {
@@ -20,10 +20,10 @@
     "dockerfileSha256": "794129def4f1b1138c0dc864951ef89f7c3ce7d8d394f5e17883afc1e8610208",
     "packageManifestSha256": "542f201e1cec691d06f1b2c5725d8dfb0d9638558e8daa3daeae1020fc53d749",
     "scriptSha256": "66e117d0b0782b43342d3b2e4e936336d1230b24ea09e9fbde6a569abacda0e6",
-    "sourceTreeSha256": "9a86acf7239a25d54d3e982be083ec2256c01803f029d9d566f453902c8ce56b",
+    "sourceTreeSha256": "5ff910744ff83ad3960c97c9aa80e0a2a88a5b8a65ff792e771a320f2fd615f0",
     "staticSwiftStandardLibrary": true
   },
-  "marginVersion": "0.3.2",
+  "marginVersion": "0.4.0",
   "schema": "urn:marginbench:binary-manifest:v1",
   "verification": {
     "referenceEpisodesPerArtifact": 5,

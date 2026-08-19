@@ -52,6 +52,8 @@ mkdir -p "$STAGED_APP/Contents/MacOS" "$STAGED_APP/Contents/Resources" "$STAGED_
 install -m 755 "$APP_BINARY" "$STAGED_APP/Contents/MacOS/Margin"
 install -m 755 "$CLI_BINARY" "$STAGED_APP/Contents/Helpers/margin"
 install -m 644 "$PROJECT_DIR/Resources/Info.plist" "$STAGED_APP/Contents/Info.plist"
+install -m 644 "$PROJECT_DIR/LICENSE" "$STAGED_APP/Contents/Resources/LICENSE"
+install -m 644 "$PROJECT_DIR/NOTICE" "$STAGED_APP/Contents/Resources/NOTICE"
 install -m 755 "$CLI_BINARY" "$STAGED_CLI"
 
 MARGIN_ICON_TOOL_DIR="$SCRATCH_PATH/icon-tool" \

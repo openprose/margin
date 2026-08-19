@@ -1,36 +1,55 @@
 # Margin roadmap
 
-## Monday v0.1
+Margin is deliberately a focused, file-native Markdown tool. Roadmap items are
+directions rather than promises or dates.
 
-The release gate is the complete local human-agent review loop: native file and directory opening, literal Markdown editing, reader mode, embedded threaded comments, deterministic CLI reads and writes, concurrency safety, packaging, and measured launch performance.
+## Shipped through 0.4
 
-## v0.2 review ergonomics
+- Native file and directory editing, reader mode, tabs, navigation, restoration,
+  and inline threaded review on macOS.
+- A standalone macOS/Linux CLI for bounded reads, comments, suggestions,
+  handoffs, staging, recovery, reconciliation, and semantic annotation merge.
+- Portable JSON-LD collaboration metadata embedded in ordinary Markdown.
+- Deterministic native, CLI, collaboration, and MarginBench verification.
+- GitHub Release packaging for the Apple-silicon Mac app plus CLI and standalone
+  Linux CLI archives for x86-64 and ARM64.
 
-The second release completes the focused review pass: inline source/reader commenting, clickable anchors and reader markers, source-ordered review navigation, compact threaded presentation, unread external activity, owner edit/delete with safe Undo, session continuity, a command palette, and bounded agent `review`/event-driven `watch` operations.
+## Near term
 
-## Later in the week: semantic lenses
+- Add Developer ID signing and notarization when OpenProse has the required
+  Apple Developer credentials.
+- Improve first-run installation and update guidance without adding a daemon or
+  background service.
+- Add a restrained product screenshot and social preview to the public project.
+- Expand private MarginBench validation before making any general performance
+  or agent-effectiveness claim.
+- Consider a universal Mac build if Intel support becomes a requirement.
 
-The first model-assisted layer should remain optional and provider-neutral. It should consume the same bounded interfaces agents use today rather than gaining a second, privileged document representation.
+## Interchange
 
-Candidate lenses:
+- Import and export generic W3C Annotation collections in addition to the
+  current JSON-LD export.
+- Add converters for review systems that can preserve text quotes, positions,
+  authors, timestamps, and reply relationships.
+- Extend durable audit/export options for edited and deleted comments beyond
+  the current local conflict-aware Undo window.
 
-- **Zoom out:** argument map, decision log, open-question index, and section summaries.
-- **Zoom in:** claims needing evidence, inconsistent terms, unresolved assumptions, and comments touching a passage.
-- **Slice:** headings, line spans, threads, changed passages, semantic topics, and a token-budgeted context packet.
-- **Synthesize:** reconcile a reply tree into a proposed source edit while retaining attribution and showing the exact patch.
-- **Filter:** perspectives for architecture, editorial structure, accessibility, risk, implementation, or a named collaborator.
+## Optional semantic lenses
 
-The model layer must be visibly separate from deterministic source operations. It should never mutate a document without an inspectable proposal and explicit application step. Generated feedback should identify its software actor, use idempotency keys, and write through the existing comment protocol.
+Any future model-assisted layer should remain optional and provider-neutral. It
+should consume the same bounded interfaces agents use today rather than gaining
+a second, privileged representation of the document.
 
-## Interchange work
+Possible lenses include argument maps, decision logs, evidence checks, section
+summaries, changed-passage views, and reply-tree synthesis into an inspectable
+source suggestion. Generated work must identify its software actor, remain
+separate from deterministic source operations, and never mutate a document
+without an explicit application step.
 
-- Import/export generic W3C Annotation collections in addition to the current JSON-LD export.
-- Add converters for review systems that can preserve text quotes, positions, authors, timestamps, and reply relationships.
-- Specify a safe repair flow for Markdown changed by a non-Margin editor while retaining a stale comment envelope.
-- Specify a durable cross-session audit/export policy for edited and deleted comments beyond the current local conflict-aware Undo window.
+## Enduring constraints
 
-## Distribution work
-
-- Add Developer ID signing and notarization when a certificate is available.
-- Produce a universal binary if Intel support becomes a requirement.
-- Keep the native core free of network, account, and plug-in startup costs.
+- Ordinary Markdown remains authoritative.
+- The app launch path stays free of network, account, model, plug-in, and
+  recursive indexing work.
+- Collaboration mutations remain deterministic, inspectable, and safe to retry.
+- Margin remains useful independently from OpenProse products and services.

@@ -32,6 +32,8 @@ mkdir -p "$PACKAGE_ROOT"
 ditto "$SOURCE_APP" "$PACKAGE_ROOT/Margin.app"
 install -m 755 "$SOURCE_CLI" "$PACKAGE_ROOT/margin"
 install -m 644 "$PROJECT_DIR/Resources/Distribution-README.txt" "$PACKAGE_ROOT/README.txt"
+install -m 644 "$PROJECT_DIR/LICENSE" "$PACKAGE_ROOT/LICENSE"
+install -m 644 "$PROJECT_DIR/NOTICE" "$PACKAGE_ROOT/NOTICE"
 
 /usr/bin/codesign --verify --deep --strict "$PACKAGE_ROOT/Margin.app"
 ditto -c -k --sequesterRsrc --keepParent "$PACKAGE_ROOT" "$TEMP_ARCHIVE"

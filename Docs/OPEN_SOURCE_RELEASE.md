@@ -48,14 +48,26 @@ checkpointed as one coherent change.
   still needs the relevant external registry owner/handle.
 - Add Developer ID Application and Installer certificates plus notarization
   credentials when OpenProse joins the Apple Developer Program.
-- Establish the public repository metadata, contributor policy, security
-  policy, issue templates, CI, tag-driven release workflow, and version
-  consistency checks before the first push.
 - Decide later whether to add Intel Mac support. The first release remains
   aligned with the currently tested Apple-silicon requirement.
 - Keep private holdout keys, raw traces, credentials, and generated run
-  directories out of Git history and release artifacts. Run a final history and
-  working-tree secret scan before publication.
+  directories out of Git history and release artifacts.
+
+## Publication checklist
+
+The repository metadata, contributor and security policies, issue templates,
+CI, version checks, Linux packaging, and tag-driven draft-release workflow are
+now in place. The remaining publication steps require the public GitHub
+repository:
+
+1. Create an empty public `openprose/margin` repository without generated
+   README, license, or ignore files.
+2. Push the current branch and confirm the initial CI run.
+3. Configure repository topics, private vulnerability reporting, and the
+   desired branch-protection or ruleset policy.
+4. Tag the verified commit as `v0.4.0`.
+5. Review the workflow-created draft release, its four distribution artifacts,
+   checksums, attestations, and generated notes before publishing it.
 
 ## Release boundary
 
