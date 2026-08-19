@@ -93,15 +93,15 @@ jobs:
             "$HOME/.local/share/uv/tools/prime/bin/python" -m unittest discover \
             -s "$MARGINBENCH_ROOT/tests" -p 'test_*.py'
           PYTHONPATH="$MARGINBENCH_ROOT" "$MARGINBENCH_ROOT/preflight.py" \
-            --margin-bin "$MARGINBENCH_BINARY"
+            --margin-bin "$MARGINBENCH_BINARY" --timeout-seconds 300
           PYTHONPATH="$MARGINBENCH_ROOT" "$MARGINBENCH_ROOT/preflight.py" \
-            --margin-bin "$MARGINBENCH_BINARY" --server
+            --margin-bin "$MARGINBENCH_BINARY" --server --timeout-seconds 300
           PYTHONPATH="$MARGINBENCH_ROOT" "$MARGINBENCH_ROOT/preflight.py" \
             --margin-bin "$MARGINBENCH_BINARY" \
-            --control-profile single-agent-margin-v1
+            --control-profile single-agent-margin-v1 --timeout-seconds 300
           PYTHONPATH="$MARGINBENCH_ROOT" "$MARGINBENCH_ROOT/preflight.py" \
             --margin-bin "$MARGINBENCH_BINARY" --server \
-            --control-profile single-agent-margin-v1
+            --control-profile single-agent-margin-v1 --timeout-seconds 300
           mkdir -p build/ci-marginbench-dist
           PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli \
             neutral-prompt-audit \
@@ -146,11 +146,13 @@ jobs:
             build/ci-marginbench-private/holdout.key > /dev/null
           PYTHONPATH="$MARGINBENCH_ROOT" "$MARGINBENCH_ROOT/preflight.py" \
             --margin-bin "$MARGINBENCH_BINARY" --server \
-            --holdout-key-file build/ci-marginbench-private/holdout.key
+            --holdout-key-file build/ci-marginbench-private/holdout.key \
+            --timeout-seconds 300
           PYTHONPATH="$MARGINBENCH_ROOT" "$MARGINBENCH_ROOT/preflight.py" \
             --margin-bin "$MARGINBENCH_BINARY" --server \
             --control-profile single-agent-margin-v1 \
-            --holdout-key-file build/ci-marginbench-private/holdout.key
+            --holdout-key-file build/ci-marginbench-private/holdout.key \
+            --timeout-seconds 300
           cleanup_private_key
           trap - EXIT
 

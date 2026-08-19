@@ -78,7 +78,15 @@ def main() -> int:
         action="store_true",
         help="exercise Prime's out-of-process environment-server wire path",
     )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=120,
+        help="maximum wall time for the local Prime evaluation (default: 120)",
+    )
     arguments = parser.parse_args()
+    if arguments.timeout_seconds <= 0:
+        raise SystemExit("--timeout-seconds must be positive.")
     try:
         require_implemented_profile(arguments.control_profile)
     except ValueError as error:
@@ -146,7 +154,7 @@ def main() -> int:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             check=False,
-            timeout=120,
+            timeout=arguments.timeout_seconds,
         )
         trace_path = Path(output) / "traces.jsonl"
         scores: list[float] = []
