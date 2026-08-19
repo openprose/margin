@@ -11,10 +11,19 @@ make benchmark
 The default run performs three cache warm-ups and fifteen measured launches of the packaged release app. It records:
 
 - launch latency from spawning `Margin.app/Contents/MacOS/Margin` until its first on-screen layer-0 window is visible;
+- target-ready latency until the requested Markdown has been decoded, installed in the real editor with its initial syntax presentation, and made editable when permissions allow;
 - resident set size (RSS) 250 ms after that window appears;
 - logical app-bundle bytes and main-executable bytes.
 
-Results are written to `build/benchmarks/performance.json`. The launch value is an external window-visible proxy: it is reproducible without modifying production code, but it does not claim to measure the final compositor frame or every asynchronous document-loading operation.
+Results are written to `build/benchmarks/performance.json`. The visible-window value is an external proxy and does not claim to measure the final compositor frame. The target-ready value comes from an environment-gated marker emitted after initial document presentation and editor activation; ordinary app launches do not create the marker or perform benchmark I/O.
+
+Run the release-sized file and directory matrix with:
+
+```sh
+make benchmark-matrix
+```
+
+That command covers 4 KiB, 1 MiB, and 5 MiB Markdown files plus directories with 100 and 10,000 entries. A directory result includes root enumeration, initial `README.md` selection, document decoding, and initial Markdown presentation. The checked-in local p95 limits are 500 ms for the first visible window and 1,250 ms for target readiness.
 
 Override the sample size or input when investigating regressions:
 
@@ -26,6 +35,14 @@ make benchmark
 ```
 
 For clean comparisons, close other Margin instances, use the same hardware and power state, and compare release bundles built with the same macOS toolchain.
+
+## What GitHub Actions can establish
+
+The `Startup performance` workflow runs the complete matrix on one `macos-15` runner, publishes the table in the job summary, retains the raw JSON samples for 90 days, and fails when any case exceeds a 1,000 ms visible-window p95 or 3,000 ms target-ready p95. Keeping all cases in one job makes size comparisons share the same host and machine state.
+
+Those intentionally loose hosted-runner limits are regression alarms, not end-user guarantees. GitHub currently documents the standard public `macos-15` runner as an arm64 M1 VM with three CPUs and 7 GB RAM, but hosted runner load, virtualization, image revisions, thermal state, storage caches, and end-user hardware are outside Margin's control. A hardware-specific service-level guarantee would require a controlled physical or dedicated self-hosted Mac, a pinned OS and toolchain, repeated cold and warm samples, and ongoing calibration. See GitHub's [hosted-runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) and [self-hosted runner guidance](https://docs.github.com/en/actions/concepts/runners/self-hosted-runners).
+
+Margin therefore does **not** promise universal sub-200 ms startup. The current AppKit baseline and Margin measurements do not support that claim. The public statement is narrower: the release is continuously checked against the documented CI envelope, and the reference-machine measurements below are reproducible evidence for a specific system.
 
 ## Current reference and framework floor
 
@@ -132,3 +149,22 @@ Across 100 fresh CLI processes after three warmups, ordinary help measured
 / 8.477 ms**. The corresponding structured outputs are 12,716 and 19,797
 bytes, both below their hard bounds and independent of filesystem or network
 state.
+
+## v0.4.0 startup matrix baseline
+
+The v0.4.0 release candidate completed the new matrix on an Apple M1 Max with
+macOS 26.2. Every case used three warm-ups and ten measured direct launches.
+
+| Case | Visible median | Visible p95 | Ready median | Ready p95 |
+|---|---:|---:|---:|---:|
+| 4 KiB Markdown file | 323.903 ms | 403.134 ms | 354.102 ms | 442.868 ms |
+| 1 MiB Markdown file | 317.479 ms | 343.534 ms | 470.048 ms | 496.853 ms |
+| 5 MiB Markdown file | 319.724 ms | 366.418 ms | 920.244 ms | 983.171 ms |
+| Directory with 100 entries | 323.939 ms | 332.526 ms | 513.149 ms | 521.528 ms |
+| Directory with 10,000 entries | 320.360 ms | 327.736 ms | 1,030.775 ms | 1,060.048 ms |
+
+The nearly flat visible-window results confirm that file decoding and directory
+enumeration do not block the first window. Target readiness scales with the
+requested work and remains within the checked-in 1,250 ms local p95 envelope
+for this matrix. These warm-launch figures support “a few hundred milliseconds
+to a visible window” on the reference system, not a sub-200 ms claim.

@@ -27,6 +27,8 @@ private struct Options {
     var warmups = 3
     var settleMilliseconds = 250
     var timeoutMilliseconds = 5_000
+    var visibleP95LimitMilliseconds: Double?
+    var readyP95LimitMilliseconds: Double?
 
     init(arguments: [String]) throws {
         var index = 0
@@ -48,6 +50,10 @@ private struct Options {
             case "--warmups": warmups = try Self.nonnegativeInteger(try value(after: option), option: option)
             case "--settle-ms": settleMilliseconds = try Self.nonnegativeInteger(try value(after: option), option: option)
             case "--timeout-ms": timeoutMilliseconds = try Self.positiveInteger(try value(after: option), option: option)
+            case "--visible-p95-limit-ms":
+                visibleP95LimitMilliseconds = try Self.positiveDouble(try value(after: option), option: option)
+            case "--ready-p95-limit-ms":
+                readyP95LimitMilliseconds = try Self.positiveDouble(try value(after: option), option: option)
             default: throw BenchmarkFailure.usage("Unknown option \(option).")
             }
             index += 2
@@ -55,7 +61,7 @@ private struct Options {
 
         guard !appPath.isEmpty, !documentPath.isEmpty, !outputPath.isEmpty else {
             throw BenchmarkFailure.usage(
-                "usage: launch-benchmark --app APP --document FILE --output JSON [--runs N] [--warmups N]"
+                "usage: launch-benchmark --app APP --document FILE_OR_DIRECTORY --output JSON [--runs N] [--warmups N] [--visible-p95-limit-ms N] [--ready-p95-limit-ms N]"
             )
         }
     }
@@ -73,10 +79,18 @@ private struct Options {
         }
         return value
     }
+
+    private static func positiveDouble(_ raw: String, option: String) throws -> Double {
+        guard let value = Double(raw), value.isFinite, value > 0 else {
+            throw BenchmarkFailure.invalidValue("\(option) expects a positive number.")
+        }
+        return value
+    }
 }
 
 private struct Sample {
     let launchMilliseconds: Double
+    let readyMilliseconds: Double
     let residentMemoryMiB: Double
 }
 
@@ -137,15 +151,18 @@ private struct BenchmarkReport: Encodable {
         let settleMilliseconds: Int
         let timeoutMilliseconds: Int
         let documentPath: String
+        let visibleP95LimitMilliseconds: Double?
+        let readyP95LimitMilliseconds: Double?
     }
 
-    let schema = "urn:margin:performance:v1"
+    let schema = "urn:margin:performance:v2"
     let measuredAt: String
     let measurement: String
     let system: System
     let artifact: Artifact
     let settings: Settings
     let launchMilliseconds: Statistics
+    let readyMilliseconds: Statistics
     let residentMemoryMiB: Statistics
 }
 
@@ -204,6 +221,11 @@ private func measureOnce(options: Options) throws -> Sample {
     let process = Process()
     process.executableURL = executable
     process.arguments = [options.documentPath]
+    let readyURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("margin-ready-\(UUID().uuidString)", isDirectory: false)
+    process.environment = ProcessInfo.processInfo.environment.merging([
+        "MARGIN_BENCHMARK_READY_FILE": readyURL.path,
+    ]) { _, benchmarkValue in benchmarkValue }
     process.standardOutput = FileHandle.nullDevice
     process.standardError = FileHandle.nullDevice
 
@@ -213,19 +235,33 @@ private func measureOnce(options: Options) throws -> Sample {
     } catch {
         throw BenchmarkFailure.launch("Could not launch \(executable.path): \(error.localizedDescription)")
     }
-    defer { stop(process) }
+    defer {
+        stop(process)
+        try? FileManager.default.removeItem(at: readyURL)
+    }
 
     let timeout = UInt64(options.timeoutMilliseconds) * 1_000_000
     var visibleAt: UInt64?
+    var readyAt: UInt64?
     while process.isRunning && DispatchTime.now().uptimeNanoseconds - start < timeout {
-        if isWindowVisible(for: process.processIdentifier) {
+        if visibleAt == nil, isWindowVisible(for: process.processIdentifier) {
             visibleAt = DispatchTime.now().uptimeNanoseconds
+        }
+        if readyAt == nil, FileManager.default.fileExists(atPath: readyURL.path) {
+            readyAt = DispatchTime.now().uptimeNanoseconds
+        }
+        if visibleAt != nil, readyAt != nil {
             break
         }
         usleep(1_000)
     }
     guard let visibleAt else {
         throw BenchmarkFailure.timeout(options.timeoutMilliseconds)
+    }
+    guard let readyAt else {
+        throw BenchmarkFailure.measurement(
+            "Margin showed a window but did not finish loading the benchmark target within \(options.timeoutMilliseconds) ms."
+        )
     }
 
     if options.settleMilliseconds > 0 {
@@ -237,6 +273,7 @@ private func measureOnce(options: Options) throws -> Sample {
     let residentMiB = try residentMemoryMiB(for: process.processIdentifier)
     return Sample(
         launchMilliseconds: Double(visibleAt - start) / 1_000_000,
+        readyMilliseconds: Double(readyAt - start) / 1_000_000,
         residentMemoryMiB: residentMiB
     )
 }
@@ -302,7 +339,7 @@ do {
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     let report = BenchmarkReport(
         measuredAt: formatter.string(from: Date()),
-        measurement: "Warm direct-executable spawn to first on-screen layer-0 app window; RSS sampled after the settle interval.",
+        measurement: "Warm direct-executable spawn to first on-screen layer-0 app window and to completion of target loading and initial Markdown presentation; RSS sampled after the settle interval.",
         system: .init(
             operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
             architecture: architecture,
@@ -319,9 +356,12 @@ do {
             warmupRuns: options.warmups,
             settleMilliseconds: options.settleMilliseconds,
             timeoutMilliseconds: options.timeoutMilliseconds,
-            documentPath: URL(fileURLWithPath: options.documentPath).standardizedFileURL.path
+            documentPath: URL(fileURLWithPath: options.documentPath).standardizedFileURL.path,
+            visibleP95LimitMilliseconds: options.visibleP95LimitMilliseconds,
+            readyP95LimitMilliseconds: options.readyP95LimitMilliseconds
         ),
         launchMilliseconds: Statistics(samples.map(\.launchMilliseconds)),
+        readyMilliseconds: Statistics(samples.map(\.readyMilliseconds)),
         residentMemoryMiB: Statistics(samples.map(\.residentMemoryMiB))
     )
 
@@ -336,6 +376,17 @@ do {
     )
     try data.write(to: outputURL, options: .atomic)
     FileHandle.standardOutput.write(data)
+
+    if let limit = options.visibleP95LimitMilliseconds, report.launchMilliseconds.p95 > limit {
+        throw BenchmarkFailure.measurement(
+            "Visible-window p95 \(report.launchMilliseconds.p95) ms exceeds the \(limit) ms limit."
+        )
+    }
+    if let limit = options.readyP95LimitMilliseconds, report.readyMilliseconds.p95 > limit {
+        throw BenchmarkFailure.measurement(
+            "Target-ready p95 \(report.readyMilliseconds.p95) ms exceeds the \(limit) ms limit."
+        )
+    }
 } catch {
     let message = (error as? BenchmarkFailure)?.description ?? error.localizedDescription
     fputs("launch-benchmark: \(message)\n", stderr)

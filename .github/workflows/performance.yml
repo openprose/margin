@@ -1,0 +1,43 @@
+name: Startup performance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  startup:
+    name: macOS startup envelope
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      MARGIN_STARTUP_RUNS: 10
+      MARGIN_STARTUP_WARMUPS: 3
+      MARGIN_STARTUP_VISIBLE_P95_LIMIT_MS: 1000
+      MARGIN_STARTUP_READY_P95_LIMIT_MS: 3000
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build release app
+        run: make release
+
+      - name: Measure startup matrix
+        run: Scripts/benchmark-startup-matrix.sh
+
+      - name: Upload measurements
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: startup-performance-${{ github.sha }}
+          path: build/benchmarks/startup-matrix/
+          if-no-files-found: error
+          retention-days: 90

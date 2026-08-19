@@ -20,6 +20,10 @@ directions rather than promises or dates.
   Apple Developer credentials.
 - Improve first-run installation and update guidance without adding a daemon or
   background service.
+- Investigate whether the real editable-window path can be brought below 200 ms
+  on the reference Mac. The v0.4.0 baseline is intentionally documented and
+  gated above that target; do not advertise sub-200 ms until repeatable evidence
+  supports it.
 - Add a restrained product screenshot and social preview to the public project.
 - Expand private MarginBench validation before making any general performance
   or agent-effectiveness claim.

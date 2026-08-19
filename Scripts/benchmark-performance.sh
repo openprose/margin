@@ -11,9 +11,11 @@ SETTLE_MS="${MARGIN_BENCHMARK_SETTLE_MS:-250}"
 TIMEOUT_MS="${MARGIN_BENCHMARK_TIMEOUT_MS:-5000}"
 SCRATCH_PATH="${MARGIN_PERFORMANCE_SCRATCH_PATH:-$PROJECT_DIR/.build/performance}"
 RESULTS_PATH="${MARGIN_BENCHMARK_RESULTS:-$OUTPUT_DIR/benchmarks/performance.json}"
+VISIBLE_P95_LIMIT_MS="${MARGIN_BENCHMARK_VISIBLE_P95_LIMIT_MS:-}"
+READY_P95_LIMIT_MS="${MARGIN_BENCHMARK_READY_P95_LIMIT_MS:-}"
 
-if [[ ! -x "$APP_BUNDLE/Contents/MacOS/Margin" || ! -f "$DOCUMENT" ]]; then
-    print -u2 "Margin.app or benchmark document is missing. Run make release first."
+if [[ ! -x "$APP_BUNDLE/Contents/MacOS/Margin" || ! -e "$DOCUMENT" ]]; then
+    print -u2 "Margin.app or benchmark target is missing. Run make release first."
     exit 66
 fi
 
@@ -26,14 +28,19 @@ mkdir -p "$SCRATCH_PATH" "${RESULTS_PATH:h}"
 RUNNER="$SCRATCH_PATH/launch-benchmark"
 xcrun swiftc -O "$PROJECT_DIR/Benchmarks/performance/LaunchBenchmark.swift" -o "$RUNNER"
 
-"$RUNNER" \
-    --app "$APP_BUNDLE" \
-    --document "$DOCUMENT" \
-    --runs "$RUNS" \
-    --warmups "$WARMUPS" \
-    --settle-ms "$SETTLE_MS" \
-    --timeout-ms "$TIMEOUT_MS" \
+ARGS=(
+    --app "$APP_BUNDLE"
+    --document "$DOCUMENT"
+    --runs "$RUNS"
+    --warmups "$WARMUPS"
+    --settle-ms "$SETTLE_MS"
+    --timeout-ms "$TIMEOUT_MS"
     --output "$RESULTS_PATH"
+)
+[[ -n "$VISIBLE_P95_LIMIT_MS" ]] && ARGS+=(--visible-p95-limit-ms "$VISIBLE_P95_LIMIT_MS")
+[[ -n "$READY_P95_LIMIT_MS" ]] && ARGS+=(--ready-p95-limit-ms "$READY_P95_LIMIT_MS")
+
+"$RUNNER" "${ARGS[@]}"
 
 print "Results: $RESULTS_PATH"
 print "Allocated bundle size (KiB): $(/usr/bin/du -sk "$APP_BUNDLE" | /usr/bin/awk '{print $1}')"

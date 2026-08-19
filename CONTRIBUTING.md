@@ -64,7 +64,8 @@ opening a pull request.
 | AppKit UI or app behavior | `make test`, `make smoke` |
 | Comment or collaboration protocol | `make test`, `make test-linux`, `make eval` |
 | Directory transactions or agent workflow | `make eval-collaboration` |
-| Launch-path or packaging behavior | `make smoke`, `make benchmark`, `make package` |
+| Launch-path behavior | `make smoke`, `make benchmark-matrix` |
+| Packaging behavior | `make package` |
 | MarginBench implementation or public evidence | `make marginbench-test`, `make marginbench-preflight` |
 
 `make eval-preflight` and paid or remote benchmark runs are not routine pull

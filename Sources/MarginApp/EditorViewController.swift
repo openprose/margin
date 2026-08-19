@@ -210,6 +210,7 @@ final class EditorViewController: NSViewController,
             textView.isEditable = true
             watchDocument(url)
             textView.window?.makeFirstResponder(textView)
+            StartupPerformanceSignal.documentReady()
             return
         }
 
@@ -238,6 +239,7 @@ final class EditorViewController: NSViewController,
                     self.textView.window?.makeFirstResponder(
                         self.isReaderMode ? (self.readerViewController?.textView ?? self.textView) : self.textView
                     )
+                    StartupPerformanceSignal.documentReady()
                 case .failure(let error):
                     self.showBanner("Margin could not safely open this document: \(error.localizedDescription)")
                     self.textView.isEditable = false
