@@ -20,7 +20,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - name: Check out tagged source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install host tools
         run: sudo apt-get update && sudo apt-get install --yes zsh
@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Check out tagged source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Require the native arm64 runner
         run: test "$(uname -m)" = arm64
@@ -78,7 +78,7 @@ jobs:
           grep -E '/NOTICE$' build/archive-contents.txt
 
       - name: Retain macOS release assets
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-macos-arm64
           path: |
@@ -106,7 +106,7 @@ jobs:
       MARGIN_LINUX_SWIFT_IMAGE: swift:5.10-jammy@sha256:ffc42e399ad0cad324f68d58f65e4d5f2c22eb9df73c4dfa249e898d497254b3
     steps:
       - name: Check out tagged source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install host tools
         run: sudo apt-get update && sudo apt-get install --yes zsh
@@ -140,7 +140,7 @@ jobs:
           "$cli" comments validate Fixtures/example.md >/dev/null
 
       - name: Retain Linux release asset
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-linux-${{ matrix.machine }}
           path: build/Margin-CLI-${{ needs.metadata.outputs.version }}-linux-${{ matrix.machine }}.tar.gz
@@ -157,7 +157,7 @@ jobs:
       id-token: write
     steps:
       - name: Download checked release assets
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: release-*
           path: release-assets
@@ -184,7 +184,7 @@ jobs:
           sha256sum --check SHA256SUMS
 
       - name: Attest release build provenance
-        uses: actions/attest@c32b4b8b198b65d0bd9d63490e847ff7b53989d4 # v4.0.0
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
             release-assets/*.pkg
