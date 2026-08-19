@@ -51,13 +51,13 @@ VALUE_OPTIONS = frozenset({
     "-m", "--actor", "--actor-id", "--actor-name", "--actor-type", "--app",
     "--assignee", "--audience", "--body", "--change-set-file", "--comment",
     "--context", "--exclude", "--expect", "--finishing-cursor", "--for",
-    "--format", "--from", "--heading", "--id", "--if-content-sha",
+    "--format", "--from", "--heading", "--id", "--contribution-id", "--if-content-sha",
     "--if-revision", "--include", "--kind", "--limit", "--lines", "--max-bytes",
     "--max-contributions", "--max-depth", "--max-files", "--max-headings",
-    "--max-preview-bytes", "--merged-body", "--message", "--message-file",
-    "--next-actor", "--occurrence", "--operations-file", "--output", "--path",
+    "--max-preview-bytes", "--max-source-bytes", "--merged-body", "--message", "--message-file",
+    "--next-actor", "--occurrence", "--operations-file", "--output", "--parent", "--path",
     "--policy", "--prefix", "--priority", "--quote", "--range", "--replacement",
-    "--request-id", "--resolve", "--root", "--since-revision", "--stage-id",
+    "--mutation-id", "--request-id", "--resolve", "--root", "--since-revision", "--stage-id",
     "--starting-cursor", "--status", "--suffix", "--thread", "--to", "--touched",
     "--unresolved",
 })
@@ -198,11 +198,11 @@ def _path_arguments(arguments: list[str]) -> list[str]:
                 path_values.append(value)
             index += 1
             continue
-        if token in BOOLEAN_OPTIONS:
+        if _is_boolean_option(token, arguments):
             index += 1
             continue
         if token.startswith("-"):
-            takes_value = token in VALUE_OPTIONS or token not in BOOLEAN_OPTIONS
+            takes_value = token in VALUE_OPTIONS or not _is_boolean_option(token, arguments)
             if takes_value and index + 1 < len(arguments):
                 value = arguments[index + 1]
                 if token in PATH_VALUE_OPTIONS or (token == "--from" and command == "reconcile"):
@@ -239,7 +239,11 @@ def _option_names(arguments: list[str]) -> set[str]:
             continue
         option = token.split("=", 1)[0]
         names.add(option)
-        if "=" not in token and option not in BOOLEAN_OPTIONS and index + 1 < len(arguments):
+        if (
+            "=" not in token
+            and not _is_boolean_option(option, arguments)
+            and index + 1 < len(arguments)
+        ):
             index += 2
         else:
             index += 1
@@ -271,6 +275,24 @@ def command_path(arguments: list[str]) -> str:
     }:
         return f"{first} {arguments[1]}"
     return first
+
+
+def _is_boolean_option(option: str, arguments: list[str]) -> bool:
+    if option in BOOLEAN_OPTIONS:
+        return True
+    return option == "--resolve" and command_path(arguments) == "comments reply"
+
+
+def event_command_path(arguments: list[str]) -> str:
+    path = command_path(arguments)
+    if path == "comments reply" and "--resolve" in _option_names(arguments):
+        return "comments reply --resolve"
+    if path == "comments add" and "--parent" in _option_names(arguments):
+        # `comments add --parent` is the documented reply shorthand. Telemetry
+        # records semantic actions so equivalent public spellings receive the
+        # same protocol credit without retaining argument values.
+        return "comments reply"
+    return path
 
 
 class MarginGateway:
@@ -424,7 +446,7 @@ class MarginGateway:
         self.event_log.parent.mkdir(parents=True, exist_ok=True)
         event = CommandEvent(
             role=self.role,
-            command=command_path(arguments),
+            command=event_command_path(arguments),
             exit_code=response.exit_code,
             duration_ms=round(response.duration_ms, 3),
             stdin_bytes=len(stdin or b""),

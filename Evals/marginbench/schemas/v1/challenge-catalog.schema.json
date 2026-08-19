@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:challenge-catalog:v1",
+  "title": "MarginBench collaboration challenge catalog v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "catalogVersion", "scale", "axes", "challenges", "rules"],
+  "properties": {
+    "schema": {"const": "urn:marginbench:challenge-catalog:v1"},
+    "catalogVersion": {"const": 1},
+    "scale": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum", "maximum"],
+      "properties": {
+        "minimum": {"const": 0},
+        "maximum": {"const": 4}
+      }
+    },
+    "axes": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "low", "high"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1, "maxLength": 64},
+          "low": {"type": "string", "minLength": 1, "maxLength": 256},
+          "high": {"type": "string", "minLength": 1, "maxLength": 256}
+        }
+      }
+    },
+    "challenges": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scenario", "title", "family", "hypothesis", "primaryMeasures",
+          "demand", "rationale"
+        ],
+        "properties": {
+          "scenario": {
+            "enum": [
+              "human_agent_relay", "agent_agent_handoff", "concurrent_review",
+              "suggestion_decision", "staged_multifile", "directory_handoff",
+              "parallel_shards", "specialist_audit", "distributed_synthesis"
+            ]
+          },
+          "title": {"type": "string", "minLength": 1, "maxLength": 256},
+          "family": {"type": "string", "minLength": 1, "maxLength": 128},
+          "hypothesis": {
+            "enum": ["continuing-favored", "role-separated-favored", "conditional"]
+          },
+          "primaryMeasures": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1, "maxLength": 128}
+          },
+          "demand": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "parallelism", "informationDistribution", "specialization",
+              "reviewIndependence", "workspaceVolatility", "continuity", "coupling"
+            ],
+            "properties": {
+              "parallelism": {"type": "integer", "minimum": 0, "maximum": 4},
+              "informationDistribution": {"type": "integer", "minimum": 0, "maximum": 4},
+              "specialization": {"type": "integer", "minimum": 0, "maximum": 4},
+              "reviewIndependence": {"type": "integer", "minimum": 0, "maximum": 4},
+              "workspaceVolatility": {"type": "integer", "minimum": 0, "maximum": 4},
+              "continuity": {"type": "integer", "minimum": 0, "maximum": 4},
+              "coupling": {"type": "integer", "minimum": 0, "maximum": 4}
+            }
+          },
+          "rationale": {"type": "string", "minLength": 1, "maxLength": 512}
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1, "maxLength": 512}
+    }
+  }
+}

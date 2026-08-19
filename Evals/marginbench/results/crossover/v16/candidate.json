@@ -1,0 +1,15 @@
+{
+  "id": "margin-0.3.2-machine-readable-manual-v16",
+  "manual_sha256": "777d994771d144762bf3153472eabffcae47a25906ca0e8024c693fcc2142f18",
+  "margin_sha256": "eff8723a4cbb101b86dc91f48b486e29d10d68e353cb72566ab546e1cdf10597",
+  "schema": "urn:marginbench:candidate:v1",
+  "settings": {
+    "adapter": "prime-verifiers-v1",
+    "benchmarkVersion": "0.1.0",
+    "change": "machine-readable-progressive-manual-and-audit-kind-alias",
+    "toolSurface": [
+      "margin"
+    ]
+  },
+  "settings_sha256": "0bc16a9f67b43757a18af2c65137baa5776f071425f68af2de843f14a7d6f26c"
+}

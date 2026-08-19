@@ -229,6 +229,7 @@ def run_reference_study(
                 Path(temporary) / "workspace",
                 ReferenceDriver(),
                 candidate_id=manifest.id,
+                control_profile=study["controlProfile"],
             )
         results[manifest.id].append(result)
 

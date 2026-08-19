@@ -86,14 +86,14 @@ interaction are implemented and tested across the live MCP server: the
 controller advances only in frozen order, writes an atomic mode-0600 binding
 outside the workspace, overrides the static/tool-call identity, and sends each
 existing role brief as a separate turn. The permanent in-process and
-environment-server gates pass all six cases at 100, with one trace per episode
+environment-server gates pass all nine cases at 100, with one trace per episode
 and no paid inference. Live plans charge one process with the sum of the
 logical-role limits, and public artifacts preserve logical actor identities
 separately from the `agent` trace seat. The profile is implemented.
 
 Release gates:
 
-- All six deterministic reference cases score 100.
+- All nine deterministic reference cases score 100.
 - A malicious role prompt cannot retain the previous actor or choose the next
   actor before the controller advances the phase.
 - Concurrent-review serialization cannot lose either contribution.
@@ -111,12 +111,12 @@ Margin build, model version, sampling settings, hidden case fingerprint, role
 briefs, scripted events, scorer, and logical-role compute budget fixed. Only the
 agent topology and transcript sharing change.
 
-- Use all six workflows with four freshly keyed repetitions: 24 matched cases.
+- Use all nine workflows with four freshly keyed repetitions: 36 matched cases.
 - Run every case once as role-separated and once as one continuing agent.
-- Counterbalance profile order exactly 12/12 so provider drift does not favor
+- Counterbalance profile order exactly 18/18 so provider drift does not favor
   one topology.
-- Preserve 44 logical role phases per profile. The role-separated side uses 44
-  model processes; the continuing side uses 24 processes whose per-case limits
+- Preserve 68 logical role phases per profile. The role-separated side uses 68
+  model processes; the continuing side uses 36 processes whose per-case limits
   are the sum of their logical roles.
 - Treat outcome, integrity, and efficiency as the primary comparable
   dimensions declared by both profiles. Report protocol and recovery results
@@ -143,9 +143,11 @@ handoffs, staging, and recovery add beyond confined file access.
 
 Tool boundary:
 
-- `workspace_list`: bounded directory names and file metadata.
-- `workspace_read`: bounded line or byte slices plus a content digest.
-- `workspace_write`: one complete-file compare-and-swap replacement.
+- One tool named `workspace`, with progressively disclosed `guide`, `list`,
+  `read`, and `write` actions.
+- `list` returns bounded directory names and file metadata.
+- `read` returns bounded line slices plus a whole-file digest.
+- `write` performs one complete-file compare-and-swap replacement.
 - No shell, Git, network, hidden fixture, Margin executable, atomic multi-file
   batch, comment protocol, or implicit retry.
 
@@ -153,8 +155,8 @@ The file gateway must enforce the same path confinement, byte limits, timeout,
 event redaction, and actor-seat binding as the Margin gateway. A failed
 compare-and-swap is returned as data and never silently retried.
 
-The current annotation oracle cannot grade this control fairly. Before the
-profile runs, every scenario needs a representation-neutral outcome contract:
+The annotation oracle cannot grade this control fairly, so every scenario uses
+a separate representation-neutral outcome contract:
 
 - exact source edits and forbidden edits;
 - exact decision, question, issue, task, suggestion, or handoff facts;
@@ -169,21 +171,38 @@ must be disclosed as part of this control and must not reproduce Margin's hidden
 protocol. A parser must deterministically grade it. Free-form semantic judging
 is not acceptable.
 
-The first concrete draft of that fact model, visible Markdown interchange,
-per-scenario projections, and fairness gates is in
-[`MARGINBENCH_NEUTRAL_OUTCOMES.md`](MARGINBENCH_NEUTRAL_OUTCOMES.md). It remains
-design-only; the profile stays gated until both projections and every listed
-adversarial test exist.
+The concrete fact model, visible Markdown interchange, per-scenario
+projections, and fairness gates are in
+[`MARGINBENCH_NEUTRAL_OUTCOMES.md`](MARGINBENCH_NEUTRAL_OUTCOMES.md). The strict
+byte parser/encoder, JSON schema, hidden-oracle projection, and local confined
+file gateway with trusted writer events are implemented. A schema-backed
+non-scalar scorer covers outcome, integrity,
+trusted attribution, read-before-action continuity, and required stale-write
+recovery using a private cross-process event record without emitting an overall
+score. The Prime adapter passes all nine workflows through separate
+served role sessions without a Margin binary and records content-free call,
+byte, latency, and token observations in a validated receipt. Descriptive
+efficiency accounting is now frozen in a separate digest-bound report: it keeps
+calls, failures, bytes, elapsed time, tool time, tokens, and cost separate,
+preserves missing values as null, and forbids a scalar winner. Independent
+prompt equivalence, subprocess transcript isolation, and the exact production
+result path have all passed zero-cost gates. The profile is implemented.
 
 Release gates:
 
-- A reference writer and parser cover every scenario without Margin.
+- A reference writer and parser cover every scenario without Margin. Complete.
 - The neutral oracle gives identical outcome/integrity credit to equivalent
   Margin and plain-Markdown facts.
-- Protocol-specific dimensions are omitted, not treated as failures.
+- Protocol-specific dimensions are omitted, not treated as failures. Complete.
 - Concurrent stale writes, path escape, symlink escape, oversized files, and
-  partial multi-file state have adversarial tests.
-- Both role processes remain transcript-isolated.
+  partial multi-file state have adversarial tests. Complete.
+- Prompt equivalence receives an independent review. Complete: 85/85 role
+  projections across five seeds.
+- Both role processes remain transcript-isolated outside the trusted scripted
+  policy. Complete: 17 fresh role processes, 105 local requests, zero cross-role
+  leaks.
+- Prime's exact production command, aggregation, and both public result formats
+  pass an all-workflow local-model rehearsal. Complete.
 
 ## 3. Role-separated Margin agents with a shell
 
@@ -234,7 +253,7 @@ transcript, shared writes, handoff file, comments, or later role output. Final
 state is graded per role against only the representation-neutral checks that
 role could satisfy alone.
 
-Do not assign a single aggregate score across all six scenarios until those
+Do not assign a single aggregate score across all nine scenarios until those
 per-role neutral checks exist. Otherwise the control merely encodes that a
 handoff task is impossible without a handoff, which is true but not informative.
 

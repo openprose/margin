@@ -11,7 +11,7 @@ the first hosted adapter, built for Prime Intellect Verifiers v1.
 
 ## What v1 measures
 
-The six current scenario families cover:
+The nine current scenario families cover:
 
 - replying to and resolving a human's existing review thread;
 - leaving a durable handoff that a second agent can find without a transcript;
@@ -19,10 +19,15 @@ The six current scenario families cover:
 - proposing two exact source changes and accepting one while safely rejecting
   the other after its source cursor becomes stale;
 - staging one all-or-none change across two files, observing stale metadata,
-  refreshing the immutable stage, and submitting it atomically.
+  refreshing the immutable stage, and submitting it atomically;
 - triaging a human thread in one directory document, leaving a typed handoff in
   another, and having a second agent discover and complete it from root context
-  without receiving the first agent's transcript.
+  without receiving the first agent's transcript;
+- reviewing independent file shards concurrently, with no shared-write excuse
+  for a missing speedup;
+- having a performance author checked by a fresh security reviewer with a
+  role-private rule; and
+- combining facts initially split between two roles through durable state.
 
 Each case is generated deterministically from a secret key and repetition
 number. Public development cases use a documented key. Private evaluation cases
@@ -59,18 +64,23 @@ From the Margin repository root:
 
 ```sh
 make marginbench-test
+make marginbench-audit
 make marginbench-preflight
 ```
 
 `marginbench-test` runs the Python contracts under both the system interpreter
 and Prime's Verifiers environment, then requires the deterministic reference
 policy to score 100 on every scenario. `marginbench-preflight` runs every role
-in all six Verifiers v1 scenarios through a local fake OpenAI-compatible model,
+in all nine Verifiers v1 scenarios through a local fake OpenAI-compatible model,
 first in process and then across Prime's real environment-server boundary.
 Neither command invokes a paid model. CI also repeats the served path with a
 fresh private key, publishes only its one-way key ID, then overwrites and deletes
 the key in the same job. A public preflight ignores any ambient holdout-key
 variable unless `--holdout-key-file` was explicitly supplied.
+
+`marginbench-audit` verifies every tracked redacted crossover bundle,
+recomputes each aggregate report, and verifies every tracked candidate-study
+submission. It is also part of `marginbench-test` and the portable CI gate.
 
 The same gates are encoded in `.github/workflows/marginbench.yml` for a clean
 Ubuntu runner. The workflow has read-only repository permissions, uses no
@@ -90,7 +100,132 @@ PYTHONPATH=Evals/marginbench python3 -m marginbench.cli reference \
 
 PYTHONPATH=Evals/marginbench python3 -m marginbench.cli self-test \
   --margin-bin build/margin
+
+PYTHONPATH=Evals/marginbench python3 -m marginbench.cli neutral-feasibility
+
+PYTHONPATH=Evals/marginbench \
+  ~/.local/share/uv/tools/prime/bin/python -m marginbench.cli \
+  neutral-served-preflight
+
+PYTHONPATH=Evals/marginbench \
+  ~/.local/share/uv/tools/prime/bin/python -m marginbench.cli \
+  neutral-isolation-preflight
+
+PYTHONPATH=Evals/marginbench \
+  ~/.local/share/uv/tools/prime/bin/python -m marginbench.cli \
+  neutral-production-preflight
+
+PYTHONPATH=Evals/marginbench python3 -m marginbench.cli efficiency-report \
+  build/benchmarks/neutral-served-preflight.json \
+  Evals/marginbench/results/crossover/v17/cells/*.run.json \
+  > build/benchmarks/efficiency-report.json
+
+# If paid model work completed but a later validator rejected publication:
+PYTHONPATH=Evals/marginbench python3 -m marginbench.cli promote-checkpoint \
+  Evals/marginbench/runs/PRIVATE_RUN_DIRECTORY \
+  --summary-file PUBLIC_SUMMARY.json --run-file PUBLIC_RUN.json
 ```
+
+`neutral-feasibility` invokes no model. It proves that all nine hidden outcome
+shapes can be represented and completed through the confined ordinary-Markdown
+gateway, then validates exact facts, source integrity, historical all-or-none
+visibility, trusted attribution, read-before-action continuity, and required
+stale-write recovery. It lists agent efficiency as not evaluated because no
+model runs in this check.
+
+The plain control has one Prime-served tool named `workspace`.
+It discloses `guide`, `list`, `read`, and compare-and-swap `write` progressively,
+uses a private locked cross-process event record, and has passed one complete
+two-role handoff without a Margin binary.
+
+`neutral-served-preflight` is also model-free. It sends all nine public role
+briefs through separate Prime-served tool sessions, validates their final
+neutral state, and emits only content-free measurements. An independent prompt
+audit covers 85 role briefs, and `neutral-isolation-preflight` proves 17 fresh
+role processes never inherit another role's transcript.
+
+`neutral-production-preflight` invokes Prime's real evaluation command against
+a local scripted endpoint. Across all nine workflows it validates 17 role
+traces, 105 model-shaped requests, 88 same-role transcript continuations, both
+official result formats, and zero cross-role leaks without invoking a paid
+model. These gates make `role-separated-plain-markdown-v1` runnable. Its real
+results remain non-scalar: they can be compared with Margin only as explicit
+outcome and resource vectors, never as one synthetic winner.
+
+`efficiency-report` consumes schema-valid served-neutral receipts, real plain
+control runs, and redacted Margin run artifacts. It reports elapsed time, tool round trips,
+failures, bytes, tool time, model calls, tokens, and reported cost as separate
+measurements. Every source is bound by its byte count and SHA-256 digest;
+missing measurements remain `null`. The schema permanently forbids a scalar
+ranking or winner, and labels scripted-versus-model observations as mixed
+execution rather than treating them as a fair speed contest. For real-model
+pairs it also hashes 37 content-free contract fields and reports `matched`,
+`mismatch`, or `insufficient-metadata`; a shared episode ID is never treated as
+proof that model, sampling, limits, topology, task build, and budget policy were
+the same. The normal
+`marginbench-neutral-preflight` gate regenerates and validates this report.
+
+## Find where collaboration actually helps
+
+The crossover track compares the same candidate on the same hidden case under
+two topologies: separate role contexts communicating only through Margin, and
+one continuing context performing the same logical roles. The logical-role
+budget is identical; only context separation and the ability to work in
+parallel change. Challenge demand is declared on seven public axes, including
+parallelism, distributed information, specialization, independent review,
+workspace volatility, continuity, and coupling:
+
+```sh
+marginbench challenges > challenge-catalog.json
+marginbench crossover-plan --candidate released --repetitions 3 \
+  > crossover-plan.json
+marginbench crossover-reference --margin-bin build/margin --repetitions 20 \
+  > crossover-reference.json
+marginbench validate crossover-reference.json
+```
+
+The reference run invokes no model. It proves that cases, both execution paths,
+scoring, pairing, statistics, and publication work, while its timing describes
+only local harness mechanics. A real model study runs the two profiles with the
+same model and frozen limits, then combines their completed redacted runs:
+
+```sh
+marginbench crossover-report --plan crossover-plan.json \
+  role-separated-run.json continuing-run.json \
+  > crossover-report.json
+```
+
+For a paid study, `crossover_pilot.py` replaces manual cell launches. It is
+dry-run by default, flattens every case in its frozen `profileOrder`, records
+the unproxied contract maximum beside the enforceable per-cell and whole-study
+caps, and runs serially with no automatic retry:
+
+```sh
+Evals/marginbench/crossover_pilot.py \
+  --crossover-plan crossover-plan.json \
+  --candidate-manifest candidate.json --candidate-bin build/margin \
+  --model qwen/qwen3.7-flash \
+  --input-token-ceiling-per-call PROVIDER_DOCUMENTED_LIMIT \
+  --input-token-ceiling-source https://provider.example/model-contract \
+  --input-price-per-million 0.03 --output-price-per-million 0.13 \
+  --pricing-source https://provider.example/model-pricing \
+  --live-proxy-cap-per-cell-usd 0.03 --max-study-cost-usd 1.20
+```
+
+Paid execution requires the separate literal confirmation shown by `--help`.
+The controller freezes the candidate, binary, crossover plan, and private key
+when applicable; verifies and skips an already completed contiguous prefix;
+stops on partial, unsafe, source-damaging, budget-invalid, or contract-drifting
+evidence; and emits the validated crossover report only after every matched
+cell completes. `--max-new-jobs 1` provides a cheap, resumable first-cell gate.
+
+The report deliberately has no universal collaboration score. It retains every
+outcome check and scoring dimension, safety and source integrity, elapsed-time
+ratio and confidence interval, commands and errors, model calls, tokens, and
+cost. It shows results by challenge family and by each demand level. Fewer than
+20 valid matched cases may be described but cannot support a directional
+claim. Infrastructure failures are rejected instead of becoming low scores.
+The complete design is in `Docs/MARGINBENCH_CROSSOVER.md`.
 
 An installed Linux package may simply run `marginbench self-test`; it discovers
 its bundled executable, verifies the binary against the embedded manifest, and
@@ -134,6 +269,7 @@ JSON keys and non-finite numbers, and never calls a model or network service:
 ```sh
 marginbench validate run.json
 cat study-plan.json | marginbench validate -
+marginbench audit-crossover results/crossover/v17
 ```
 
 The command prints a `urn:marginbench:validation:v1` receipt containing the
@@ -145,6 +281,13 @@ summaries, redacted run manifests and ledgers, runtime probes, control catalogs,
 Prime paired-study plans and completed-job receipts, and binary manifests. The
 validator itself is packaged with MarginBench, so a
 reviewer does not need this source checkout.
+
+`audit-crossover` goes beyond validating files one at a time. It verifies the
+entire redacted topology experiment as a coherent unit: candidate and plan
+bindings, one matching run and summary per topology, complete paired coverage,
+and an aggregate report reproduced from the published cells. Unexpected raw
+traces, symlinks, or unrelated files make the audit fail without their contents
+being read or echoed.
 
 ### Build and verify a leaderboard bundle
 
@@ -297,16 +440,16 @@ Evals/marginbench/paired_pilot.py \
   --input-price-per-million 0.03 --output-price-per-million 0.13 \
   --pricing-source https://provider.example/model-pricing \
   --live-proxy-cap-per-job-usd 0.05 \
-  --max-study-cost-usd 3 --minimum-wallet-reserve-usd 190
+  --max-study-cost-usd 4 --minimum-wallet-reserve-usd 190
 ```
 
 The resulting `urn:marginbench:prime-study-plan:v1` artifact contains no secret
-or local path. It binds all 48 candidate-ordered jobs, benchmark and candidate
+or local path. It binds all 72 candidate-ordered jobs, benchmark and candidate
 digests, every limit and price, each job's unproxied contract bound and enforced
 proxy cap, both aggregate bounds, and the protected reserve. With the values
-above, the one-million-token contract maximum remains visible as $96.665312,
-while the enforceable 48-job maximum is $2.40 and the first matched pair is
-$0.10. Paid execution additionally needs the literal
+above, the full unproxied contract maximum remains visible in the plan, while
+the enforceable 72-job maximum is $3.60 and the first matched pair is $0.10.
+Paid execution additionally needs the literal
 confirmation printed by `--help`. `--max-new-jobs 1` stops cleanly after one
 newly completed job; a later identical invocation resumes at the next job.
 Completed outputs are schema- and digest-checked before a receipt is written.
@@ -399,8 +542,8 @@ out-of-order/replayed/concurrent advances fail and that one running tool server
 switches from author to reviewer. A promptless continuing interaction now sends
 the original role briefs as separate turns, retains one transcript, serializes
 same-phase roles in generated order, and preserves scripted-event boundaries.
-Both permanent in-process and environment-server fake-model matrices pass 6/6
-at 100 with one trace per episode and all 59 requests accounted for. Live plans
+Both permanent in-process and environment-server fake-model matrices cover all
+nine scenarios at 100 with one trace per actual model process. Live plans
 sum the logical-role limits onto the one continuing process, preserve each
 logical actor separately from the `agent` trace seat, and validate topology and
 pricing. The profile is implemented.
@@ -411,10 +554,10 @@ count), because Verifiers applies one process limit to the whole invocation.
 The paired-study controller already launches one frozen case per child job and
 therefore applies the exact summed limit automatically.
 
-Four repetitions across all six workflows produce the default 24 matching
+Four repetitions across all nine workflows produce the default 36 matching
 episodes, exceeding the 20-episode promotion minimum. The execution plan
-deterministically flattens each study pair into 48 candidate-ordered jobs,
-preserving the exact 12 AB / 12 BA order and assigning every job a digest-derived
+deterministically flattens each study pair into 72 candidate-ordered jobs,
+preserving the exact 18 AB / 18 BA order and assigning every job a digest-derived
 retry identity. Its default
 failure rule stops after an incomplete job; a completed job is verified and
 skipped on replay rather than charged twice. Supplying `--key-file` to the

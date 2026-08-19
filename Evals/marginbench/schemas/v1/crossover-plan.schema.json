@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:crossover-plan:v1",
+  "title": "MarginBench matched topology crossover plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "benchmarkVersion", "taskSet", "developmentCases", "candidateID",
+    "challengeCatalogSha256", "profiles", "scenarioIDs", "repetitions",
+    "episodeCount", "logicalRoleRunsPerProfile", "agentProcessesPerProfile",
+    "minimumPairsForDirectionalClaim", "sampleSizeSufficient", "episodes", "rules"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:crossover-plan:v1"},
+    "benchmarkVersion": {"const": "0.2.0-crossover"},
+    "taskSet": {"enum": ["public-development-v1", "private-holdout-v1"]},
+    "developmentCases": {"type": "boolean"},
+    "candidateID": {"type": "string", "minLength": 1, "maxLength": 256},
+    "challengeCatalogSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "profiles": {
+      "const": ["role-separated-margin-only-v1", "single-agent-margin-v1"]
+    },
+    "scenarioIDs": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {
+        "enum": [
+          "human_agent_relay", "agent_agent_handoff", "concurrent_review",
+          "suggestion_decision", "staged_multifile", "directory_handoff",
+          "parallel_shards", "specialist_audit", "distributed_synthesis"
+        ]
+      }
+    },
+    "repetitions": {"type": "integer", "minimum": 1, "maximum": 100},
+    "episodeCount": {"type": "integer", "minimum": 1, "maximum": 900},
+    "logicalRoleRunsPerProfile": {"type": "integer", "minimum": 1, "maximum": 28800},
+    "agentProcessesPerProfile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role-separated-margin-only-v1", "single-agent-margin-v1"],
+      "properties": {
+        "role-separated-margin-only-v1": {"type": "integer", "minimum": 1},
+        "single-agent-margin-v1": {"type": "integer", "minimum": 1}
+      }
+    },
+    "minimumPairsForDirectionalClaim": {"type": "integer", "minimum": 2},
+    "sampleSizeSufficient": {"type": "boolean"},
+    "episodes": {
+      "type": "array", "minItems": 1, "maxItems": 900,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": [
+          "id", "scenario", "repetition", "fingerprint", "roles", "family",
+          "hypothesis", "demand", "profileOrder"
+        ],
+        "properties": {
+          "id": {"type": "string", "minLength": 1, "maxLength": 512},
+          "scenario": {
+            "enum": [
+              "human_agent_relay", "agent_agent_handoff", "concurrent_review",
+              "suggestion_decision", "staged_multifile", "directory_handoff",
+              "parallel_shards", "specialist_audit", "distributed_synthesis"
+            ]
+          },
+          "repetition": {"type": "integer", "minimum": 0, "maximum": 99},
+          "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "roles": {
+            "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1, "maxLength": 128}
+          },
+          "family": {"type": "string", "minLength": 1, "maxLength": 128},
+          "hypothesis": {"enum": ["continuing-favored", "role-separated-favored", "conditional"]},
+          "demand": {"$ref": "#/$defs/demand"},
+          "profileOrder": {
+            "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
+            "items": {"enum": ["role-separated-margin-only-v1", "single-agent-margin-v1"]}
+          }
+        }
+      }
+    },
+    "rules": {
+      "type": "object", "additionalProperties": false,
+      "required": ["qualityTolerancePoints", "meaningfulSpeedRatio", "budgetUnit", "singleAggregateScore"],
+      "properties": {
+        "qualityTolerancePoints": {"type": "number", "minimum": 0, "maximum": 100},
+        "meaningfulSpeedRatio": {"type": "number", "exclusiveMinimum": 1},
+        "budgetUnit": {"const": "logical-role"},
+        "singleAggregateScore": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "demand": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "parallelism", "informationDistribution", "specialization", "reviewIndependence",
+        "workspaceVolatility", "continuity", "coupling"
+      ],
+      "properties": {
+        "parallelism": {"type": "integer", "minimum": 0, "maximum": 4},
+        "informationDistribution": {"type": "integer", "minimum": 0, "maximum": 4},
+        "specialization": {"type": "integer", "minimum": 0, "maximum": 4},
+        "reviewIndependence": {"type": "integer", "minimum": 0, "maximum": 4},
+        "workspaceVolatility": {"type": "integer", "minimum": 0, "maximum": 4},
+        "continuity": {"type": "integer", "minimum": 0, "maximum": 4},
+        "coupling": {"type": "integer", "minimum": 0, "maximum": 4}
+      }
+    }
+  }
+}

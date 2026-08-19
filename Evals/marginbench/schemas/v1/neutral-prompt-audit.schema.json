@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:neutral-prompt-audit:v1",
+  "title": "MarginBench plain-control prompt equivalence audit v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "auditorVersion", "passed", "paidModelsInvoked", "controlProfile",
+    "controlRunnable", "rawPromptsRetained", "answerValuesRetained", "scenarioIDs",
+    "scenarioCount", "repetitionCount", "rolePromptCount", "cases"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:neutral-prompt-audit:v1"},
+    "auditorVersion": {"const": "plain-prompt-independent-audit-v1"},
+    "passed": {"type": "boolean"},
+    "paidModelsInvoked": {"const": false},
+    "controlProfile": {"const": "role-separated-plain-markdown-v1"},
+    "controlRunnable": {"const": true},
+    "rawPromptsRetained": {"const": false},
+    "answerValuesRetained": {"const": false},
+    "scenarioIDs": {
+      "type": "array", "minItems": 1, "maxItems": 9, "uniqueItems": true,
+      "items": {
+        "enum": [
+          "human_agent_relay", "agent_agent_handoff", "concurrent_review",
+          "suggestion_decision", "staged_multifile", "directory_handoff",
+          "parallel_shards", "specialist_audit", "distributed_synthesis"
+        ]
+      }
+    },
+    "scenarioCount": {"type": "integer", "minimum": 1, "maximum": 9},
+    "repetitionCount": {"type": "integer", "minimum": 1, "maximum": 20},
+    "rolePromptCount": {"type": "integer", "minimum": 1, "maximum": 340},
+    "cases": {
+      "type": "array", "minItems": 1, "maxItems": 340,
+      "items": {"$ref": "#/$defs/case"}
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "checks": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "actorBinding", "bounded", "exactSemanticProjection", "privateAnswerIsolation",
+        "roleMetadataPreserved", "toolSurfaceSeparated"
+      ],
+      "properties": {
+        "actorBinding": {"type": "boolean"},
+        "bounded": {"type": "boolean"},
+        "exactSemanticProjection": {"type": "boolean"},
+        "privateAnswerIsolation": {"type": "boolean"},
+        "roleMetadataPreserved": {"type": "boolean"},
+        "toolSurfaceSeparated": {"type": "boolean"}
+      }
+    },
+    "case": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "scenario", "repetition", "seat", "phase", "workflow",
+        "originalPromptByteCount", "plainPromptByteCount", "originalTaskSha256",
+        "plainTaskSha256", "expectedSemanticSha256", "observedSemanticSha256",
+        "checks", "passed"
+      ],
+      "properties": {
+        "scenario": {
+          "enum": [
+            "human_agent_relay", "agent_agent_handoff", "concurrent_review",
+            "suggestion_decision", "staged_multifile", "directory_handoff",
+            "parallel_shards", "specialist_audit", "distributed_synthesis"
+          ]
+        },
+        "repetition": {"type": "integer", "minimum": 0, "maximum": 19},
+        "seat": {"enum": ["author", "reviewer"]},
+        "phase": {"type": "integer", "minimum": 0, "maximum": 1},
+        "workflow": {"type": "string", "minLength": 1, "maxLength": 128},
+        "originalPromptByteCount": {"type": "integer", "minimum": 1, "maximum": 32768},
+        "plainPromptByteCount": {"type": "integer", "minimum": 1, "maximum": 32768},
+        "originalTaskSha256": {"$ref": "#/$defs/digest"},
+        "plainTaskSha256": {"$ref": "#/$defs/digest"},
+        "expectedSemanticSha256": {"$ref": "#/$defs/digest"},
+        "observedSemanticSha256": {"$ref": "#/$defs/digest"},
+        "checks": {"$ref": "#/$defs/checks"},
+        "passed": {"type": "boolean"}
+      }
+    }
+  }
+}

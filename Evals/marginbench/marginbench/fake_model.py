@@ -23,6 +23,11 @@ def _tool_payload(message: dict) -> dict:
 
 def _stdout(message: dict) -> dict:
     value = _tool_payload(message).get("stdout")
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
     return value if isinstance(value, dict) else {}
 
 
@@ -40,6 +45,25 @@ def _tools(messages: list[dict]) -> list[dict]:
 def _first_comment(stdout: dict) -> tuple[str, int]:
     comments = (stdout.get("result") or {}).get("comments") or []
     return comments[0]["annotation"]["id"], int(stdout["revision"])
+
+
+def _comment_body(item: dict) -> str:
+    annotation = item.get("annotation") if isinstance(item, dict) else None
+    body = annotation.get("body") if isinstance(annotation, dict) else None
+    if isinstance(body, dict) and isinstance(body.get("value"), str):
+        return body["value"]
+    return ""
+
+
+def _candidate_rows(body: str) -> list[tuple[str, int, str, str]]:
+    return [
+        (name.strip(), int(latency), encrypted, isolated)
+        for name, latency, encrypted, isolated in re.findall(
+            r"^- ([^|\n]+) \| latency=(\d+) \| encrypted=(yes|no) \| isolated=(yes|no)$",
+            body,
+            re.MULTILINE,
+        )
+    ]
 
 
 def scripted_human_relay(prompt: str, tools: list[dict]) -> dict | None:
@@ -311,6 +335,138 @@ def scripted_directory_reviewer(prompt: str, tools: list[dict]) -> dict | None:
     return _invocation(commands[offset]) if offset < len(commands) else None
 
 
+def scripted_parallel_shard(prompt: str, tools: list[dict]) -> dict | None:
+    match = re.search(
+        r"You own (\S+) .*?issue to \S+ with id ([0-9a-f-]+) and exactly this body:\n"
+        r"(.+?)\nDo not wait",
+        prompt,
+        re.DOTALL,
+    )
+    if match is None:
+        raise ValueError("Fake preflight could not parse the parallel-shard brief.")
+    path, identifier, body = match.groups()
+    commands = (
+        ["comments", "add", path, "-m", body.strip(), "--document", "--kind", "issue", "--id", identifier],
+        ["comments", "list", path, "--status", "all"],
+        ["comments", "validate", path],
+    )
+    return _invocation(commands[len(tools)]) if len(tools) < len(commands) else None
+
+
+def scripted_specialist_author(prompt: str, tools: list[dict]) -> dict | None:
+    match = re.search(
+        r"performance specialist for ([A-Za-z0-9_./-]+\.md).*?decision with id ([0-9a-f-]+)",
+        prompt,
+        re.DOTALL,
+    )
+    if match is None:
+        raise ValueError("Fake preflight could not parse the performance-specialist brief.")
+    path, identifier = match.groups()
+    if not tools:
+        return _invocation(["read", path, "--json"])
+    rows = _candidate_rows(str((_stdout(tools[0]).get("result") or {}).get("body", "")))
+    if len(rows) != 3:
+        raise ValueError("Fake preflight could not parse specialist candidate evidence.")
+    choice = min(rows, key=lambda value: value[1])[0]
+    commands = (
+        ["comments", "add", path, "-m", f"Performance choice: {choice}.", "--document", "--kind", "decision", "--id", identifier],
+        ["comments", "list", path, "--status", "all"],
+        ["comments", "validate", path],
+    )
+    offset = len(tools) - 1
+    return _invocation(commands[offset]) if offset < len(commands) else None
+
+
+def scripted_specialist_reviewer(prompt: str, tools: list[dict]) -> dict | None:
+    match = re.search(
+        r"Read ([A-Za-z0-9_./-]+\.md) and the existing decision.*?issue with id ([0-9a-f-]+)",
+        prompt,
+        re.DOTALL,
+    )
+    if match is None:
+        raise ValueError("Fake preflight could not parse the security-specialist brief.")
+    path, identifier = match.groups()
+    if not tools:
+        return _invocation(["comments", "list", path, "--status", "all"])
+    if len(tools) == 1:
+        return _invocation(["read", path, "--json"])
+    comments = ((_stdout(tools[0]).get("result") or {}).get("comments") or [])
+    decision = next((_comment_body(item) for item in comments if _comment_body(item).startswith("Performance choice: ")), "")
+    decision_match = re.fullmatch(r"Performance choice: (.+)\.", decision)
+    rows = _candidate_rows(str((_stdout(tools[1]).get("result") or {}).get("body", "")))
+    eligible = [row for row in rows if row[2:] == ("yes", "yes")]
+    if decision_match is None or len(eligible) != 1:
+        raise ValueError("Fake preflight could not derive the specialist correction.")
+    secure = min(eligible, key=lambda value: value[1])[0]
+    issue = f"Security correction: {decision_match.group(1)} is ineligible; choose {secure}."
+    commands = (
+        ["comments", "add", path, "-m", issue, "--document", "--kind", "issue", "--id", identifier],
+        ["comments", "list", path, "--status", "all"],
+        ["comments", "validate", path],
+    )
+    offset = len(tools) - 2
+    return _invocation(commands[offset]) if offset < len(commands) else None
+
+
+def scripted_synthesis_author(prompt: str, tools: list[dict]) -> dict | None:
+    match = re.search(
+        r"typed handoff in ([A-Za-z0-9_./-]+\.md) for\nactor (urn:\S+), using contribution id ([0-9a-f-]+), "
+        r"request id ([0-9a-f-]+), and the exact\nbody `([^`]+)`",
+        prompt,
+        re.DOTALL,
+    )
+    if match is None:
+        raise ValueError("Fake preflight could not parse the distributed-synthesis author brief.")
+    path, next_actor, identifier, request_id, body = match.groups()
+    if not tools:
+        return _invocation([
+            "handoff", "add", path, "-m", body,
+            "--id", identifier, "--request-id", request_id, "--next-actor", next_actor,
+        ])
+    if len(tools) == 1:
+        return _invocation(["handoff", "list", path, "--json"])
+    return None
+
+
+def scripted_synthesis_reviewer(prompt: str, tools: list[dict]) -> dict | None:
+    match = re.search(
+        r"evidence token is `([^`]+)`. Find the open\nhandoff in ([A-Za-z0-9_./-]+\.md).*?mutation id\n"
+        r"([0-9a-f-]+)",
+        prompt,
+        re.DOTALL,
+    )
+    if match is None:
+        raise ValueError("Fake preflight could not parse the distributed-synthesis reviewer brief.")
+    evidence_b, path, identifier = match.groups()
+    if not tools:
+        return _invocation(["handoff", "list", path, "--json"])
+    if len(tools) == 1:
+        return _invocation(["comments", "list", path, "--status", "all"])
+    listing = _stdout(tools[1])
+    comments = ((listing.get("result") or {}).get("comments") or [])
+    handoff = next((_comment_body(item) for item in comments if _comment_body(item).startswith("Evidence A: ")), "")
+    evidence_match = re.fullmatch(r"Evidence A: ([^.]+)\.", handoff)
+    if evidence_match is None:
+        raise ValueError("Fake preflight could not recover Evidence A.")
+    root, revision = _first_comment(listing)
+    reply = f"Synthesis: {evidence_match.group(1)} + {evidence_b}."
+    if len(tools) == 2:
+        return _invocation([
+            "comments", "reply", path, root, "-m", reply,
+            "--id", identifier, "--if-revision", str(revision),
+        ])
+    if len(tools) == 3:
+        return _invocation([
+            "comments", "resolve", path, root,
+            "--if-revision", str(_stdout(tools[2])["revision"]),
+        ])
+    if len(tools) == 4:
+        return _invocation(["comments", "list", path, "--thread", root, "--status", "all"])
+    if len(tools) == 5:
+        return _invocation(["comments", "validate", path])
+    return None
+
+
 def scripted_response(messages: list[dict]) -> dict | None:
     user_positions = [
         index
@@ -322,6 +478,16 @@ def scripted_response(messages: list[dict]) -> dict | None:
     current = user_positions[-1]
     prompt = messages[current]["content"]
     tools = _tools(messages[current + 1:])
+    if "You own " in prompt and "low-coupling parallel review" in prompt:
+        return scripted_parallel_shard(prompt, tools)
+    if "Act as the performance specialist" in prompt:
+        return scripted_specialist_author(prompt, tools)
+    if "independent security specialist" in prompt:
+        return scripted_specialist_reviewer(prompt, tools)
+    if "Your role-private evidence token" in prompt:
+        return scripted_synthesis_author(prompt, tools)
+    if "your role-private evidence token" in prompt:
+        return scripted_synthesis_reviewer(prompt, tools)
     if "Begin with bounded directory context" in prompt:
         return scripted_directory_author(prompt, tools)
     if "Use a bounded directory-wide inbox or handoff" in prompt:

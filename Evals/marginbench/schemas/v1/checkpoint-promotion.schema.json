@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:checkpoint-promotion:v1",
+  "title": "MarginBench paid checkpoint promotion receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "crossArtifactChecksPassed", "summary", "run"],
+  "properties": {
+    "schema": {"const": "urn:marginbench:checkpoint-promotion:v1"},
+    "status": {"enum": ["promoted", "already-present"]},
+    "crossArtifactChecksPassed": {"const": true},
+    "summary": {"$ref": "#/$defs/artifact"},
+    "run": {"$ref": "#/$defs/artifact"}
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "sha256", "byteCount", "disposition"],
+      "properties": {
+        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "byteCount": {"type": "integer", "minimum": 1, "maximum": 33554432},
+        "disposition": {"enum": ["created", "already-present"]}
+      }
+    }
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:neutral-production-preflight:v1",
+  "title": "MarginBench plain-control production-path preflight v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "passed", "paidModelsInvoked", "controlProfile", "controlRunnable",
+    "marginBinaryUsed", "primeEvalInvoked", "modelEndpoint", "executionBoundary",
+    "toolSurface", "rawPromptsRetained", "rawTranscriptsRetained", "scenarioCount",
+    "repetitionCount", "episodeCount", "expectedRoleProcessCount", "traceCount",
+    "traceConsistencyPassed", "primeExitCode", "fakeModelRequestCount",
+    "distinctRolePromptCount", "ownCanaryEchoCount", "ownCanaryMissingCount",
+    "crossRoleCanaryLeakCount", "malformedRequestCount", "officialSummaryValidated",
+    "officialSummaryValidationErrors", "officialSummarySha256", "officialRunValidated",
+    "officialRunValidationErrors", "officialRunSha256",
+    "liveBudget", "durationMs", "episodes"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:neutral-production-preflight:v1"},
+    "passed": {"type": "boolean"},
+    "paidModelsInvoked": {"const": false},
+    "controlProfile": {"const": "role-separated-plain-markdown-v1"},
+    "controlRunnable": {"const": true},
+    "marginBinaryUsed": {"const": false},
+    "primeEvalInvoked": {"const": true},
+    "modelEndpoint": {"const": "loopback-scripted-openai-compatible"},
+    "executionBoundary": {"const": "prime-eval-cli-with-fresh-subprocess-rollouts"},
+    "toolSurface": {"const": ["workspace"]},
+    "rawPromptsRetained": {"const": false},
+    "rawTranscriptsRetained": {"const": false},
+    "scenarioCount": {"type": "integer", "minimum": 1, "maximum": 9},
+    "repetitionCount": {"type": "integer", "minimum": 1, "maximum": 5},
+    "episodeCount": {"type": "integer", "minimum": 0, "maximum": 45},
+    "expectedRoleProcessCount": {"type": "integer", "minimum": 1, "maximum": 90},
+    "traceCount": {"type": "integer", "minimum": 0, "maximum": 90},
+    "traceConsistencyPassed": {"type": "boolean"},
+    "primeExitCode": {"type": "integer", "minimum": 0, "maximum": 255},
+    "fakeModelRequestCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+    "distinctRolePromptCount": {"type": "integer", "minimum": 0, "maximum": 90},
+    "ownCanaryEchoCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+    "ownCanaryMissingCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+    "crossRoleCanaryLeakCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+    "malformedRequestCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+    "officialSummaryValidated": {"type": "boolean"},
+    "officialSummaryValidationErrors": {
+      "type": "array", "maxItems": 16,
+      "items": {"type": "string", "minLength": 1, "maxLength": 512}
+    },
+    "officialSummarySha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "officialRunValidated": {"type": "boolean"},
+    "officialRunValidationErrors": {
+      "type": "array", "maxItems": 16,
+      "items": {"type": "string", "minLength": 1, "maxLength": 512}
+    },
+    "officialRunSha256": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "liveBudget": {"$ref": "urn:marginbench:prime-run-summary:v1#/$defs/liveBudget"},
+    "durationMs": {"type": "number", "minimum": 0, "maximum": 3600000},
+    "episodes": {
+      "type": "array",
+      "maxItems": 45,
+      "items": {"$ref": "#/$defs/episode"}
+    }
+  },
+  "$defs": {
+    "episode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "episodeID", "scenario", "repetition", "roleProcessCount",
+        "implementedChecksPassed", "safetyPassed", "sourcePreserved",
+        "toolCallCount", "modelCallCount"
+      ],
+      "properties": {
+        "episodeID": {"type": "string", "minLength": 1, "maxLength": 512},
+        "scenario": {
+          "enum": [
+            "human_agent_relay", "agent_agent_handoff", "concurrent_review",
+            "suggestion_decision", "staged_multifile", "directory_handoff",
+            "parallel_shards", "specialist_audit", "distributed_synthesis"
+          ]
+        },
+        "repetition": {"type": "integer", "minimum": 0, "maximum": 4},
+        "roleProcessCount": {"type": "integer", "minimum": 1, "maximum": 2},
+        "implementedChecksPassed": {"type": "boolean"},
+        "safetyPassed": {"type": "boolean"},
+        "sourcePreserved": {"type": "boolean"},
+        "toolCallCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "modelCallCount": {"type": "integer", "minimum": 0, "maximum": 10000}
+      }
+    }
+  }
+}

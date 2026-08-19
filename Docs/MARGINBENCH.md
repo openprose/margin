@@ -109,7 +109,7 @@ Prime's client must retain the key just long enough for the trusted environment
 worker to inherit it. That worker reconstructs and verifies the hidden episode,
 then removes the key from its environment before resolving Margin, creating the
 workspace, starting the tool gateway, or starting an agent. Both the in-process
-and separate-worker paths complete all six private fake-model cases at full
+and separate-worker paths complete all nine private fake-model cases at full
 score; CI creates and destroys a new key for the served-path check.
 
 Document and comment text is untrusted collaborative content. Prompts explicitly
@@ -150,7 +150,7 @@ The tracked `MarginBench` continuous-integration workflow starts from an empty
 Ubuntu runner with read-only repository permission. It repeats all portable
 Swift tests, rebuilds the x86-64 binary against its declared digest, runs the
 provider-independent and Prime adapter contracts, completes the fake-model
-six-workflow rehearsal both locally and across Prime's environment-server wire,
+nine-workflow rehearsal both locally and across Prime's environment-server wire,
 repeats that served rehearsal with a fresh private key, builds the wheel,
 exercises it in the pinned Linux image, and retains the package with a validation
 receipt. The key is overwritten and deleted in the same job. It has no external
@@ -214,24 +214,35 @@ bound above zero on a deterministic paired bootstrap 95% interval. Duplicate
 episode IDs are rejected rather than silently collapsed. Public-development
 gains must be confirmed on a private rotating test set.
 
-The default study planner freezes four repetitions of all six workflows and
-counterbalances candidate order to exactly 12 AB and 12 BA episodes. It emits
+The default study planner freezes four repetitions of all nine workflows and
+counterbalances candidate order to exactly 18 AB and 18 BA episodes. It emits
 only case fingerprints, roles, and candidate order—not private prompts, answers,
 or the holdout key. The deterministic execution planner expands those pairs to
-48 ordered candidate jobs with digest-derived identities and fail-closed resume
+72 ordered candidate jobs with digest-derived identities and fail-closed resume
 rules. Prime can select each exact repetition rather than regenerating index
 zero, and a frozen candidate manifest must match the executable. For private
 runs, the taskset consumes the mode-0600 holdout key from its environment before
 agent subprocesses start; only its one-way ID is published. The runnable
-controls are role-separated Margin collaboration and the compute-matched single
-continuing Margin agent. Plain-Markdown, Margin-plus-shell, and no-exchange
-controls are specified publicly but refuse to run until their scoring and
-isolation rules are implemented; they cannot silently enter the main track.
+  controls are role-separated Margin collaboration, the compute-matched single
+  continuing Margin agent, and the role-separated ordinary-Markdown control on
+  the representation track. Margin-plus-shell and no-exchange controls are
+  specified publicly but refuse to run until their scoring and isolation rules
+  are implemented; they cannot silently enter the main track.
 `marginbench controls` reports their remaining release gates in structured
 form. Their exact fairness and release contract is in
 [`MARGINBENCH_CONTROLS.md`](MARGINBENCH_CONTROLS.md); the first neutral-fact
 design for the ordinary-Markdown comparison is in
 [`MARGINBENCH_NEUTRAL_OUTCOMES.md`](MARGINBENCH_NEUTRAL_OUTCOMES.md).
+
+The separate crossover track asks a different question: which task demands
+make fresh collaborators more useful than one continuing context? It pairs both
+topologies on identical cases, retains quality, safety, time, token, cost, and
+command measures separately, and reports the result across seven task-demand
+axes. Its frozen architecture and interpretation rules are in
+[`MARGINBENCH_CROSSOVER.md`](MARGINBENCH_CROSSOVER.md).
+The evidence-to-change operating procedure—including spend gates, failure
+classification, privacy, and promotion rules—is in
+[`MARGINBENCH_ITERATION.md`](MARGINBENCH_ITERATION.md).
 
 The same schedule is exercised end to end without a model by
 `marginbench reference-study`. It runs both frozen binaries through the real
@@ -277,7 +288,7 @@ recommendation, not a claim that those licenses already apply.
 
 ## Known limitations
 
-- V1 has six scenario families and is not yet broad enough for a definitive
+- V1 has nine scenario families and is not yet broad enough for a definitive
   model ranking.
 - It measures protocol correctness more strongly than prose quality or creative
   judgment.
@@ -305,18 +316,16 @@ recommendation, not a claim that those licenses already apply.
 
 ## Current evidence
 
-At the current 0.1 development snapshot, all six reference scenarios score 100
-on macOS, Linux x86-64, and Linux arm64. Margin 0.3.2 passes 164 macOS tests and
-112 portable Linux tests; a repeat x86-64 build is byte-for-byte identical. The
-Verifiers v1 adapter completes the whole six-case local fake-agent matrix at
-100 with one exposed tool, both in process and through its real environment
-server. Both 59-request rehearsals pass through the live spend proxy with no
+At the current development snapshot, all nine reference scenarios score 100 on
+macOS and in the packaged Linux x86-64 runtime. Margin 0.3.2 passes 164 macOS
+tests and 112 portable Linux tests. The Verifiers v1 adapter completes the whole
+nine-case fake-agent matrix at 100 with one exposed tool, both in process and
+through its real environment server. Public and freshly keyed private served
+rehearsals pass for both role-separated and continuing-agent topologies with no
 rejections or paid calls. The installable manylinux wheel and source archive
-pass clean-container verification. The system Python runtime passes all 59
-benchmark contracts with eight intentional Prime-only skips; Prime's runtime
-passes all 59. The wheel bundles all 25 schemas. The compute-matched continuing
-agent control also passes all six cases in process and through the environment
-server, with one trace per episode and no paid inference.
+pass clean-container verification. The system and Prime Python runtimes each
+pass all 71 benchmark contracts; the ordinary runtime has eight intentional
+Prime-only skips. The wheel bundles all 28 schemas.
 
 Real Qwen Flash runs now cover all six families. The earlier human-relay,
 handoff, concurrent-review, suggestion-decision, and stale multi-file runs

@@ -1,14 +1,15 @@
 # MarginBench build plan
 
-Last updated: 2026-08-18 11:03 ET
+Last updated: 2026-08-19 10:55 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
 benchmark core belongs to Margin, not to any model provider. Prime Intellect is
 the first hosted adapter, evaluation venue, and possible training backend.
 
-This document is the live checklist for the build phase ending at 08:00 ET on
-2026-08-18. Update the status and evidence here as each gate is crossed.
+This document is the live checklist for the overnight build phase and its
+morning verification continuation. Update the status and evidence here as each
+gate is crossed.
 
 ## Non-negotiable constraints
 
@@ -26,14 +27,14 @@ This document is the live checklist for the build phase ending at 08:00 ET on
 ## Credit ledger and spending gates
 
 Opening Prime Intellect credit: **$199.9861**. Latest observed balance:
-**$199.9425**. Total debit so far: **$0.0436**.
+**$199.3243**. Total debit so far: **$0.6618**.
 
 | Gate | Maximum cumulative spend | Purpose | Status |
 | --- | ---: | --- | --- |
 | 0 | $0 | Install, login, local tests, container builds, dry runs | Complete |
 | 1 | $2 | One tiny end-to-end hosted smoke test | Complete; $0.0017 first valid smoke |
 | 2 | $15 | Cheap-model calibration on a small public-development slice | Complete; cumulative debit $0.0394 |
-| 3 | $50 | Paired comparisons of promising CLI/manual variants | Calibration attempted; no valid pair, cumulative debit $0.0436 |
+| 3 | $50 | Paired comparisons of promising CLI/manual variants | In progress; multiple valid public pairs, cumulative debit $0.6618 |
 | 4 | $120 | Broader model/team matrix only after stable signal | Not started |
 | Reserve | $80 | Held for follow-up, failures, and a meaningful final run | Untouched |
 
@@ -87,8 +88,36 @@ Rules:
   attribution, recovery, calls, tokens, latency, human attention, and cost.
 - [x] Add the compute-matched single continuing-agent control and pass its full
   local, served, identity, accounting, privacy, and validation gates.
-- [ ] Add the representation-neutral plain-Markdown/no-exchange controls and
-  the remotely isolated Margin-plus-shell control.
+- [x] Add the representation-neutral role-separated plain-Markdown control.
+- [ ] Add the no-exchange floor and remotely isolated Margin-plus-shell control.
+- [x] Implement the bounded plain-Markdown fact ledger, strict byte
+  parser/encoder, public schema, adversarial format tests, and expected-fact
+  projection across all nine workflows while keeping the control locked.
+- [x] Implement the local confined plain-file gateway with bounded list/read,
+  exact compare-and-swap atomic writes, trusted writer events, and adversarial
+  traversal, link, stale-write, concurrency, size, and format tests.
+- [x] Add a schema-backed partial neutral assessment for exact facts, source
+  integrity, historical all-or-none visibility, first-writer attribution, and
+  decision identity, then add trusted read-before-action continuity and required
+  stale-write recovery from a private cross-process event record; explicitly
+  leave efficiency and any overall score unevaluated.
+- [x] Add the progressively disclosed, single-tool plain workspace surface and
+  prove it starts in Prime's subprocess tool server with no shell or Margin
+  executable.
+- [x] Add answer-preserving plain-role prompt projections with five-seed checks
+  across all workflows for boundedness, identity binding, Margin-command
+  removal, and role-private information separation.
+- [x] Pass one complete two-role Prime development workflow through separate
+  served sessions and record content-free call, byte, latency, and available
+  token observations while keeping the paid profile locked.
+- [x] Extend the no-model Prime served preflight across all nine workflows with
+  a versioned, schema-validated, content-free receipt.
+- [x] Freeze descriptive cross-profile efficiency reporting as a source-bound
+  vector of wall time, calls, failures, bytes, tool time, tokens, and cost;
+  preserve absent measurements as null and prohibit scalar ranking.
+- [x] Independently audit prompt equivalence and prove role-process transcript
+  isolation outside the trusted scripted policy before enabling a real-model
+  plain-Markdown control cell.
 - [x] Add topology-aware dry planning for gated controls: logical roles,
   model-process counts, trace seats, and phase policy are distinct and validated;
   execution remains refused until each profile's complete gates pass.
@@ -99,9 +128,9 @@ Rules:
   model calls. The remaining control variants are benchmark breadth, not a
   correctness blocker.
   The control catalog and fail-closed execution gates are now frozen; the
-  primary role-separated and compute-matched continuing-agent profiles are
-  runnable. The other three remain gated on task-neutral scoring or remote
-  isolation.
+  primary role-separated, compute-matched continuing-agent, and plain-Markdown
+  profiles are runnable. The no-exchange and shell profiles remain gated on
+  task-neutral aggregation or remote isolation.
 
 ### 4. Add the Prime Verifiers adapter
 
@@ -154,6 +183,9 @@ Rules:
 - [x] Add explicit code/data licensing recommendations and contamination policy.
 - [x] Draft a benchmark card covering scope, limits, metrics, reproducibility,
   security, and leaderboard submission rules.
+- [x] Publish bounded redacted crossover bundles and add a fail-closed audit
+  that validates their files, bindings, paired coverage, and recomputed report
+  without reading or echoing raw traces.
 
 ## Acceptance gates for 08:00 ET
 
@@ -829,36 +861,32 @@ The phase is successful if the repository contains:
 
 ## Next statistically useful paid run
 
-Neither public topology attempt yielded a valid pair. In the first, provider
-usage exceeded the original reservation by two wrapper tokens. In the repaired
-retry, the continuing agent recovered from an upstream 429 and reached the
-exact state, but the predeclared policy invalidated the episode. The next step
-is model-free: freeze a prospective rule for recovered provider errors and add
-fixtures for both recovered and terminal 429s. Do not reinterpret the existing
-result or buy another retry merely to obtain a preferred comparison.
+The provider-error policy, wrapper-token allowance, and live request gate are
+now frozen and tested. The first four-family public crossover produced four
+valid pairs. Its most actionable signal is command discoverability in
+multi-file review, so the next run should be a small interface calibration on
+the two affected public families while holding model, cases, roles, and limits
+fixed. A fresh generated-case check follows only if that mechanism improves.
 
-After a clean public pair, the next useful experiment is a paired interface
-comparison over all six workflows with four private repetitions: 24 matched
-episodes per candidate, 44 role processes per candidate, and exactly balanced
-12/12 AB/BA ordering. That default study exceeds the 20-episode promotion
-minimum.
+The later promotion experiment remains a paired interface comparison with at
+least 20 private matched episodes and balanced candidate order. It should not
+start merely because a four-pair public mean is favorable; the current score
+and speed intervals include both topologies.
 
 The official 1M-token context resolves the factual uncertainty, but it exposes
 an intentionally conservative budget problem. At Qwen Flash's current Prime
 price, 2,400 requested output tokens plus eight bounded provider wrapper tokens,
 12 turns, three possible upstream attempts per turn, and $0.0002 rounding
 allowance, the worst-case bound is $48.332656 per candidate or $96.665312 for
-the pair. The observed three-cell calibration cost only
-$0.0097, but observed cost is not a safe admission limit. Before a broad private
-study, the new trusted request proxy now hard-rejects oversized prompts and
+the pair. Observed calibration cost is tiny, but observed cost is not a safe
+admission limit. Before a broad private study, the trusted request proxy
+hard-rejects oversized prompts and
 enforces cumulative reservations before forwarding each model call. The paired
 planner now preserves the $96.665312 contract maximum separately while allowing
 an explicit $0.05 live cap on each of 48 jobs: the enforceable study maximum is
 $2.40 under a $3 admission cap, and the first matched pair is at most $0.10.
-That no-model plan preserves a $190 wallet reserve. Do not schedule any private
-jobs until the provider-error policy is frozen and a valid public topology pair
-is complete and inspected. The remaining $199.9425 balance is sufficient, so
-no additional credits are requested.
+That no-model plan preserves a $190 wallet reserve. The remaining $199.4097
+balance is sufficient, so no additional credits are requested.
 
 ## Decisions still to earn with evidence
 
@@ -877,3 +905,393 @@ no additional credits are requested.
   observed handoff cost would be roughly $0.28, before retries or model changes.
   This is an empirical planning figure, not an admission bound; future run
   proposals must also report the corrected worst-case calculation.
+
+## 2026-08-18 overnight continuation
+
+- Froze a nine-family collaboration-demand catalog and a paired crossover
+  design comparing fresh role contexts with one compute-matched continuing
+  context. The zero-model reference study completed 180 matched pairs and
+  recovered the expected mechanical speedup only for genuinely independent
+  parallel shards.
+- Added exact, atomic `comments reply --resolve`, actionable inbox paths and
+  revision-bound templates, phase-specific identity recovery, and bounded
+  workflow capability projections. All of these remain off the Mac app launch
+  path.
+- Added strict multi-run crossover evidence assembly so separately validated
+  cells can follow the plan's interleaved topology order. The analyzer rejects
+  duplicate cases, contract drift, mismatched builds, missing cells, and
+  infrastructure-invalid runs.
+- Added privacy-safe trace diagnostics that retain command names, flag names,
+  outcomes, and error-code counts per command shape while discarding argument
+  values, paths, IDs, prompts, stdout, stderr, and document content.
+- Ran the first four-family Qwen Flash public slice: eight safe cells, four
+  matched pairs, $0.0178 total observed spend, and a validated combined report.
+  Role separation descriptively led two cases, continuing led one, and one was
+  inconclusive. The overall intervals crossed both sides and the report remains
+  `insufficient-data` by design.
+- The evidence-driven interface pass now accepts natural capability aliases
+  such as `comments`, supports `margin man COMMAND SUBCOMMAND`, returns exact
+  per-file action paths and annotation revisions from directory context, and no
+  longer suggests revision zero for ambiguous multi-file work.
+
+The next paid gate is not a broad leaderboard run. First repeat the two
+friction-heavy public cases on the new interface candidate under the same cheap
+model and limits. If command errors fall without changing correctness, confirm
+on fresh generated cases. Only then spend on rotating private repetitions or a
+larger model matrix. The current Prime balance is $199.4097, so no additional
+credits are needed.
+
+## 2026-08-19 evidence-driven continuation
+
+- Froze and ran `margin-0.3.2-actionable-context-v15` on the two
+  friction-heavy public cases. All four cells were safe and source-preserving,
+  no cell was retried, and observed spend was $0.0064. Role separation led
+  descriptively in both cases, but two pairs are below the frozen minimum for a
+  directional claim. Privacy-safe trace shapes localized three malformed
+  manual lookups and one unsupported `finding` label.
+- Added a bounded, machine-readable `margin man ... --json` envelope and the
+  natural `finding` alias for the canonical issue contribution. Exact leaf help
+  remains available as plain text, and the new path performs no workspace or
+  network work. CLI contract coverage proves JSON schema, size, pretty-print,
+  list, and alias persistence behavior.
+- Added a resumable paid-crossover controller. It freezes the candidate,
+  binary, cases, plan, pricing and limits; verifies the exact keyed case set;
+  runs cells serially; checks the wallet reserve before every remaining cell;
+  writes an attempt marker before inference; never retries automatically; and
+  resumes only a verified contiguous prefix. Its public plan and completion
+  receipts have bounded schemas and semantic validation.
+- The controller ran the exact four-cell v16 plan for $0.0068 against a $0.12
+  hard cap, leaving $199.4131 and the $80 reserve untouched. All cells were safe
+  and source-preserving. Independent shards favored continuing on this sample
+  (98 versus 93.25); specialist audit favored role separation (100 versus
+  73.75). The aggregate descriptive role-separated lead was 10.75 points, but
+  its interval crossed zero and the report remains `insufficient-data`.
+- The v16 traces contain none of the targeted manual or contribution-kind
+  syntax failures. One role-separated shard agent guessed revision one after
+  reading revision zero; the CLI rejected the stale precondition and the agent
+  recovered with zero. The continuing specialist stopped after the first
+  contribution and omitted the independent audit. Frozen historical scores
+  were not rescored or rewritten.
+- Final v16 evidence is at
+  `Evals/marginbench/results/crossover/v16/`; the crossover report
+  validates at SHA-256
+  `a035e085575a58650e47382b36e4a7a2358accc1b4a8f747ce41168343d83475`.
+  Only redacted run and summary artifacts are published; raw traces stay in the
+  ignored private controller workspace.
+- Candidate v17 made the progressive manual genuinely structured: JSON pages
+  include bounded typed command contracts and explicit next queries, exact leaf
+  pages include exactly one contract, and broad topics disclose only their
+  relevant commands. Context now labels annotation revisions as observed
+  pre-write values and states that zero is valid and must not be incremented.
+  The full 170-test product suite, both 85-test Python suites, lint, the
+  nine-scenario 100/100 self-test, and both isolated served topology rehearsals
+  passed without paid inference.
+- A separately frozen two-cell shard probe then completed for $0.0034 with no
+  retries. Role separation scored 100 with six commands and no invalid command;
+  continuing scored 98 with eight commands and no invalid command. The targeted
+  revision, manual, and kind errors were absent. Because this is one stochastic
+  public repeat, it is evidence for the mechanism, not a promotion claim. Its
+  validated report SHA-256 is
+  `f3401b68135aac4ab0d0baa726e43aa0e46998283602796f74baccc4857f9d66`.
+- New-process measurements on the v17 release recorded 6.044 ms median / 7.367
+  ms p95 for help, 6.861 / 8.357 ms for structured comment-manual JSON, and
+  7.183 / 8.477 ms for the focused comment capability catalog. Fifteen native
+  app launches measured 320.756 ms median / 332.541 ms p95 and 162.031 MiB
+  median RSS. The manual and benchmark remain outside the AppKit launch path.
+- The plain-Markdown representation control is now runnable after four
+  independent zero-cost gates. The prompt audit passed 85/85 role projections;
+  the served reference passed all nine workflows; the isolation proof observed
+  17 fresh role processes, 105 local requests, 88 same-role continuation
+  canaries, and zero cross-role leaks; and the exact Prime production command
+  validated all nine non-scalar results plus both official artifact formats.
+  The production rehearsal also exposed and fixed a negative multi-turn token
+  counter in Prime's branch convenience metric by using each call's
+  provider-reported usage instead.
+- Cross-representation reporting is deliberately not a leaderboard score. It
+  preserves task outcomes, integrity, attribution, continuity, recovery, wall
+  time, tool calls/failures/bytes/time, model tokens, and cost as a resource
+  vector. The schema permanently sets `scalarRankingPermitted: false` and
+  records no winner.
+- The first real plain-Markdown control cell on the exact v17 parallel-shards
+  case cost $0.0018 and failed for two representation-level reasons: the task
+  still sounded like a source edit, and the ledger required an agent to count
+  UTF-8 bytes by hand. The format now uses a canonical `Body JSON` string,
+  source-versus-fact wording is explicit, guide calls accept harmless path
+  context, and format failures return bounded recovery details. Both 143-test
+  Python suites and all nine exact no-model production rehearsals passed after
+  the change.
+- One prospectively capped, exact v2 retest then passed every neutral outcome
+  and safety check for $0.0019, leaving $199.4060. It preserved both source
+  documents and recovered from the concurrent write. The matched v17 Margin
+  cell also passed; descriptively, Margin used 8 model calls, 6 command round
+  trips, 19.930 seconds, and $0.0014, while the v2 ledger used 15 model calls,
+  17 tool round trips, 27.985 seconds, and $0.0019. This single public case is a
+  resource vector, not a scalar winner. Both the failed v1 artifact and the v2
+  repair are retained for auditability.
+
+## Frozen next representation calibration
+
+Before any further inference, freeze one different collaboration shape rather
+than tuning again on parallel shards:
+
+- case: public-development `agent_agent_handoff` repetition 1, episode
+  `agent_agent_handoff:1:9d4a9f0ce734`, fingerprint
+  `9d4a9f0ce734fdf5e617982bd46fd31c9682ad6e3df193214184bd07a9673edf`;
+- order: Margin v17 first, plain-Markdown v2 second, chosen by the low bit of
+  SHA-256(`fingerprint|representation-v1`);
+- model: `qwen/qwen3.7-flash`, temperature zero, two fresh role processes;
+- limits per role: 8 turns, 40,000 input tokens, 6,000 output tokens, 16,000
+  total tokens, 1,800 requested tokens per call, and the same provider bounds
+  and retry policy as the completed parallel-shards representation probe;
+- spend: no automatic retry, $0.03 live cap and $0.04 hard admission cap per
+  cell, with the normal five-minute start interval;
+- interpretation: exact common outcomes and source safety gate the resource
+  vector. No scalar winner, promotion claim, or broad representation claim is
+  permitted from one pair.
+
+This case tests necessary durable information transfer between fresh agents,
+which is structurally different from the already-observed independent parallel
+work. If either cell is unsafe, incomplete, or infrastructure-invalid, stop the
+pair and classify the failure before spending again.
+
+The Margin half completed at 100 with seven commands, no invalid command,
+39.408 seconds, intact source, and $0.0018 debit. Its model work was valid, but
+the publisher rejected `track: representation` because the ordinary Margin run
+schema had not yet admitted the already-supported representation track. The
+pair stopped before the plain half. The schema is corrected and covered; the
+immutable private checkpoint was validated, cross-checked, and promoted without
+another model call. A new `promote-checkpoint` command now makes this recovery
+atomic, idempotent, and fail-closed for both Margin and neutral summary/run
+pairs.
+
+Because the repair necessarily changed the benchmark implementation digest,
+the unrun plain half cannot form a strictly matched pair with that completed
+Margin artifact. It will not be launched. The replacement frozen case is the
+next public-development repetition:
+
+- case `agent_agent_handoff:2:fb5dc006bfbd`, fingerprint
+  `fb5dc006bfbd688c652e8122d99769b087642d970ed1adae764ed19983d2808c`;
+- deterministic order remains Margin first, then plain Markdown;
+- every model, topology, token, timeout, price, cap, retry, outcome, safety,
+  and interpretation rule above remains unchanged;
+- no implementation file may change between the two cells. Any required code
+  change cancels the pair and requires a new case identity.
+
+The replacement pair completed with no code change between cells. Margin
+passed every check with 8 commands, 10 model calls, 41.499 seconds, and $0.0016.
+The plain ledger preserved the source and successfully carried the handoff and
+reply with 11 tool calls, 12 model calls, 54.225 seconds, and $0.0016, but the
+frozen scorer marked its outcome partial because it repeated the root's audience
+on the reply. That was classified as a representation-bias defect in the
+scorer, not lost collaboration state: only an exact inherited audience is now
+normalized, and unrelated audiences still fail. The old artifact remains
+unchanged.
+
+A separate audit found that the old public records did not fully capture
+temperature, wall and upstream timeouts, or launch pacing. The actual commands
+used the same values, but a third party cannot prove that from the pair alone.
+Future manifests include them, and the efficiency report now verifies 36 hashed
+experiment-contract fields.
+It distinguishes matched settings, named mismatches, and missing metadata;
+episode identity alone is no longer sufficient. This pair is consequently
+classified `insufficient-metadata` rather than silently matched. No further
+paid run should begin until the new publisher and contract report pass every
+free gate.
+
+## Frozen contract-verification pair
+
+The free gates passed after that repair: both Python environments completed
+150 tests, the all-nine exact Prime production rehearsal passed, lint and diff
+checks were clean, and the generated efficiency report validated. One fresh
+pair is pre-registered to verify the publisher and scorer prospectively:
+
+- case `agent_agent_handoff:3:177f1b27899f`, fingerprint
+  `177f1b27899f11fce8edd82bb645327e8dd899b5d67a6faa2e5f99d6e1ddb2fb`;
+- deterministic order Margin v17 first, then plain Markdown v2;
+- benchmark implementation SHA-256
+  `0cb9c0b8bc32787e6e182a095c1d617d40b905932ba60a91c63224f937b4814b`;
+- Margin binary SHA-256
+  `63896b7b5afda0691a8c7855e50f9b989cd7b519eb15e51713cf1096175f7964`;
+- Qwen 3.7 Flash, temperature zero, two fresh role processes, 8 turns,
+  1,800 requested output tokens per call, 40,000/6,000/16,000 agent token
+  bounds, 180-second rollout timeout, 300-second wall timeout, 120-second
+  upstream timeout, and 300-second minimum start interval;
+- identical request ceiling, retry allowance, prices, and independent $0.03
+  live / $0.04 admission caps; no automatic retry;
+- interpretation remains non-scalar. Exact outcome and safety are reported
+  separately from time, calls, tokens, and cost. The pair is comparable only if
+  all 36 public contract fields independently validate as matched.
+
+No benchmark implementation file may change between these cells. A failure in
+the first cell stops the pair for classification; a provider or publisher
+incident is not a task score.
+
+The pair completed exactly under that contract. Both sides passed every task,
+integrity, attribution, continuity, recovery, and source-safety check. Margin
+used 6 CLI actions and 8 model calls, took 45.606 seconds, and cost $0.0015. The
+plain ledger used 15 tool actions and 15 model calls, took 63.771 seconds, and
+cost $0.0025; each role recovered from one failed write. The independent
+efficiency report verified all 36 contract fields as matched, named no
+difference or missing field, validated at SHA-256
+`ee405cb0ecac6563d95aa611aff8886b2508e16fa444ef5527c4b9be12c59616`,
+and still records no winner. This is the first fully provenance-complete
+real-model representation pair. It is one public handoff case, so the resource
+shape is diagnostic rather than a broad representation claim.
+
+## Frozen nine-family topology breadth study
+
+At 2026-08-19 05:08 ET, the next real-model study was frozen before inference.
+It is an exploratory breadth map, not a leaderboard or directional claim:
+
+- all nine public-development challenge families, repetition zero, each run
+  once with a continuing agent and once with fresh role-separated agents;
+- frozen crossover-plan SHA-256
+  `a1d6cce2b1d58762deedff4041619ee0002c0a2bb32fe106ff1f077bf549834b`;
+- frozen paid-plan ID
+  `sha256:07a7ee8d89719edc8ee5b5643ac65c7846ee1d81e2812a0a7b6a806d18fee300`
+  and file SHA-256
+  `f6a70acff5f5b18c6853ff6c59c18c22e182469b6870571e4e3facb5682ebbb6`;
+- benchmark implementation SHA-256
+  `daecf8b89e9419cf9c95c710dd1e8156a51fb9623e27c77c8a3952373b0be1ea`;
+- candidate `margin-0.3.2-structured-manual-v17`, Margin binary SHA-256
+  `63896b7b5afda0691a8c7855e50f9b989cd7b519eb15e51713cf1096175f7964`;
+- Qwen 3.7 Flash at temperature zero, with the live Prime catalog price of
+  $0.03 per million input tokens and $0.13 per million output tokens;
+- 8 turns, 1,800 requested output tokens per call, 40,000/6,000/16,000 agent
+  token limits, 180-second rollout, 300-second wall, 120-second upstream, and
+  a 300-second shared paid-start interval;
+- 18 serial cells, no automatic retry, an independently enforced $0.03 live
+  cap per cell, a $0.54 whole-study ceiling, and a $190 wallet reserve. The
+  read-only balance immediately before launch was $199.3970.
+
+Before freezing this plan, both supported Python runtimes passed 152 tests,
+both the Margin and plain-control paths passed all nine production-shaped
+no-model rehearsals, lint and diff checks passed, and the signed v17 binary was
+rebuilt and digest-checked. The controller now waits on the shared paid-start
+marker before every cell and accepts a completed cell only if its full model,
+candidate, topology, token/time limits, pricing, live-budget policy, and retry
+contract equal this plan. The current schema remains backward-compatible with
+older published plans that predate the two newly recorded pacing fields.
+
+The frozen order begins with the complete suggestion-decision pair, then
+distributed synthesis, directory handoff, human-agent relay, parallel shards,
+specialist audit, agent-agent handoff, concurrent review, and staged multi-file
+work. Any unsafe result, source damage, incomplete artifact, contract drift,
+provider-bound violation, or uncertain attempt stops the campaign. With only
+nine pairs, results may locate mechanisms and interface friction but cannot
+support the benchmark's 20-pair directional threshold.
+
+The study stopped after its fifth cell, as required. The complete
+suggestion-decision pair was safe and exact: continuing scored 99.286 with an
+outcome of 100, while role separation scored 100. The distributed-synthesis
+fresh-role cell scored 100; its continuing match stayed safe but scored 80.536
+after carrying the wrong action family across the phase boundary. It tried an
+unsupported resolve flag on comment creation, then created and resolved a new
+thread instead of replying to the durable handoff. Content-free diagnostics
+confirmed that its second-phase instruction explicitly required both reply and
+resolution, so this is phase interference rather than missing state.
+
+The fifth cell completed the directory-handoff task at 100, but one of twelve
+provider requests received an upstream 429. Its summary was therefore correctly
+classified `PROVIDER_RATE_LIMIT`, excluded from evidence, and not retried. The
+cost gate intentionally retained that request's worst-case reservation because
+the error response carried no trustworthy usage. Four accepted cells cost
+$0.0087; the excluded incident debited another $0.0036, leaving $199.3847. The
+controller also exposed an uncaught validation exception after stopping; it now
+reports the same incident cleanly without a traceback.
+
+## Frozen paced replacement study
+
+At 2026-08-19 05:44 ET, a separate replacement was frozen. It reuses the same
+public cases specifically to isolate the orchestration change; no v18 score will
+be pooled with its corresponding replacement observation.
+
+- paid-plan ID
+  `sha256:9cad298fee32832ec9584a5dc58fbc104d0f7abccacd6a92427a000a1579a7d9`;
+- paid-plan file SHA-256
+  `a0f4206ca694259e0c47ce0343f24414a8e84bcadaa7578a279f2f74866616af`;
+- benchmark implementation SHA-256
+  `2fa36aaf2f30730faf74930ba835fc36a8a94506a74b0f6ee43777eae3a5063e`;
+- all prior model, candidate, task, token, timeout, price, cell-cap, aggregate
+  cap, reserve, ordering, and no-retry conditions unchanged;
+- a new six-second minimum interval between every provider request start,
+  serialized at the shared loopback spend gate and recorded in each run's
+  frozen experiment contract.
+
+Before this replacement was frozen, both Python runtimes passed 153 tests,
+including deterministic pacer and infrastructure-adoption regressions. Both
+all-nine Margin rehearsals and all three all-nine plain-control rehearsals
+passed again, as did lint, schema validation, historical publication audit, and
+diff checks. Request pacing applies equally to both topologies. It may change
+elapsed time, so only cells inside this one paced study are timing-comparable.
+
+The paced replacement completed all 18 cells. Every pair passed workspace,
+source-preservation, and safety checks; no provider request was rate-limited.
+Observed spend was $0.0462 across 191 model calls, far below the $0.54 study cap
+and the protected $190 wallet reserve. The audited public bundle is
+`Evals/marginbench/results/crossover/v19/`, and the aggregate report reproduces
+from its 18 redacted runs and summaries.
+
+The nine-pair result remains explicitly insufficient for a directional claim.
+Continuing context led four cases, fresh roles led two, and three were
+inconclusive. The role-separated minus continuing mean score delta was -5.485
+points with a paired 95% interval of -13.568 to 1.001. Fresh roles used 0.56
+fewer model calls, 22,754 fewer prompt tokens, and $0.000644 less reported cost
+per case on average. These are descriptive observations only.
+
+The most useful diagnoses were structural. Fresh independent review helped in
+the specialist case, while the serial handoff negative control strongly favored
+continuity after the fresh author exhausted its first response budget without
+acting. Both topologies struggled with staged multi-file work; atomicity held,
+but plan inspection, refresh, and submission consumed too much of the turn
+budget. Content-free trace shapes distinguished model output exhaustion, true
+turn-limit stops, expected stale-write recovery, and CLI usage errors without
+retaining prompts, document content, paths, identifiers, arguments, or streams.
+
+Post-study CLI changes now provide atomic reply-and-resolve, precise recovery
+for a misplaced suggestion command, cursor guidance for handoffs, and complete
+next actions for stage inspection and stale-stage refresh. They are a new
+candidate and must not be credited to v19. Before buying another breadth run,
+add free regressions for each recovery path and test the candidate on one cheap
+targeted handoff cell plus one staged multi-file cell. Expand to 20 fresh paired
+cases only if those probes move the intended mechanism without a safety,
+startup, or efficiency regression.
+
+That targeted gate is now complete. The matched handoff cells both scored 100,
+correcting an earlier premature causal interpretation. The first staged
+candidate cell was excluded after a provider rate-limit response even though
+its task state looked complete. A separately frozen replacement pair used a
+ten-second request interval and no retry: v17 scored 25 with an unsafe workspace
+outcome, while the recovery candidate scored 95.625 with a safe atomic result,
+four fewer invalid commands, one fewer total command, and intact source. The
+pair cost $0.0055 across 29 calls. Its audited redacted publication is under
+`Evals/marginbench/results/candidate-studies/v20-stage-recovery-public-r0/`.
+One public case cannot promote a candidate. It did identify the next small,
+general interface correction: `stage list` now defaults to the nearest current
+workspace instead of wasting an agent turn on a missing root argument. No more
+paid inference is needed for this development cycle; the next paid evidence
+should use fresh generated cases only after all free gates pass.
+
+## Morning continuation closeout
+
+The final tree passes 172 native tests, 156 MarginBench tests in each supported
+Python runtime, lint, publication audit, both nine-family Margin rehearsals in
+process and through the separate environment server, and all neutral-control
+preflights. Every rehearsal reported `paidModelsInvoked:false`. The release
+bundle passed its CLI, inspection, signing, and visible-window smoke checks.
+
+The final local binary SHA-256 is
+`87494945d38f99511b0bfd82b565e54d79ec005b183734aa139a8bcaf186a611`.
+One hundred fresh invocations took 0.67 seconds for global help, 0.68 seconds
+for `margin man`, and 0.69 seconds for stage-list help on this Mac. The CLI
+change therefore adds no measurable startup work; workspace discovery occurs
+only when `stage list` is actually invoked without a root.
+
+The combined app-and-CLI zip and installer package were rebuilt and their
+checksums verified. The app and helper are ad-hoc signed for local use. The
+installer remains unsigned because this machine has no Installer/Developer ID
+certificate; public notarized distribution still requires that identity.
+
+The read-only Prime wallet check after all paid evidence reported $199.3243,
+leaving more than the protected $190 reserve. No further model call was made
+after the targeted replacement pair.

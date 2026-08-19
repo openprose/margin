@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:trace-shape-report:v1",
+  "title": "MarginBench content-free private trace shape report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "sourceCount", "sources", "traceCount", "toolCallCount",
+    "successCount", "failureCount", "blockedCount", "leadingLiteralMarginCount",
+    "commands", "errors", "flags", "sequences", "scenarios", "privacy"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:trace-shape-report:v1"},
+    "sourceCount": {"type": "integer", "minimum": 1, "maximum": 32},
+    "sources": {
+      "type": "array", "minItems": 1, "maxItems": 32,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["sha256", "byteCount"],
+        "properties": {
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "byteCount": {"type": "integer", "minimum": 0, "maximum": 268435456}
+        }
+      }
+    },
+    "traceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+    "toolCallCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+    "successCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+    "failureCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+    "blockedCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+    "unansweredToolCallCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+    "unansweredCommands": {"$ref": "#/$defs/namedCounts"},
+    "finalFinishReasons": {"$ref": "#/$defs/namedCounts"},
+    "stopConditions": {"$ref": "#/$defs/namedCounts"},
+    "leadingLiteralMarginCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+    "commands": {
+      "type": "array", "maxItems": 256,
+      "items": {"$ref": "#/$defs/commandCount"}
+    },
+    "commandSignatures": {
+      "type": "array", "maxItems": 4096,
+      "items": {"$ref": "#/$defs/commandSignature"}
+    },
+    "errors": {"$ref": "#/$defs/namedCounts"},
+    "flags": {"$ref": "#/$defs/namedCounts"},
+    "sequences": {
+      "type": "array", "maxItems": 256,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["commands", "count"],
+        "properties": {
+          "commands": {
+            "type": "array", "minItems": 1, "maxItems": 128,
+            "items": {"type": "string", "minLength": 1, "maxLength": 128}
+          },
+          "count": {"type": "integer", "minimum": 1, "maximum": 1000000}
+        }
+      }
+    },
+    "scenarios": {
+      "type": "array", "maxItems": 128,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": [
+          "scenario", "seat", "traceCount", "toolCallCount", "failureCount",
+          "blockedCount", "leadingLiteralMarginCount"
+        ],
+        "properties": {
+          "scenario": {"type": "string", "minLength": 1, "maxLength": 128},
+          "seat": {"enum": ["agent", "author", "reviewer", "unknown"]},
+          "traceCount": {"type": "integer", "minimum": 1, "maximum": 10000},
+          "toolCallCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+          "failureCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+          "blockedCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+          "unansweredToolCallCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+          "leadingLiteralMarginCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+          "finalFinishReasons": {"$ref": "#/$defs/namedCounts"},
+          "stopConditions": {"$ref": "#/$defs/namedCounts"}
+        }
+      }
+    },
+    "privacy": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "rawArgumentsRetained", "stdinRetained", "stdoutRetained", "stderrRetained",
+        "documentContentRetained", "promptsRetained", "identifiersRetained",
+        "pathsRetained", "sourcePathsRetained"
+      ],
+      "properties": {
+        "rawArgumentsRetained": {"const": false},
+        "stdinRetained": {"const": false},
+        "stdoutRetained": {"const": false},
+        "stderrRetained": {"const": false},
+        "documentContentRetained": {"const": false},
+        "promptsRetained": {"const": false},
+        "identifiersRetained": {"const": false},
+        "pathsRetained": {"const": false},
+        "sourcePathsRetained": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "namedCount": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "count"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "count": {"type": "integer", "minimum": 1, "maximum": 1000000}
+      }
+    },
+    "namedCounts": {
+      "type": "array", "maxItems": 256,
+      "items": {"$ref": "#/$defs/namedCount"}
+    },
+    "commandCount": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "count", "successCount", "failureCount", "blockedCount"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "count": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "successCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "failureCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "blockedCount": {"type": "integer", "minimum": 0, "maximum": 1000000}
+      }
+    },
+    "commandSignature": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "command", "flags", "count", "successCount", "failureCount", "blockedCount"
+      ],
+      "properties": {
+        "command": {"type": "string", "minLength": 1, "maxLength": 128},
+        "flags": {
+          "type": "array", "maxItems": 128, "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^--?[A-Za-z0-9][A-Za-z0-9-]{0,126}$"}
+        },
+        "count": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "successCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "failureCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "blockedCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "errors": {"$ref": "#/$defs/namedCounts"}
+      }
+    }
+  }
+}

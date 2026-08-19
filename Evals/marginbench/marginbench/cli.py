@@ -11,10 +11,24 @@ from pathlib import Path
 
 from .binary import resolve_margin_binary
 from .candidates import CandidateManifest, load_results, paired_compare
+from .challenges import challenge_catalog
+from .checkpoint import CheckpointPromotionError, promote_checkpoint
 from .controls import DEFAULT_CONTROL_PROFILE, control_catalog
+from .crossover import (
+    CONTINUING_PROFILE,
+    ROLE_SEPARATED_PROFILE,
+    CrossoverMeasurement,
+    analyze_crossover,
+    build_crossover_plan,
+    load_crossover_evidence_set,
+    load_crossover_plan,
+    reference_experiment_contract,
+)
 from .diagnostics import DiagnosticError, diagnose_artifacts
 from .entropy import PUBLIC_DEVELOPMENT_KEY
 from .keys import create_holdout_key
+from .plain_reference import run_plain_reference_episode
+from .publication import audit_crossover_publication
 from .reference_study import ReferenceStudyError, run_reference_study
 from .runner import ReferenceDriver, run_episode
 from .scheduling import ExecutionPlanError, build_execution_plan
@@ -27,6 +41,7 @@ from .submission import (
     verification_failure,
     verify_submission,
 )
+from .trace_shapes import TraceShapeError, summarize_trace_shapes
 from .validation import validate_artifact
 
 
@@ -91,6 +106,45 @@ def main(argv: list[str] | None = None) -> int:
     )
     self_test.add_argument("--repetitions", type=int, default=1)
 
+    neutral_feasibility = subparsers.add_parser(
+        "neutral-feasibility",
+        help="run no-model state checks for the plain-Markdown control",
+    )
+    neutral_feasibility.add_argument("--scenario", action="append", choices=SCENARIO_IDS)
+    neutral_feasibility.add_argument("--repetitions", type=int, default=1)
+    neutral_feasibility.add_argument("--key-file")
+
+    neutral_served = subparsers.add_parser(
+        "neutral-served-preflight",
+        help="run the no-model Prime served check for the plain-Markdown control",
+    )
+    neutral_served.add_argument("--scenario", action="append", choices=SCENARIO_IDS)
+    neutral_served.add_argument("--repetitions", type=int, default=1)
+    neutral_served.add_argument("--key-file")
+
+    neutral_isolation = subparsers.add_parser(
+        "neutral-isolation-preflight",
+        help="prove role transcript isolation with a local scripted endpoint",
+    )
+    neutral_isolation.add_argument("--scenario", action="append", choices=SCENARIO_IDS)
+    neutral_isolation.add_argument("--repetitions", type=int, default=1)
+    neutral_isolation.add_argument("--key-file")
+
+    neutral_production = subparsers.add_parser(
+        "neutral-production-preflight",
+        help="rehearse the complete Prime plain-control result path with no paid model",
+    )
+    neutral_production.add_argument("--scenario", action="append", choices=SCENARIO_IDS)
+    neutral_production.add_argument("--repetitions", type=int, default=1)
+
+    neutral_prompt_audit = subparsers.add_parser(
+        "neutral-prompt-audit",
+        help="independently verify plain-control instruction equivalence without retaining prompts",
+    )
+    neutral_prompt_audit.add_argument("--scenario", action="append", choices=SCENARIO_IDS)
+    neutral_prompt_audit.add_argument("--repetitions", type=int, default=5)
+    neutral_prompt_audit.add_argument("--key-file")
+
     compare = subparsers.add_parser("compare", help="paired candidate comparison")
     compare.add_argument("baseline")
     compare.add_argument("candidate")
@@ -137,6 +191,53 @@ def main(argv: list[str] | None = None) -> int:
         "controls",
         help="show implemented and deliberately gated benchmark control profiles",
     )
+    subparsers.add_parser(
+        "challenges",
+        help="show collaboration-demand profiles and crossover hypotheses",
+    )
+
+    crossover_plan = subparsers.add_parser(
+        "crossover-plan",
+        help="freeze matched cases and counterbalanced collaboration topologies",
+    )
+    crossover_plan.add_argument("--candidate", required=True)
+    crossover_plan.add_argument("--scenario", action="append", choices=SCENARIO_IDS)
+    crossover_plan.add_argument("--repetitions", type=int, default=3)
+    crossover_plan.add_argument("--key-file")
+
+    crossover_reference = subparsers.add_parser(
+        "crossover-reference",
+        help="measure both topologies with the deterministic no-model policy",
+    )
+    crossover_reference.add_argument(
+        "--margin-bin",
+        help="Margin executable; defaults to the verified binary bundled in the package.",
+    )
+    crossover_reference.add_argument("--scenario", action="append", choices=SCENARIO_IDS)
+    crossover_reference.add_argument("--repetitions", type=int, default=3)
+    crossover_reference.add_argument("--key-file")
+
+    crossover_report = subparsers.add_parser(
+        "crossover-report",
+        help="compare completed role-separated and continuing-agent run artifacts",
+    )
+    crossover_report.add_argument("--plan", type=Path, required=True)
+    crossover_report.add_argument("role_separated", type=Path, nargs="?")
+    crossover_report.add_argument("continuing", type=Path, nargs="?")
+    crossover_report.add_argument(
+        "--role-separated-run",
+        type=Path,
+        action="append",
+        default=[],
+        help="completed role-separated cell; repeat for an interleaved study",
+    )
+    crossover_report.add_argument(
+        "--continuing-run",
+        type=Path,
+        action="append",
+        default=[],
+        help="completed continuing-agent cell; repeat for an interleaved study",
+    )
 
     keygen = subparsers.add_parser(
         "keygen",
@@ -150,6 +251,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     validate.add_argument("artifact", help="JSON artifact path, or - for bounded stdin")
 
+    audit_crossover = subparsers.add_parser(
+        "audit-crossover",
+        help="verify a complete redacted crossover publication bundle",
+    )
+    audit_crossover.add_argument("directory", type=Path)
+
     diagnose = subparsers.add_parser(
         "diagnose",
         help="rank privacy-preserving CLI and workflow opportunities from redacted results",
@@ -159,6 +266,36 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         nargs="+",
         help="validated result, reference run, redacted run, or Prime summary",
+    )
+
+    trace_shapes = subparsers.add_parser(
+        "trace-shapes",
+        help="summarize private Prime command shapes without retaining content, paths, or IDs",
+    )
+    trace_shapes.add_argument(
+        "trace",
+        type=Path,
+        nargs="+",
+        help="private traces.jsonl file or raw run directory",
+    )
+
+    promote = subparsers.add_parser(
+        "promote-checkpoint",
+        help="validate and publish retained redacted artifacts without rerunning a paid model",
+    )
+    promote.add_argument("raw_directory", type=Path)
+    promote.add_argument("--summary-file", type=Path, required=True)
+    promote.add_argument("--run-file", type=Path, required=True)
+
+    efficiency_report = subparsers.add_parser(
+        "efficiency-report",
+        help="project validated receipts and runs into a non-ranking resource report",
+    )
+    efficiency_report.add_argument(
+        "artifact",
+        type=Path,
+        nargs="+",
+        help="served-neutral receipt or redacted run artifact",
     )
     diagnose.add_argument(
         "--focus-candidate",
@@ -230,6 +367,89 @@ def main(argv: list[str] | None = None) -> int:
                 "results": results,
             })
         return 0
+    if arguments.command == "neutral-feasibility":
+        if not 1 <= arguments.repetitions <= 100:
+            raise ValueError("Neutral feasibility repetitions must be between 1 and 100.")
+        scenarios = arguments.scenario or list(SCENARIO_IDS)
+        key = _key(arguments.key_file)
+        assessments = []
+        for repetition in range(arguments.repetitions):
+            for scenario in scenarios:
+                episode = generate_episode(scenario, key, repetition)
+                with tempfile.TemporaryDirectory(prefix="marginbench-neutral-") as temporary:
+                    assessments.append(run_plain_reference_episode(
+                        episode,
+                        Path(temporary) / "workspace",
+                    ))
+        passed = all(
+            all(assessment["checks"].values())
+            and assessment["safetyPassed"]
+            and assessment["sourcePreserved"]
+            for assessment in assessments
+        )
+        _write({
+            "schema": "urn:marginbench:neutral-feasibility:v1",
+            "paidModelsInvoked": False,
+            "controlProfile": "role-separated-plain-markdown-v1",
+            "controlRunnable": True,
+            "implementedChecksPassed": passed,
+            "scenarioCount": len(set(scenarios)),
+            "assessmentCount": len(assessments),
+            "notEvaluated": ["efficiency"],
+            "assessments": assessments,
+        })
+        return 0 if passed else 1
+    if arguments.command == "neutral-served-preflight":
+        try:
+            from .plain_prime_preflight import run_plain_served_preflight
+        except ImportError as error:
+            raise ValueError(
+                "Prime Verifiers dependencies are required for the served preflight."
+            ) from error
+        receipt = run_plain_served_preflight(
+            scenarios=arguments.scenario or list(SCENARIO_IDS),
+            repetitions=arguments.repetitions,
+            key=_key(arguments.key_file),
+        )
+        _write(receipt)
+        return 0 if receipt["passed"] else 1
+    if arguments.command == "neutral-isolation-preflight":
+        try:
+            from .plain_isolation import run_plain_isolation_preflight
+        except ImportError as error:
+            raise ValueError(
+                "Prime Verifiers dependencies are required for the isolation preflight."
+            ) from error
+        receipt = run_plain_isolation_preflight(
+            scenarios=arguments.scenario or list(SCENARIO_IDS),
+            repetitions=arguments.repetitions,
+            key=_key(arguments.key_file),
+        )
+        _write(receipt)
+        return 0 if receipt["passed"] else 1
+    if arguments.command == "neutral-production-preflight":
+        try:
+            from .plain_production_preflight import run_plain_production_preflight
+        except ImportError as error:
+            raise ValueError(
+                "Prime Verifiers dependencies are required for the production preflight."
+            ) from error
+        receipt = run_plain_production_preflight(
+            scenarios=arguments.scenario or list(SCENARIO_IDS),
+            repetitions=arguments.repetitions,
+        )
+        _write(receipt)
+        return 0 if receipt["passed"] else 1
+    if arguments.command == "neutral-prompt-audit":
+        from .plain_prompt_audit import audit_plain_prompts
+
+        receipt = audit_plain_prompts(
+            scenarios=arguments.scenario or list(SCENARIO_IDS),
+            repetitions=arguments.repetitions,
+            key=_key(arguments.key_file),
+        )
+        _write(receipt)
+        return 0 if receipt["passed"] else 1
     if arguments.command == "compare":
         _write(paired_compare(load_results(Path(arguments.baseline)), load_results(Path(arguments.candidate))))
         return 0
@@ -283,11 +503,111 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.command == "controls":
         _write(control_catalog())
         return 0
+    if arguments.command == "challenges":
+        _write(challenge_catalog())
+        return 0
+    if arguments.command == "crossover-plan":
+        _write(build_crossover_plan(
+            candidate=arguments.candidate,
+            scenarios=arguments.scenario or list(SCENARIO_IDS),
+            repetitions=arguments.repetitions,
+            key=_key(arguments.key_file),
+            development_cases=arguments.key_file is None,
+        ))
+        return 0
+    if arguments.command == "crossover-reference":
+        binary = _binary_or_packaged(arguments.margin_bin)
+        scenarios = arguments.scenario or list(SCENARIO_IDS)
+        key = _key(arguments.key_file)
+        plan = build_crossover_plan(
+            candidate="deterministic-reference-policy",
+            scenarios=scenarios,
+            repetitions=arguments.repetitions,
+            key=key,
+            development_cases=arguments.key_file is None,
+        )
+        profiles = {
+            ROLE_SEPARATED_PROFILE: [],
+            CONTINUING_PROFILE: [],
+        }
+        episodes = {
+            episode.public_id: episode
+            for repetition in range(arguments.repetitions)
+            for scenario in scenarios
+            for episode in (generate_episode(scenario, key, repetition),)
+        }
+        for planned in plan["episodes"]:
+            episode = episodes[planned["id"]]
+            for profile in planned["profileOrder"]:
+                with tempfile.TemporaryDirectory(prefix="marginbench-crossover-") as temporary:
+                    result = run_episode(
+                        episode,
+                        binary,
+                        Path(temporary) / "workspace",
+                        ReferenceDriver(),
+                        candidate_id="deterministic-reference-policy",
+                        control_profile=profile,
+                    )
+                profiles[profile].append(CrossoverMeasurement.from_result(
+                    result,
+                    scenario=episode.scenario_id,
+                    repetition=episode.repetition,
+                    fingerprint=episode.fingerprint,
+                    control_profile=profile,
+                ))
+        _write(analyze_crossover(
+            profiles[ROLE_SEPARATED_PROFILE],
+            profiles[CONTINUING_PROFILE],
+            analysis_mode="model-free-reference",
+            plan=plan,
+            experiment_contract=reference_experiment_contract(
+                "deterministic-reference-policy",
+                profiles[ROLE_SEPARATED_PROFILE][0].margin_sha256,
+                {
+                    role
+                    for episode in plan["episodes"]
+                    for role in episode["roles"]
+                },
+                task_set=plan["taskSet"],
+                development_cases=plan["developmentCases"],
+            ),
+        ))
+        return 0
+    if arguments.command == "crossover-report":
+        plan = load_crossover_plan(arguments.plan)
+        separated_paths = [
+            *([arguments.role_separated] if arguments.role_separated else []),
+            *arguments.role_separated_run,
+        ]
+        continuing_paths = [
+            *([arguments.continuing] if arguments.continuing else []),
+            *arguments.continuing_run,
+        ]
+        separated = load_crossover_evidence_set(separated_paths)
+        continuing = load_crossover_evidence_set(continuing_paths)
+        if canonical_json(separated.experiment_contract) != canonical_json(
+            continuing.experiment_contract
+        ):
+            raise ValueError(
+                "Crossover runs differ in candidate, model, limits, runtime, retry, or cost policy."
+            )
+        _write(analyze_crossover(
+            separated.measurements,
+            continuing.measurements,
+            analysis_mode="measured-model",
+            plan=plan,
+            experiment_contract=separated.experiment_contract,
+        ))
+        return 0
     if arguments.command == "keygen":
         _write(create_holdout_key(Path(arguments.path)))
         return 0
     if arguments.command == "validate":
         receipt = validate_artifact(Path(arguments.artifact))
+        _write(receipt)
+        return 0 if receipt["valid"] else 65
+    if arguments.command == "audit-crossover":
+        receipt = audit_crossover_publication(arguments.directory)
         _write(receipt)
         return 0 if receipt["valid"] else 65
     if arguments.command == "diagnose":
@@ -298,6 +618,30 @@ def main(argv: list[str] | None = None) -> int:
             ))
         except DiagnosticError as error:
             raise SystemExit(str(error)) from error
+        return 0
+    if arguments.command == "trace-shapes":
+        try:
+            _write(summarize_trace_shapes(arguments.trace))
+        except TraceShapeError as error:
+            raise SystemExit(str(error)) from error
+        return 0
+    if arguments.command == "promote-checkpoint":
+        try:
+            receipt = promote_checkpoint(
+                arguments.raw_directory,
+                summary_file=arguments.summary_file,
+                run_file=arguments.run_file,
+            )
+        except CheckpointPromotionError as error:
+            raise SystemExit(str(error)) from error
+        _write(receipt)
+        return 0
+    if arguments.command == "efficiency-report":
+        # Keep the common command path light: the projection module is needed
+        # only when this explicit offline report is requested.
+        from .efficiency import build_efficiency_report
+
+        _write(build_efficiency_report(arguments.artifact))
         return 0
     if arguments.command == "submission":
         if arguments.submission_command == "verify":

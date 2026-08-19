@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:neutral-served-preflight:v1",
+  "title": "MarginBench no-model served plain-control preflight v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "passed", "paidModelsInvoked", "controlProfile", "controlRunnable",
+    "marginBinaryUsed", "toolSurface", "rawPromptsRetained", "roleTranscriptSharing",
+    "scenarioCount", "repetitionCount", "assessmentCount", "roleProcessCount",
+    "notEvaluated", "durationMs", "assessments"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:neutral-served-preflight:v1"},
+    "passed": {"type": "boolean"},
+    "paidModelsInvoked": {"const": false},
+    "controlProfile": {"const": "role-separated-plain-markdown-v1"},
+    "controlRunnable": {"const": true},
+    "marginBinaryUsed": {"const": false},
+    "toolSurface": {"const": ["workspace"]},
+    "rawPromptsRetained": {"const": false},
+    "roleTranscriptSharing": {"const": "none-between-roles"},
+    "scenarioCount": {"type": "integer", "minimum": 1, "maximum": 9},
+    "repetitionCount": {"type": "integer", "minimum": 1, "maximum": 5},
+    "assessmentCount": {"type": "integer", "minimum": 1, "maximum": 45},
+    "roleProcessCount": {"type": "integer", "minimum": 1, "maximum": 90},
+    "notEvaluated": {"const": ["efficiency"]},
+    "durationMs": {"type": "number", "minimum": 0, "maximum": 3600000},
+    "assessments": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 45,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "episodeID", "scenario", "repetition", "traceCount", "wallTimeMs",
+          "implementedChecksPassed", "safetyPassed", "sourcePreserved",
+          "checks", "dimensions", "efficiencyObservations"
+        ],
+        "properties": {
+          "episodeID": {"type": "string", "minLength": 1, "maxLength": 512},
+          "scenario": {
+            "enum": [
+              "human_agent_relay", "agent_agent_handoff", "concurrent_review",
+              "suggestion_decision", "staged_multifile", "directory_handoff",
+              "parallel_shards", "specialist_audit", "distributed_synthesis"
+            ]
+          },
+          "repetition": {"type": "integer", "minimum": 0, "maximum": 4},
+          "traceCount": {"type": "integer", "minimum": 1, "maximum": 2},
+          "wallTimeMs": {"type": "number", "minimum": 0, "maximum": 600000},
+          "implementedChecksPassed": {"type": "boolean"},
+          "safetyPassed": {"type": "boolean"},
+          "sourcePreserved": {"type": "boolean"},
+          "checks": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "allExpectedFacts", "allOrNoneFinal", "allOrNoneHistory", "committedAll",
+              "continuityObserved", "duplicateFree", "exactFactFields", "ledgerValid",
+              "noUnexpectedFacts", "recoveryObserved", "sourceExpected",
+              "trustedAttribution", "trustedDecisions"
+            ],
+            "properties": {
+              "allExpectedFacts": {"type": "boolean"},
+              "allOrNoneFinal": {"type": "boolean"},
+              "allOrNoneHistory": {"type": "boolean"},
+              "committedAll": {"type": "boolean"},
+              "continuityObserved": {"type": "boolean"},
+              "duplicateFree": {"type": "boolean"},
+              "exactFactFields": {"type": "boolean"},
+              "ledgerValid": {"type": "boolean"},
+              "noUnexpectedFacts": {"type": "boolean"},
+              "recoveryObserved": {"type": "boolean"},
+              "sourceExpected": {"type": "boolean"},
+              "trustedAttribution": {"type": "boolean"},
+              "trustedDecisions": {"type": "boolean"}
+            }
+          },
+          "dimensions": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["outcome", "integrity", "attribution", "continuity", "recovery"],
+            "properties": {
+              "outcome": {"type": "number", "minimum": 0, "maximum": 100},
+              "integrity": {"type": "number", "minimum": 0, "maximum": 100},
+              "attribution": {"type": "number", "minimum": 0, "maximum": 100},
+              "continuity": {"type": "number", "minimum": 0, "maximum": 100},
+              "recovery": {"type": "number", "minimum": 0, "maximum": 100}
+            }
+          },
+          "efficiencyObservations": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "toolCallCount", "failedToolCallCount", "requestByteCount",
+              "responseByteCount", "toolDurationMicroseconds", "actionCounts",
+              "modelCallCount", "inputTokenCount", "outputTokenCount", "costUSD",
+              "scalarScore"
+            ],
+            "properties": {
+              "toolCallCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+              "failedToolCallCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+              "requestByteCount": {"type": "integer", "minimum": 0, "maximum": 67108864},
+              "responseByteCount": {"type": "integer", "minimum": 0, "maximum": 67108864},
+              "toolDurationMicroseconds": {"type": "integer", "minimum": 0, "maximum": 600000000000},
+              "actionCounts": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["guide", "list", "read", "write", "invalid"],
+                "properties": {
+                  "guide": {"type": "integer", "minimum": 0, "maximum": 10000},
+                  "list": {"type": "integer", "minimum": 0, "maximum": 10000},
+                  "read": {"type": "integer", "minimum": 0, "maximum": 10000},
+                  "write": {"type": "integer", "minimum": 0, "maximum": 10000},
+                  "invalid": {"type": "integer", "minimum": 0, "maximum": 10000}
+                }
+              },
+              "modelCallCount": {"const": 0},
+              "inputTokenCount": {"const": 0},
+              "outputTokenCount": {"const": 0},
+              "costUSD": {"const": null},
+              "scalarScore": {"const": null}
+            }
+          }
+        }
+      }
+    }
+  }
+}

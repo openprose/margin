@@ -117,7 +117,7 @@ enum MarginCommand {
         }
         try cursor.rejectRemaining()
         if let rawWorkflow {
-            guard let workflow = CLICapabilityWorkflow(rawValue: rawWorkflow.lowercased()) else {
+            guard let workflow = CLICapabilityWorkflow.parse(rawWorkflow) else {
                 let choices = CLICapabilityWorkflow.allCases.map(\.rawValue).joined(separator: ", ")
                 throw CLIError.usage("--for must be one of: \(choices).")
             }
@@ -136,22 +136,76 @@ enum MarginCommand {
     }
 
     private static func runManual(_ cursor: inout ArgumentCursor) throws {
+        let json = cursor.takeFlag("--json")
+        let pretty = cursor.takeFlag("--pretty")
+        if pretty, !json {
+            throw CLIError.usage("--pretty requires --json. Run 'margin man --help'.")
+        }
+
+        func write(
+            kind: String,
+            query: [String],
+            content: String,
+            contractPaths: [[String]],
+            nextQueries: [[String]]
+        ) throws {
+            if json {
+                try CLIOutput.json(
+                    MarginManualEnvelope(
+                        kind: kind,
+                        query: query,
+                        content: content,
+                        contracts: contractPaths.compactMap(CLICommandCatalog.command(path:)),
+                        nextQueries: nextQueries
+                    ),
+                    pretty: pretty,
+                    maximumBytes: MarginManualEnvelope.maximumEncodedBytes
+                )
+            } else {
+                try CLIOutput.text(content)
+            }
+        }
+
         let listOnly = cursor.takeFlag("--list")
         if listOnly {
             try cursor.rejectRemaining()
-            try CLIOutput.text(MarginManual.topicList)
+            try write(
+                kind: "topic-list",
+                query: [],
+                content: MarginManual.topicList,
+                contractPaths: [],
+                nextQueries: MarginManual.canonicalTopics.map { [$0] }
+            )
             return
         }
 
-        let topic = cursor.pop()
-        try cursor.rejectRemaining()
-        guard let page = MarginManual.page(for: topic) else {
+        let topics = cursor.takeRemaining()
+        if topics.count > 1, let commandHelp = CLICommandCatalog.localHelp(path: topics) {
+            try write(
+                kind: "command-help",
+                query: topics,
+                content: commandHelp,
+                contractPaths: [topics],
+                nextQueries: []
+            )
+            return
+        }
+        let topic = topics.first
+        guard topics.count <= 1, let page = MarginManual.page(for: topic) else {
             let choices = MarginManual.canonicalTopics.joined(separator: ", ")
             throw CLIError.usage(
-                "Unknown manual topic '\(topic ?? "")'. Choose one of: \(choices). Run 'margin man --list'."
+                "Unknown manual topic or command '\(topics.joined(separator: " "))'. " +
+                    "Choose a topic from: \(choices); or use 'margin man COMMAND SUBCOMMAND'. " +
+                    "Run 'margin man --list' for topics."
             )
         }
-        try CLIOutput.text(page)
+        try write(
+            kind: "workflow",
+            query: topics,
+            content: page,
+            contractPaths: MarginManual.contractPaths(for: topic),
+            nextQueries: MarginManual.nextQueries(for: topic)
+        )
     }
 
     private static func runOpen(_ cursor: inout ArgumentCursor) throws {
@@ -319,6 +373,12 @@ enum MarginCommand {
             return
         }
         let subcommand = try cursor.require("comments subcommand")
+        if subcommand == "suggest" {
+            throw CLIError.usage(
+                "'suggest' is a top-level command, not a comments subcommand. " +
+                    "Run 'margin suggest add --help'."
+            )
+        }
         if subcommand == "help" {
             let topic = cursor.pop()
             try cursor.rejectRemaining()
@@ -358,16 +418,29 @@ enum MarginCommand {
     private static func commentsAdd(_ cursor: inout ArgumentCursor) throws {
         let pretty = cursor.takeFlag("--pretty")
         _ = cursor.takeFlag("--json")
-        let rawKind = (try cursor.takeValue("--kind") ?? "comment").lowercased()
+        let requestedKind = (try cursor.takeValue("--kind") ?? "comment").lowercased()
+        let rawKind = requestedKind == "finding" ? "issue" : requestedKind
         guard let kind = CollaborationContributionKind(rawValue: rawKind),
               [.comment, .question, .issue, .decision, .task, .approval].contains(kind) else {
-            throw CLIError.usage("--kind must be comment, question, issue, decision, task, or approval; use suggest or handoff for those dedicated kinds.")
+            throw CLIError.usage("--kind must be comment, question, issue (or finding), decision, task, or approval; use suggest or handoff for those dedicated kinds.")
         }
         let assignee = try cursor.takeValue("--assignee")
         let rawPriority = try cursor.takeValue("--priority")
         let audience = try cursor.takeValues("--audience")
         let requestID = try cursor.takeValue("--request-id")
         let stageID = try cursor.takeValue("--stage-id")
+        let parentID = try cursor.takeValue("--parent")
+        let reopenParent = cursor.takeFlag("--reopen")
+        let resolveParent = cursor.takeFlag("--resolve")
+        guard !(reopenParent && resolveParent) else {
+            throw CLIError.usage("A reply cannot combine --reopen and --resolve.")
+        }
+        if parentID == nil, reopenParent || resolveParent {
+            throw CLIError.usage(
+                "--reopen and --resolve apply only to replies. Add --parent PARENT, " +
+                    "or use 'margin comments reply --help'."
+            )
+        }
         if kind != .task, assignee != nil || rawPriority != nil {
             throw CLIError.usage("--assignee and --priority apply only to --kind task.")
         }
@@ -382,8 +455,39 @@ enum MarginCommand {
         }
         let message = try takeMessage(cursor: &cursor)
         let creator = try takeActor(cursor: &cursor)
-        let annotationID = try cursor.takeValue("--id")
+        let annotationID = try cursor.takeValue(["--id", "--contribution-id", "--mutation-id"])
         let preconditions = try takePreconditions(cursor: &cursor)
+        if let parentID {
+            guard kind == .comment,
+                  assignee == nil,
+                  rawPriority == nil,
+                  audience.isEmpty,
+                  requestID == nil,
+                  stageID == nil else {
+                throw CLIError.usage(
+                    "--parent is reply shorthand and cannot be combined with typed-contribution options."
+                )
+            }
+            let file = try PathResolver.existingFile(cursor.require("Markdown file"))
+            try cursor.rejectRemaining()
+            let receipt = try service.reply(
+                at: file,
+                parentID: parentID,
+                message: message,
+                creator: creator,
+                annotationID: annotationID,
+                reopen: reopenParent,
+                resolveAfterReply: resolveParent,
+                preconditions: preconditions
+            )
+            try writeCommentSuccess(
+                command: "comments.reply",
+                file: file,
+                receipt: receipt,
+                pretty: pretty
+            )
+            return
+        }
         let anchorArguments = try takeAnchorArguments(cursor: &cursor)
         let fileArgument = try cursor.require("Markdown file")
         let file = try PathResolver.existingFile(fileArgument)
@@ -458,6 +562,19 @@ enum MarginCommand {
             let threadMatches = selectedRoot == nil || listed.rootID == selectedRoot
             return statusMatches && threadMatches
         }
+        let openSelectedRoot = selectedRoot.flatMap { rootID in
+            snapshot.comments.first { $0.rootID == rootID && $0.threadStatus == .open }?.rootID
+        }
+        let notice = openSelectedRoot.map { _ in
+            "Verified thread is still open. If the task requires closure, resolve it with the concrete next action before declaring completion."
+        }
+        let nextActions = openSelectedRoot.map { rootID in
+            [CommentNextAction(
+                condition: "when the assigned task requires this verified thread to be resolved or closed",
+                command: "comments resolve",
+                arguments: [file.path, rootID, "--if-revision", String(snapshot.revision)]
+            )]
+        }
         try CLIOutput.json(
             CommentCommandEnvelope(
                 command: "comments.list",
@@ -465,7 +582,9 @@ enum MarginCommand {
                 documentID: snapshot.documentID,
                 revision: snapshot.revision,
                 contentSha256: snapshot.contentSha256,
-                result: snapshot
+                result: snapshot,
+                notice: notice,
+                nextActions: nextActions
             ),
             pretty: pretty
         )
@@ -495,10 +614,21 @@ enum MarginCommand {
     private static func commentsReply(_ cursor: inout ArgumentCursor) throws {
         let pretty = cursor.takeFlag("--pretty")
         _ = cursor.takeFlag("--json")
+        if try cursor.takeValue("--request-id") != nil {
+            throw CLIError.usage(
+                "--request-id belongs to handoff and staged transaction commands. " +
+                    "For an idempotent comment reply, replace it with --id UUID " +
+                    "(or --mutation-id UUID)."
+            )
+        }
         let reopen = cursor.takeFlag("--reopen")
+        let resolveAfterReply = cursor.takeFlag("--resolve")
+        guard !(reopen && resolveAfterReply) else {
+            throw CLIError.usage("comments reply cannot combine --reopen and --resolve.")
+        }
         let message = try takeMessage(cursor: &cursor)
         let creator = try takeActor(cursor: &cursor)
-        let annotationID = try cursor.takeValue("--id")
+        let annotationID = try cursor.takeValue(["--id", "--mutation-id"])
         let preconditions = try takePreconditions(cursor: &cursor)
         let file = try PathResolver.existingFile(cursor.require("Markdown file"))
         let parentID = try cursor.require("parent comment id")
@@ -510,6 +640,7 @@ enum MarginCommand {
             creator: creator,
             annotationID: annotationID,
             reopen: reopen,
+            resolveAfterReply: resolveAfterReply,
             preconditions: preconditions
         )
         try writeCommentSuccess(command: "comments.reply", file: file, receipt: receipt, pretty: pretty)
@@ -661,19 +792,30 @@ enum MarginCommand {
         let nextActions: [CommentNextAction]?
         let notice: String?
         if command == "comments.reply" {
-            notice = "Reply saved; the root thread remains open. Replying never resolves a thread. If the task says resolve or close, run comments resolve with result.rootID and this revision."
-            nextActions = [
-                CommentNextAction(
-                    condition: "when the task asks to resolve or close, or the reply addresses the concern",
-                    command: "comments resolve",
-                    arguments: ["file", "result.rootID", "--if-revision", "revision"]
-                ),
-                CommentNextAction(
-                    condition: "always verify the durable thread",
-                    command: "comments list",
-                    arguments: ["file", "--thread", "result.rootID", "--status", "all"]
-                ),
-            ]
+            if receipt.threadStatus == .resolved {
+                notice = "Reply saved and the root thread resolved atomically. Verify the durable thread before declaring completion."
+                nextActions = [
+                    CommentNextAction(
+                        condition: "always verify the durable resolved thread",
+                        command: "comments list",
+                        arguments: [file.path, "--thread", receipt.rootID, "--status", "all"]
+                    ),
+                ]
+            } else {
+                notice = "Reply saved; the root thread remains open. If the task says resolve or close, run comments resolve now, or use comments reply --resolve when the reply and closure should succeed together."
+                nextActions = [
+                    CommentNextAction(
+                        condition: "when the task asks to resolve or close, or the reply addresses the concern",
+                        command: "comments resolve",
+                        arguments: [file.path, receipt.rootID, "--if-revision", String(receipt.revision)]
+                    ),
+                    CommentNextAction(
+                        condition: "always verify the durable thread",
+                        command: "comments list",
+                        arguments: [file.path, "--thread", receipt.rootID, "--status", "all"]
+                    ),
+                ]
+            }
         } else {
             notice = nil
             nextActions = nil
@@ -914,6 +1056,14 @@ private struct CommentNextAction: Encodable {
     let condition: String
     let command: String
     let arguments: [String]
+    let argv: [String]
+
+    init(condition: String, command: String, arguments: [String]) {
+        self.condition = condition
+        self.command = command
+        self.arguments = arguments
+        self.argv = command.split(separator: " ").map(String.init) + arguments
+    }
 }
 
 private struct InspectionResult: Encodable {
@@ -982,7 +1132,7 @@ private extension MarginCommand {
       margin reconcile CURRENT --from PREVIOUS ...
       margin merge BASE OURS THEIRS ...
       margin capabilities --json [--for review|staging|suggestions|handoff|merge] [--pretty]
-      margin man [review|comments|suggestions|staging|handoff|merge|safety]
+      margin man [review|comments|suggestions|staging|handoff|merge|safety] [--json]
       margin help [COMMAND [SUBCOMMAND]]
 
     LEARN MARGIN
@@ -1028,6 +1178,7 @@ private extension MarginCommand {
       margin capabilities --json
       margin man
       margin man staging
+      margin man comments add --json
       margin help comments
       margin help agents
 
@@ -1049,7 +1200,7 @@ private extension MarginCommand {
 
       margin comments list FILE [--status open|resolved|all] [--thread ID]
       margin comments get FILE ID
-      margin comments reply FILE PARENT (-m TEXT | --message TEXT | --body TEXT | --message-file PATH | --stdin) [--reopen]
+      margin comments reply FILE PARENT (-m TEXT | --message TEXT | --body TEXT | --message-file PATH | --stdin) [--reopen | --resolve]
       margin comments edit FILE ID (-m TEXT | --message TEXT | --body TEXT | --message-file PATH | --stdin)
       margin comments delete FILE ID [--subtree]
       margin comments resolve FILE ID
@@ -1066,7 +1217,7 @@ private extension MarginCommand {
       comments; -m, --message, and --body are message-option aliases.
 
     MUTATION OPTIONS
-      --id UUID                 Idempotency key; becomes urn:uuid:UUID.
+      --id, --mutation-id UUID  Idempotency key; becomes urn:uuid:UUID.
       --if-revision N          Compare-and-swap comment revision.
       --if-content-sha SHA     Refuse if Markdown content changed.
       --actor-id IRI           Stable human, agent, or organization identity.

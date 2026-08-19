@@ -18,6 +18,7 @@ public struct CollaborationContextLimits: Codable, Hashable, Sendable {
     public let maxHeadingsPerFile: Int
     public let maxContributionsPerFile: Int
     public let maxBodyPreviewBytes: Int
+    public let maxSourcePreviewBytes: Int
     public let maxActivityRecords: Int
     public let maxSerializedBytes: Int
 
@@ -26,6 +27,7 @@ public struct CollaborationContextLimits: Codable, Hashable, Sendable {
         maxHeadingsPerFile: Int = 32,
         maxContributionsPerFile: Int = 64,
         maxBodyPreviewBytes: Int = 240,
+        maxSourcePreviewBytes: Int = 2_048,
         maxActivityRecords: Int = 1_024,
         maxSerializedBytes: Int = 4 * 1_024 * 1_024
     ) {
@@ -33,6 +35,7 @@ public struct CollaborationContextLimits: Codable, Hashable, Sendable {
         self.maxHeadingsPerFile = maxHeadingsPerFile
         self.maxContributionsPerFile = maxContributionsPerFile
         self.maxBodyPreviewBytes = maxBodyPreviewBytes
+        self.maxSourcePreviewBytes = maxSourcePreviewBytes
         self.maxActivityRecords = maxActivityRecords
         self.maxSerializedBytes = maxSerializedBytes
     }
@@ -42,6 +45,7 @@ public struct CollaborationContextLimits: Codable, Hashable, Sendable {
         guard (0...4_096).contains(maxHeadingsPerFile),
               (0...16_384).contains(maxContributionsPerFile),
               (0...65_536).contains(maxBodyPreviewBytes),
+              (0...65_536).contains(maxSourcePreviewBytes),
               (0...CollaborationActivityStore.maximumSupportedRecords).contains(maxActivityRecords),
               (1_048_576...Self.maximumSerializedBytes).contains(maxSerializedBytes) else {
             throw CollaborationError.invalidRoot("Context result limits are outside their supported bounds.")
@@ -75,6 +79,8 @@ public struct CollaborationContextFile: Codable, Hashable, Sendable {
     public let characters: Int
     public let lines: Int
     public let words: Int
+    public let sourcePreview: String
+    public let sourcePreviewTruncated: Bool
     public let outline: [MarkdownHeading]
     public let contributions: [CollaborationContextContribution]
     public let omittedHeadingCount: Int
@@ -95,6 +101,7 @@ public struct CollaborationContextTruncation: Codable, Hashable, Sendable {
 }
 
 public enum CollaborationAvailableAction: String, Codable, CaseIterable, Sendable {
+    case readDocument = "read"
     case listThreads = "comments list"
     case getComment = "comments get"
     case replyToThread = "comments reply"
@@ -278,6 +285,11 @@ public struct CollaborationContextService: Sendable {
                 characters: characters,
                 lines: lines,
                 words: words,
+                sourcePreview: Self.preview(
+                    decoded.body,
+                    maximumBytes: limits.maxSourcePreviewBytes
+                ),
+                sourcePreviewTruncated: decoded.body.utf8.count > limits.maxSourcePreviewBytes,
                 outline: Array(outline.prefix(limits.maxHeadingsPerFile)),
                 contributions: contextContributions,
                 omittedHeadingCount: max(0, outline.count - limits.maxHeadingsPerFile),
@@ -403,10 +415,38 @@ public struct CollaborationContextService: Sendable {
                     characters: file.characters,
                     lines: file.lines,
                     words: file.words,
+                    sourcePreview: file.sourcePreview,
+                    sourcePreviewTruncated: file.sourcePreviewTruncated,
                     outline: file.outline,
                     contributions: Array(file.contributions.prefix(keep)),
                     omittedHeadingCount: file.omittedHeadingCount,
                     omittedContributionCount: file.omittedContributionCount + removed
+                )
+            }
+            snapshot = try makeSnapshot()
+        }
+
+        while try encodedSize(snapshot) > maximumBytes,
+              files.contains(where: { !$0.sourcePreview.isEmpty }) {
+            files = files.map { file in
+                let currentBytes = file.sourcePreview.utf8.count
+                let keepBytes = currentBytes <= 4 ? 0 : currentBytes / 2
+                return CollaborationContextFile(
+                    path: file.path,
+                    cursor: file.cursor,
+                    bytes: file.bytes,
+                    characters: file.characters,
+                    lines: file.lines,
+                    words: file.words,
+                    sourcePreview: Self.preview(
+                        file.sourcePreview,
+                        maximumBytes: keepBytes
+                    ),
+                    sourcePreviewTruncated: true,
+                    outline: file.outline,
+                    contributions: file.contributions,
+                    omittedHeadingCount: file.omittedHeadingCount,
+                    omittedContributionCount: file.omittedContributionCount
                 )
             }
             snapshot = try makeSnapshot()
@@ -425,6 +465,8 @@ public struct CollaborationContextService: Sendable {
                     characters: file.characters,
                     lines: file.lines,
                     words: file.words,
+                    sourcePreview: file.sourcePreview,
+                    sourcePreviewTruncated: file.sourcePreviewTruncated,
                     outline: Array(file.outline.prefix(keep)),
                     contributions: file.contributions,
                     omittedHeadingCount: file.omittedHeadingCount + removed,

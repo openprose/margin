@@ -75,6 +75,111 @@ final class CommentServiceTests: XCTestCase {
         XCTAssertEqual(try service.get(root.annotation.id, at: fixture.file).threadStatus, .open)
     }
 
+    func testReplyCanResolveAtomicallyAndReplayWithoutPartialState() throws {
+        let fixture = makeFixture("A final review point.")
+        defer { fixture.remove() }
+        let service = CommentService()
+        let root = try service.add(
+            at: fixture.file,
+            message: "Please verify this.",
+            creator: human,
+            anchor: .quote(exact: "review"),
+            annotationID: "00000000-0000-4000-8000-000000000205"
+        )
+        let replyID = "00000000-0000-4000-8000-000000000206"
+        let resolvedReply = try service.reply(
+            at: fixture.file,
+            parentID: root.annotation.id,
+            message: "Verified.",
+            creator: agent,
+            annotationID: replyID,
+            resolveAfterReply: true,
+            preconditions: CommentMutationPreconditions(revision: 1)
+        )
+        XCTAssertTrue(resolvedReply.changed)
+        XCTAssertEqual(resolvedReply.revision, 2)
+        XCTAssertEqual(resolvedReply.threadStatus, .resolved)
+        XCTAssertEqual(
+            resolvedReply.annotation.extensions["margin:resolveAfterReply"],
+            .bool(true)
+        )
+
+        let snapshot = try service.list(at: fixture.file)
+        XCTAssertEqual(snapshot.revision, 2)
+        XCTAssertEqual(snapshot.comments.count, 2)
+        XCTAssertTrue(snapshot.comments.allSatisfy { $0.threadStatus == .resolved })
+        XCTAssertEqual(
+            try EmbeddedCommentCodec().decode(Data(contentsOf: fixture.file)).body,
+            "A final review point."
+        )
+
+        let replay = try service.reply(
+            at: fixture.file,
+            parentID: root.annotation.id,
+            message: "Verified.",
+            creator: agent,
+            annotationID: replyID,
+            resolveAfterReply: true,
+            preconditions: CommentMutationPreconditions(revision: 1)
+        )
+        XCTAssertFalse(replay.changed)
+        XCTAssertEqual(replay.revision, 2)
+        XCTAssertEqual(replay.threadStatus, .resolved)
+
+        XCTAssertThrowsError(try service.reply(
+            at: fixture.file,
+            parentID: root.annotation.id,
+            message: "Verified.",
+            creator: agent,
+            annotationID: replyID
+        )) { error in
+            guard case CommentProtocolError.idConflict = error else {
+                return XCTFail("Expected idConflict, got \(error)")
+            }
+        }
+
+        let staleFixture = makeFixture("A separate review point.")
+        defer { staleFixture.remove() }
+        let staleRoot = try service.add(
+            at: staleFixture.file,
+            message: "Please verify this too.",
+            creator: human,
+            anchor: .quote(exact: "review"),
+            annotationID: "00000000-0000-4000-8000-000000000207"
+        )
+        XCTAssertThrowsError(try service.reply(
+            at: staleFixture.file,
+            parentID: staleRoot.annotation.id,
+            message: "Stale answer.",
+            creator: agent,
+            annotationID: "00000000-0000-4000-8000-000000000208",
+            resolveAfterReply: true,
+            preconditions: CommentMutationPreconditions(revision: 0)
+        )) { error in
+            guard case CommentProtocolError.revisionConflict = error else {
+                return XCTFail("Expected revisionConflict, got \(error)")
+            }
+        }
+        let unchanged = try service.list(at: staleFixture.file)
+        XCTAssertEqual(unchanged.revision, 1)
+        XCTAssertEqual(unchanged.comments.count, 1)
+        XCTAssertEqual(unchanged.comments.first?.threadStatus, .open)
+
+        XCTAssertThrowsError(try service.reply(
+            at: staleFixture.file,
+            parentID: staleRoot.annotation.id,
+            message: "Contradictory operation.",
+            creator: agent,
+            reopen: true,
+            resolveAfterReply: true
+        )) { error in
+            guard case CommentProtocolError.invalidEnvelope = error else {
+                return XCTFail("Expected invalidEnvelope, got \(error)")
+            }
+        }
+        XCTAssertEqual(try service.list(at: staleFixture.file).comments.count, 1)
+    }
+
     func testIdempotencyAndPreconditionsPreventLostUpdates() throws {
         let fixture = makeFixture("alpha beta gamma")
         defer { fixture.remove() }

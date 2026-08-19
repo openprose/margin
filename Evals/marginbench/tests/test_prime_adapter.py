@@ -175,10 +175,36 @@ class PrimeAdapterTests(unittest.TestCase):
             ))
             payload = json.loads(toolset.margin(["version"]))
             self.assertTrue(payload["ok"])
+            prefixed = json.loads(toolset.margin(["margin", "version"]))
+            self.assertTrue(prefixed["ok"])
+            path_prefixed = json.loads(toolset.margin(["./margin", "version"]))
+            self.assertEqual(path_prefixed["errorCode"], "MARGINBENCH_COMMAND_BLOCKED")
             blocked = json.loads(toolset.margin(["read", "/etc/passwd", "--json"]))
             self.assertEqual(blocked["errorCode"], "MARGINBENCH_WORKSPACE_ESCAPE")
 
             (workspace / "review.md").write_text("# Review\n", encoding="utf-8")
+            numeric_argument = json.loads(toolset.margin([
+                "context", ".", "--json", "--max-files", 16,
+            ]))
+            self.assertTrue(numeric_argument["ok"])
+            self.assertEqual(numeric_argument["stdout"]["root"]["path"], ".")
+            self.assertEqual(
+                numeric_argument["stdout"]["result"]["directFileTarget"],
+                "review.md",
+            )
+            first_hint = numeric_argument["stdout"]["result"]["workflowGuidance"][0]
+            self.assertEqual(first_hint["command"], "handoff add")
+            self.assertEqual(first_hint["arguments"][:3], [".", "--path", "review.md"])
+            self.assertFalse(first_hint["executable"])
+            self.assertNotIn("argv", first_hint)
+            self.assertEqual(
+                first_hint["argvTemplate"][:5],
+                ["handoff", "add", ".", "--path", "review.md"],
+            )
+            self.assertEqual(
+                first_hint["requiredReplacements"],
+                ["TEXT", "ACTOR_ID", "UUID"],
+            )
             initialized = json.loads(toolset.margin(["workspace", "init", "."]))
             self.assertTrue(initialized["ok"])
             plan = {

@@ -154,6 +154,9 @@ def build_prime_study_plan(
     limits = {
         "liveProxyMaxRequestBytes": 1024 * 1024,
         "liveProxyTemplateTokenAllowance": 8192,
+        "liveProxyTimeoutSeconds": 120.0,
+        "minimumStartIntervalSeconds": 300.0,
+        "minimumRequestIntervalSeconds": 0.0,
         "providerResponseTokenAllowance": 0,
         **limits,
     }
@@ -243,9 +246,17 @@ def build_prime_study_plan(
         raise PrimeStudyError("inputTokenCeilingSource must be a bounded HTTPS evidence URL.")
     if limits["maxTokensPerCall"] > limits["maxOutputTokens"]:
         raise PrimeStudyError("maxTokensPerCall cannot exceed maxOutputTokens.")
-    for name in ("rolloutTimeoutSeconds", "wallTimeoutSeconds"):
+    for name in ("rolloutTimeoutSeconds", "wallTimeoutSeconds", "liveProxyTimeoutSeconds"):
         if _nonnegative_number(limits, name) <= 0:
             raise PrimeStudyError(f"{name} must be above zero.")
+    if limits["liveProxyTimeoutSeconds"] > 300:
+        raise PrimeStudyError("liveProxyTimeoutSeconds cannot exceed 300.")
+    minimum_start_interval = _nonnegative_number(limits, "minimumStartIntervalSeconds")
+    if minimum_start_interval > 3600:
+        raise PrimeStudyError("minimumStartIntervalSeconds cannot exceed 3600.")
+    minimum_request_interval = _nonnegative_number(limits, "minimumRequestIntervalSeconds")
+    if minimum_request_interval > 60:
+        raise PrimeStudyError("minimumRequestIntervalSeconds cannot exceed 60.")
     temperature = _nonnegative_number(limits, "temperature")
     if temperature > 2:
         raise PrimeStudyError("temperature must be between zero and two.")
@@ -448,6 +459,13 @@ def validate_prime_job_outputs(
         ),
         "maxTurns": plan["limits"]["maxTurns"],
         "rolloutTimeoutSeconds": plan["limits"]["rolloutTimeoutSeconds"],
+        "wallTimeoutSeconds": plan["limits"]["wallTimeoutSeconds"],
+        "liveProxyTimeoutSeconds": plan["limits"].get("liveProxyTimeoutSeconds", 120.0),
+        "minimumStartIntervalSeconds": 0.0,
+        "minimumRequestIntervalSeconds": plan["limits"].get(
+            "minimumRequestIntervalSeconds",
+            0.0,
+        ),
         "temperature": plan["limits"]["temperature"],
         "liveProxyMaxRequestBytes": plan["limits"]["liveProxyMaxRequestBytes"],
         "liveProxyTemplateTokenAllowance": plan["limits"][

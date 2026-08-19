@@ -14,6 +14,44 @@ from marginbench.phase_identity import read_phase_identity
 from marginbench.schema import Actor
 
 
+_PATH_FIELDS = frozenset({
+    "argv",
+    "argvTemplate",
+    "directFileTarget",
+    "file",
+    "arguments",
+    "invocationTarget",
+    "location",
+    "path",
+    "writtenTo",
+})
+
+
+def _workspace_relative_path(value: str, workspace: Path) -> str:
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        return value
+    try:
+        relative = candidate.resolve(strict=False).relative_to(workspace.resolve(strict=True))
+    except (OSError, ValueError):
+        return value
+    rendered = relative.as_posix()
+    return rendered if rendered and rendered != "." else "."
+
+
+def _project_workspace_paths(value: Any, workspace: Path, field: str | None = None) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _project_workspace_paths(item, workspace, key)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_project_workspace_paths(item, workspace, field) for item in value]
+    if isinstance(value, str) and field in _PATH_FIELDS:
+        return _workspace_relative_path(value, workspace)
+    return value
+
+
 class MarginGatewayConfig(vf.ToolsetConfig):
     margin_binary: str
     workspace: str
@@ -34,20 +72,27 @@ class MarginGatewayToolset(vf.Toolset[MarginGatewayConfig]):
     @vf.tool
     def margin(
         self,
-        arguments: list[str],
+        arguments: list[str | int],
         stdin: str | dict[str, Any] | list[Any] | None = None,
     ) -> str:
         """Run one confined Margin CLI command.
 
         Pass argv after `margin`, for example `["context", ".", "--json"]`.
+        A leading literal `"margin"` is also accepted, so copying a command from
+        help does not turn an otherwise valid action into a blocked command.
         The collaborator identity is already bound. Absolute paths, parent traversal,
         GUI routes, identity overrides, oversized inputs, and non-Margin commands are
-        rejected. The returned JSON always includes exitCode, stdout, stderr, and an
-        errorCode when available. A nonzero expected concurrency/CAS result is data:
+        rejected. Path fields in returned JSON use workspace-relative spelling whenever
+        possible, so they can be passed back directly. The returned JSON always includes
+        exitCode, stdout, stderr, and an errorCode when available. A nonzero expected
+        concurrency/CAS result is data:
         inspect it and recover explicitly. For an existing thread, `context` or
-        `inbox` already supplies its path, rootID, body preview, status, and revision;
-        reply with rootID directly rather than deriving a source range. Replying never
-        resolves the root, so resolve separately when the assigned work requires it.
+        `inbox` already supplies its reusable actionPath, rootID, body preview, status,
+        revision, and bounded workflowGuidance; follow the matching argv or argvTemplate
+        rather than deriving a source range or guessing a command. When the reply
+        is also authorized to close the concern, add `--resolve` so the reply and root
+        resolution succeed or fail together. Otherwise the root remains open and can
+        be resolved separately.
         Never guess a multiword command. Choose exactly one initial directory read:
         use `context . --json --max-files 16` when the brief asks for broad context,
         or `inbox . --status open --max-contributions 64` when finding open work.
@@ -63,6 +108,15 @@ class MarginGatewayToolset(vf.Toolset[MarginGatewayConfig]):
         coherent cross-file work uses `stage create|show|refresh|submit`.
         Read-only verification arguments differ from mutation arguments, so follow a
         successful receipt's `nextActions` rather than carrying mutation flags forward.
+        When a workflow hint or next action contains `argv`, pass that complete array
+        back verbatim; `arguments` alone deliberately omits the command words.
+        A context hint with `executable: false` has no `argv`: it returns an
+        `argvTemplate` and `requiredReplacements`. Replace every listed placeholder
+        from the brief, source, or a receipt before calling the tool; never submit the
+        template itself.
+        JSON integer arguments are normalized to their CLI spelling, so bounded numeric
+        options may be supplied as either `16` or `"16"`.
+        In context output, prefer the first workflowGuidance entry that matches the task.
         """
         if self.config.identity_binding_file is not None:
             binding = read_phase_identity(Path(self.config.identity_binding_file))
@@ -90,8 +144,13 @@ class MarginGatewayToolset(vf.Toolset[MarginGatewayConfig]):
             if isinstance(stdin, (dict, list))
             else stdin
         )
+        normalized_arguments = [str(argument) for argument in arguments]
+        if normalized_arguments[:1] == ["margin"]:
+            normalized_arguments = normalized_arguments[1:]
+        payload = gateway.call(normalized_arguments, stdin=normalized_stdin).tool_payload()
+        projected = _project_workspace_paths(payload, Path(self.config.workspace))
         return json.dumps(
-            gateway.call(arguments, stdin=normalized_stdin).tool_payload(),
+            projected,
             ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,

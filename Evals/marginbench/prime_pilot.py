@@ -12,6 +12,7 @@ import argparse
 import fcntl
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -50,6 +51,7 @@ DEFAULT_PRIME_INFERENCE_URL = "https://api.pinference.ai/api/v1"
 PROXY_API_KEY_ENV = "MARGINBENCH_PROXY_TOKEN"
 MAX_PRIME_CONFIG_BYTES = 1024 * 1024
 DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE = 8
+PLAIN_CONTROL_PROFILE = "role-separated-plain-markdown-v1"
 
 
 def canonical(value: Any) -> str:
@@ -413,6 +415,16 @@ def build_eval_command(
     return command
 
 
+def _effective_stop_condition(trace: dict[str, Any]) -> object:
+    """Distinguish deliberate completion from a model response that hit its cap."""
+    stop = trace.get("stop_condition")
+    calls = trace.get("calls") if isinstance(trace.get("calls"), list) else []
+    final_finish = calls[-1].get("finish_reason") if calls else None
+    if stop == "agent_completed" and final_finish == "length":
+        return "model_output_limit"
+    return stop
+
+
 def _summarize_traces(output: Path) -> dict[str, Any]:
     traces_path = output / "traces.jsonl"
     traces: list[dict[str, Any]] = []
@@ -485,7 +497,103 @@ def _summarize_traces(output: Path) -> dict[str, Any]:
             consistent = False
         episode["roleRuns"].append({
             "seat": seat,
-            "stopCondition": trace.get("stop_condition"),
+            "stopCondition": _effective_stop_condition(trace),
+            "usage": usage,
+        })
+        for key in (
+            "modelCalls", "promptTokens", "completionTokens", "cachedInputTokens",
+            "reasoningTokens",
+        ):
+            episode["usage"][key] += usage[key]
+        episode["usage"]["reportedCostUSD"] = round(
+            episode["usage"]["reportedCostUSD"] + usage["reportedCostUSD"],
+            6,
+        )
+    summaries = []
+    for episode_id in sorted(episodes):
+        episode = episodes[episode_id]
+        episode["roleRuns"].sort(key=lambda value: (value["seat"], value["stopCondition"] or ""))
+        summaries.append(episode)
+    return {
+        "traceCount": len(traces),
+        "episodeCount": len(summaries),
+        "traceConsistencyPassed": consistent,
+        "episodes": summaries,
+    }
+
+
+def _summarize_neutral_traces(output: Path) -> dict[str, Any]:
+    """Aggregate non-scalar plain-control assessments from private traces."""
+    traces_path = output / "traces.jsonl"
+    traces: list[dict[str, Any]] = []
+    if traces_path.is_file():
+        for line in traces_path.read_text(encoding="utf-8").splitlines():
+            try:
+                envelope = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            traces.extend(item for item in envelope.get("traces", []) if isinstance(item, dict))
+    episodes: dict[str, dict[str, Any]] = {}
+    consistent = True
+    for trace in traces:
+        calls = trace.get("calls") if isinstance(trace.get("calls"), list) else []
+        usage = {
+            "modelCalls": len(calls),
+            "promptTokens": sum(int(call.get("usage", {}).get("prompt_tokens", 0)) for call in calls),
+            "completionTokens": sum(int(call.get("usage", {}).get("completion_tokens", 0)) for call in calls),
+            "cachedInputTokens": sum(int(call.get("usage", {}).get("cached_input_tokens", 0)) for call in calls),
+            "reasoningTokens": sum(int(call.get("usage", {}).get("reasoning_tokens", 0)) for call in calls),
+            "reportedCostUSD": round(sum(float(call.get("usage", {}).get("cost", 0)) for call in calls), 6),
+        }
+        neutral = trace.get("info", {}).get("marginbenchNeutral", {})
+        task_data = trace.get("task", {}).get("data", {})
+        episode_id = neutral.get("episodeID")
+        if not isinstance(episode_id, str) or not episode_id:
+            consistent = False
+            continue
+        task_name = task_data.get("name") if isinstance(task_data.get("name"), str) else ""
+        seat = task_name.rsplit(":", 1)[-1] if ":" in task_name else "unknown"
+        immutable_result = {
+            "implementedChecksPassed": neutral.get("implementedChecksPassed"),
+            "safetyPassed": neutral.get("safetyPassed"),
+            "sourcePreserved": neutral.get("sourcePreserved"),
+            "durationMs": neutral.get("durationMs"),
+            "checks": neutral.get("checks"),
+            "dimensions": neutral.get("dimensions"),
+            "efficiencyObservations": neutral.get("efficiencyObservations"),
+        }
+        for topology_field in (
+            "controlProfile",
+            "logicalActors",
+            "agentProcessCount",
+            "traceSeats",
+            "phasePolicy",
+        ):
+            if topology_field in neutral:
+                immutable_result[topology_field] = neutral[topology_field]
+        if episode_id not in episodes:
+            episodes[episode_id] = {
+                "episodeID": episode_id,
+                "scenario": task_data.get("scenario_id"),
+                "repetition": task_data.get("repetition"),
+                "fingerprint": task_data.get("fingerprint"),
+                **immutable_result,
+                "roleRuns": [],
+                "usage": {
+                    "modelCalls": 0,
+                    "promptTokens": 0,
+                    "completionTokens": 0,
+                    "cachedInputTokens": 0,
+                    "reasoningTokens": 0,
+                    "reportedCostUSD": 0.0,
+                },
+            }
+        episode = episodes[episode_id]
+        if any(episode.get(key) != value for key, value in immutable_result.items()):
+            consistent = False
+        episode["roleRuns"].append({
+            "seat": seat,
+            "stopCondition": _effective_stop_condition(trace),
             "usage": usage,
         })
         for key in (
@@ -684,6 +792,12 @@ def _run_manifest(
                 ),
                 "maxTurns": arguments.max_turns,
                 "rolloutTimeoutSeconds": arguments.rollout_timeout_seconds,
+                "wallTimeoutSeconds": arguments.wall_timeout_seconds,
+                "liveProxyTimeoutSeconds": arguments.live_proxy_timeout_seconds,
+                "minimumStartIntervalSeconds": arguments.minimum_start_interval_seconds,
+                "minimumRequestIntervalSeconds": getattr(
+                    arguments, "minimum_request_interval_seconds", 0.0
+                ),
                 "temperature": arguments.temperature,
                 **(
                     {
@@ -738,9 +852,308 @@ def _run_manifest(
     }
 
 
+def _neutral_run_manifest(
+    arguments: argparse.Namespace,
+    trace_summary: dict[str, Any],
+    *,
+    status: str,
+    started_at: str,
+    duration_ms: int,
+    observed_wallet_debit: float,
+    live_budget: dict[str, Any] | None = None,
+    provider: str = "Prime Intellect",
+    runtime: str = "local-subprocess-environment-with-prime-inference",
+) -> dict[str, Any]:
+    """Build a publishable plain-control run without inventing a scalar score."""
+    episode_values = []
+    for episode in trace_summary["episodes"]:
+        stop_conditions = Counter(
+            role["stopCondition"]
+            for role in episode["roleRuns"]
+            if isinstance(role.get("stopCondition"), str)
+        )
+        efficiency = episode["efficiencyObservations"]
+        episode_values.append({
+            "id": episode["episodeID"],
+            "scenario": episode["scenario"],
+            "fingerprint": episode["fingerprint"],
+            "repetition": episode["repetition"],
+            "implementedChecksPassed": episode["implementedChecksPassed"],
+            "safetyPassed": episode["safetyPassed"],
+            "sourcePreserved": episode["sourcePreserved"],
+            "durationMs": episode["durationMs"],
+            "checks": episode["checks"],
+            "dimensions": episode["dimensions"],
+            "toolRoundTrips": {
+                "count": efficiency["toolCallCount"],
+                "failedCount": efficiency["failedToolCallCount"],
+                "invalidCount": efficiency["actionCounts"]["invalid"],
+                "requestBytes": efficiency["requestByteCount"],
+                "responseBytes": efficiency["responseByteCount"],
+                "cumulativeToolTimeMs": round(
+                    efficiency["toolDurationMicroseconds"] / 1_000,
+                    3,
+                ),
+                "measurementBasis": "served-workspace-tool-boundary",
+            },
+            "stopConditions": [
+                {"name": name, "count": count}
+                for name, count in sorted(stop_conditions.items())
+            ],
+            "usage": episode["usage"],
+            **{
+                name: episode[name]
+                for name in (
+                    "controlProfile",
+                    "logicalActors",
+                    "agentProcessCount",
+                    "traceSeats",
+                    "phasePolicy",
+                )
+                if name in episode
+            },
+        })
+    trace_reported = round(
+        sum(float(episode["usage"]["reportedCostUSD"]) for episode in episode_values),
+        6,
+    )
+    trace_seats = sorted({
+        role["seat"]
+        for episode in trace_summary["episodes"]
+        for role in episode["roleRuns"]
+    })
+    logical_actors = [
+        actor
+        for episode in trace_summary["episodes"]
+        for actor in episode.get("logicalActors", [])
+    ]
+    roles = sorted({actor["seat"] for actor in logical_actors} or set(trace_seats))
+    topology = planned_topology(arguments.control_profile, roles)
+    manifest_status = "completed" if status == "completed" else "infrastructure-error"
+    contract_bound = estimate_maximum_cost(
+        arguments.scenario,
+        arguments.repetitions,
+        arguments.max_turns,
+        arguments.upstream_attempts_per_turn,
+        arguments.input_token_ceiling_per_call,
+        arguments.max_tokens_per_call
+        + getattr(arguments, "provider_response_token_allowance", 0),
+        arguments.input_price_per_million,
+        arguments.output_price_per_million,
+        arguments.billing_overhead_usd_per_call,
+        getattr(arguments, "repetition_id", None),
+        arguments.control_profile,
+    )
+    compute_multiplier = _selection_compute_multiplier(
+        arguments.scenario,
+        arguments.repetitions,
+        getattr(arguments, "repetition_id", None),
+        arguments.control_profile,
+    )
+    implementation_digest = implementation_sha256(PACKAGE_ROOT)
+    run_id = hashlib.sha256(canonical({
+        "candidate": arguments.candidate,
+        "controlImplementationSha256": implementation_digest,
+        "episodes": [episode["id"] for episode in episode_values],
+        "model": arguments.model,
+        "startedAt": started_at,
+    }).encode("utf-8")).hexdigest()[:32]
+    live_budget_cap = (
+        float(live_budget["policy"]["maxTotalCostUSD"])
+        if live_budget is not None
+        else contract_bound
+    )
+    admission_bound = round(min(contract_bound, live_budget_cap), 6)
+    return {
+        "schema": "urn:marginbench:neutral-run:v1",
+        "runID": run_id,
+        "status": manifest_status,
+        "track": "representation",
+        "scalarRankingPermitted": False,
+        "benchmark": {
+            "name": "MarginBench",
+            "version": BENCHMARK_VERSION,
+            "taskSet": (
+                "private-holdout-v1"
+                if getattr(arguments, "holdout_key_file", None)
+                else "public-development-v1"
+            ),
+            "developmentCases": not bool(getattr(arguments, "holdout_key_file", None)),
+            "implementationSha256": implementation_digest,
+        },
+        "candidate": {
+            "id": arguments.candidate,
+            "controlImplementationSha256": implementation_digest,
+            "durableSurface": "plain-markdown-files",
+            "toolSurface": ["workspace"],
+        },
+        "execution": {
+            "adapter": "prime-verifiers-v1",
+            "provider": provider,
+            "model": arguments.model,
+            "harness": "null-with-one-workspace-tool",
+            "runtime": runtime,
+            "controlProfile": arguments.control_profile,
+            "marginBinaryUsed": False,
+            "agentProcessCount": agent_process_count(
+                arguments.scenario,
+                arguments.repetitions,
+                getattr(arguments, "repetition_id", None),
+                arguments.control_profile,
+            ),
+            "roles": roles,
+            "traceSeats": trace_seats,
+            "phasePolicy": topology["phasePolicy"],
+            "startedAt": started_at,
+            "durationMs": duration_ms,
+            "limits": {
+                "temperature": arguments.temperature,
+                "maxConcurrentEpisodes": arguments.max_concurrent,
+                "maxInputTokens": arguments.max_input_tokens,
+                "maxOutputTokens": arguments.max_output_tokens,
+                "maxTotalTokens": arguments.max_total_tokens,
+                "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
+                "upstreamAttemptsPerTurn": arguments.upstream_attempts_per_turn,
+                "billingOverheadUSDPerCall": arguments.billing_overhead_usd_per_call,
+                "maxTokensPerCall": arguments.max_tokens_per_call,
+                "providerResponseTokenAllowance": getattr(
+                    arguments,
+                    "provider_response_token_allowance",
+                    0,
+                ),
+                "maxTurns": arguments.max_turns,
+                "rolloutTimeoutSeconds": arguments.rollout_timeout_seconds,
+                "wallTimeoutSeconds": arguments.wall_timeout_seconds,
+                "liveProxyTimeoutSeconds": arguments.live_proxy_timeout_seconds,
+                "minimumStartIntervalSeconds": arguments.minimum_start_interval_seconds,
+                "minimumRequestIntervalSeconds": getattr(
+                    arguments, "minimum_request_interval_seconds", 0.0
+                ),
+                **(
+                    {
+                        "liveProxyMaxRequestBytes": live_budget["policy"]["maxRequestBytes"],
+                        "liveProxyTemplateTokenAllowance": live_budget["policy"][
+                            "templateTokenAllowance"
+                        ],
+                    }
+                    if live_budget is not None
+                    else {}
+                ),
+            },
+            "retryPolicy": "No automatic paid model retries; later attempts are separate capped runs after cooldown.",
+            "priorInfrastructureAttempts": arguments.prior_infrastructure_attempts,
+        },
+        "episodes": episode_values,
+        "cost": {
+            "currency": "USD",
+            "traceReported": trace_reported,
+            "observedWalletDebit": observed_wallet_debit,
+            "unreconciled": round(abs(observed_wallet_debit - trace_reported), 6),
+            "admissionBound": admission_bound,
+            **(
+                {
+                    "contractBound": contract_bound,
+                    "liveBudgetCap": live_budget_cap,
+                }
+                if live_budget is not None
+                else {}
+            ),
+            "hardAdmissionCap": arguments.max_cost_usd,
+            "boundBasis": {
+                "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
+                "outputTokenCeilingPerCall": (
+                    arguments.max_tokens_per_call
+                    + getattr(arguments, "provider_response_token_allowance", 0)
+                ),
+                "modelCallsPerAgentAtMost": arguments.max_turns * compute_multiplier,
+                "upstreamAttemptsPerTurnAtMost": arguments.upstream_attempts_per_turn,
+                "inputPricePerMillion": arguments.input_price_per_million,
+                "outputPricePerMillion": arguments.output_price_per_million,
+                "billingOverheadUSDPerCall": arguments.billing_overhead_usd_per_call,
+            },
+            **({"liveBudget": live_budget} if live_budget is not None else {}),
+        },
+        "privacy": {
+            "rawTracesPublished": False,
+            "credentialsPresent": False,
+            "promptsPublished": False,
+            "holdoutKeyPublished": False,
+        },
+    }
+
+
+def _neutral_execution_summary(
+    arguments: argparse.Namespace,
+    trace_summary: dict[str, Any],
+    *,
+    status: str,
+    duration_ms: int,
+    exit_code: int,
+    wallet_before: dict[str, Any],
+    wallet_after: dict[str, Any],
+    observed_wallet_debit: float,
+    estimated_maximum_cost: float,
+    contract_maximum_cost: float,
+    live_budget_cap: float,
+    live_budget: dict[str, Any],
+    infrastructure_codes: list[str],
+    paid_models_invoked: bool = True,
+) -> dict[str, Any]:
+    return {
+        "schema": "urn:marginbench:neutral-prime-run-summary:v1",
+        "status": status,
+        "paidModelsInvoked": paid_models_invoked,
+        "model": arguments.model,
+        "candidate": arguments.candidate,
+        "controlProfile": arguments.control_profile,
+        "controlImplementationSha256": implementation_sha256(PACKAGE_ROOT),
+        "marginBinaryUsed": False,
+        "scalarRankingPermitted": False,
+        "scenarios": arguments.scenario,
+        "repetitions": len(_repetition_values(
+            arguments.repetitions,
+            getattr(arguments, "repetition_id", None),
+        )),
+        "durationMs": duration_ms,
+        "exitCode": exit_code,
+        "wallet": {
+            "before": wallet_before,
+            "after": wallet_after,
+            "observedDebitUSD": observed_wallet_debit,
+        },
+        "estimatedMaximumCostUSD": estimated_maximum_cost,
+        "contractMaximumCostUSD": contract_maximum_cost,
+        "liveBudgetCapUSD": live_budget_cap,
+        "costBoundBasis": {
+            "modelCallsPerAgentAtMost": arguments.max_turns
+            * _selection_compute_multiplier(
+                arguments.scenario,
+                arguments.repetitions,
+                getattr(arguments, "repetition_id", None),
+                arguments.control_profile,
+            ),
+            "upstreamAttemptsPerTurnAtMost": arguments.upstream_attempts_per_turn,
+            "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
+            "outputTokenCeilingPerCall": (
+                arguments.max_tokens_per_call
+                + getattr(arguments, "provider_response_token_allowance", 0)
+            ),
+            "billingOverheadUSDPerCall": arguments.billing_overhead_usd_per_call,
+        },
+        "liveBudget": live_budget,
+        "infrastructureCodes": infrastructure_codes,
+        **trace_summary,
+        "rawTracesCommitted": False,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--margin-bin", type=Path, required=True)
+    parser.add_argument(
+        "--margin-bin",
+        type=Path,
+        help="required for Margin controls and forbidden for the plain-Markdown control",
+    )
     parser.add_argument("--model", required=True)
     parser.add_argument("--scenario", action="append", choices=SCENARIO_IDS, required=True)
     parser.add_argument("--repetitions", type=int, default=1)
@@ -790,6 +1203,12 @@ def main() -> int:
     parser.add_argument("--wall-timeout-seconds", type=float, default=300.0)
     parser.add_argument("--max-concurrent", type=int, default=1)
     parser.add_argument("--minimum-start-interval-seconds", type=float, default=300.0)
+    parser.add_argument(
+        "--minimum-request-interval-seconds",
+        type=float,
+        default=0.0,
+        help="minimum spacing between upstream provider request starts",
+    )
     parser.add_argument("--input-price-per-million", type=float, required=True)
     parser.add_argument("--output-price-per-million", type=float, required=True)
     parser.add_argument("--max-cost-usd", type=float, default=2.0)
@@ -828,7 +1247,11 @@ def main() -> int:
         help="mode-0600 private generation key; passed only to the taskset process",
     )
     parser.add_argument("--control-profile", default=DEFAULT_CONTROL_PROFILE)
-    parser.add_argument("--track", choices=("model", "interface", "team", "open-systems"), default="interface")
+    parser.add_argument(
+        "--track",
+        choices=("model", "interface", "team", "open-systems", "representation"),
+        default="interface",
+    )
     parser.add_argument("--prior-infrastructure-attempts", type=int, default=0)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--summary-file", type=Path)
@@ -842,9 +1265,22 @@ def main() -> int:
     except ValueError as error:
         raise SystemExit(str(error)) from error
 
-    arguments.margin_bin = arguments.margin_bin.expanduser().resolve()
-    if not arguments.margin_bin.is_file() or not os.access(arguments.margin_bin, os.X_OK):
-        raise SystemExit("Margin executable is unavailable.")
+    plain_control = arguments.control_profile == PLAIN_CONTROL_PROFILE
+    if plain_control:
+        if arguments.margin_bin is not None:
+            raise SystemExit("The plain-Markdown control must not receive --margin-bin.")
+        if arguments.candidate_manifest is not None:
+            raise SystemExit("The plain-Markdown control does not accept a Margin candidate manifest.")
+        if arguments.track not in {"interface", "representation"}:
+            raise SystemExit("The plain-Markdown control belongs to the representation track.")
+        arguments.track = "representation"
+        arguments.margin_bin = Path("/plain-control-does-not-use-margin")
+    else:
+        if arguments.margin_bin is None:
+            raise SystemExit("--margin-bin is required for Margin controls.")
+        arguments.margin_bin = arguments.margin_bin.expanduser().resolve()
+        if not arguments.margin_bin.is_file() or not os.access(arguments.margin_bin, os.X_OK):
+            raise SystemExit("Margin executable is unavailable.")
     if arguments.repetitions < 1 or arguments.repetitions > 20:
         raise SystemExit("repetitions must be between 1 and 20")
     repetition_ids = arguments.repetition_id or []
@@ -870,6 +1306,8 @@ def main() -> int:
         raise SystemExit("all run limits must be positive")
     if arguments.max_tokens_per_call > arguments.max_output_tokens:
         raise SystemExit("max-tokens-per-call cannot exceed max-output-tokens")
+    if not math.isfinite(arguments.temperature) or not 0 <= arguments.temperature <= 2:
+        raise SystemExit("temperature must be between zero and two")
     if not 0 <= arguments.provider_response_token_allowance <= 4096:
         raise SystemExit("provider-response-token-allowance must be between 0 and 4096")
     if arguments.input_price_per_million < 0 or arguments.output_price_per_million < 0:
@@ -915,9 +1353,13 @@ def main() -> int:
         raise SystemExit("live-proxy-timeout-seconds must be between zero and 300")
     if not (0 <= arguments.minimum_start_interval_seconds <= 3_600):
         raise SystemExit("minimum-start-interval-seconds must be between 0 and 3600")
+    if not (0 <= arguments.minimum_request_interval_seconds <= 60):
+        raise SystemExit("minimum-request-interval-seconds must be between 0 and 60")
     try:
         arguments.frozen_candidate = (
-            load_candidate_manifest(
+            None
+            if plain_control
+            else load_candidate_manifest(
                 arguments.candidate_manifest,
                 binary=arguments.margin_bin,
                 candidate_id=arguments.candidate,
@@ -969,12 +1411,26 @@ def main() -> int:
     plan = {
         "schema": "urn:marginbench:prime-paid-plan:v1",
         "execute": arguments.execute,
+        "benchmarkImplementationSha256": implementation_sha256(PACKAGE_ROOT),
         "model": arguments.model,
         "candidate": arguments.candidate,
-        "candidateManifest": {
-            "digest": arguments.frozen_candidate.digest(),
-            **asdict(arguments.frozen_candidate),
-        },
+        **(
+            {
+                "controlCandidate": {
+                    "id": arguments.candidate,
+                    "controlImplementationSha256": implementation_sha256(PACKAGE_ROOT),
+                    "durableSurface": "plain-markdown-files",
+                    "toolSurface": ["workspace"],
+                }
+            }
+            if plain_control
+            else {
+                "candidateManifest": {
+                    "digest": arguments.frozen_candidate.digest(),
+                    **asdict(arguments.frozen_candidate),
+                }
+            }
+        ),
         "track": arguments.track,
         "controlProfile": arguments.control_profile,
         "taskSet": "private-holdout-v1" if arguments.holdout_key_id else "public-development-v1",
@@ -1033,10 +1489,12 @@ def main() -> int:
             ),
         },
         "limits": {
+            "temperature": arguments.temperature,
             "maxConcurrent": arguments.max_concurrent,
             "maxTurns": arguments.max_turns,
             "maxInputTokens": arguments.max_input_tokens,
             "maxOutputTokens": arguments.max_output_tokens,
+            "maxTokensPerCall": arguments.max_tokens_per_call,
             "providerResponseTokenAllowance": arguments.provider_response_token_allowance,
             "maxTotalTokens": arguments.max_total_tokens,
             "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
@@ -1044,9 +1502,16 @@ def main() -> int:
             "billingOverheadUSDPerCall": arguments.billing_overhead_usd_per_call,
             "rolloutTimeoutSeconds": arguments.rollout_timeout_seconds,
             "wallTimeoutSeconds": arguments.wall_timeout_seconds,
+            "liveProxyTimeoutSeconds": arguments.live_proxy_timeout_seconds,
             "minimumStartIntervalSeconds": arguments.minimum_start_interval_seconds,
+            "minimumRequestIntervalSeconds": arguments.minimum_request_interval_seconds,
         },
-        "marginSha256": sha256(arguments.margin_bin),
+        "marginBinaryUsed": not plain_control,
+        **(
+            {"controlImplementationSha256": implementation_sha256(PACKAGE_ROOT)}
+            if plain_control
+            else {"marginSha256": sha256(arguments.margin_bin)}
+        ),
         "rawOutputIgnored": "Evals/marginbench/runs/",
         "runManifestRequested": arguments.run_manifest_file is not None,
         "command": command,
@@ -1097,6 +1562,7 @@ def main() -> int:
         live_budget_policy,
         team_id=upstream_team_id,
         timeout_seconds=arguments.live_proxy_timeout_seconds,
+        minimum_request_interval_seconds=arguments.minimum_request_interval_seconds,
     ) as proxy:
         environment[PROXY_API_KEY_ENV] = proxy.client_token
         execution_command = build_eval_command(
@@ -1123,7 +1589,11 @@ def main() -> int:
                 exit_code = 124
         live_budget_report = proxy.gate.report()
     after = wallet(prime)
-    trace_summary = _summarize_traces(output)
+    trace_summary = (
+        _summarize_neutral_traces(output)
+        if plain_control
+        else _summarize_traces(output)
+    )
     log_text = (output / "runner.log").read_text(encoding="utf-8", errors="replace")
     infrastructure_codes = []
     if live_budget_report.get("providerBoundViolationCount", 0):
@@ -1144,41 +1614,57 @@ def main() -> int:
     status = _execution_status(exit_code, trace_summary, infrastructure_codes)
     duration_ms = round((time.perf_counter() - started) * 1000)
     observed_wallet_debit = round(before["balanceUSD"] - after["balanceUSD"], 6)
-    summary = {
-        "schema": "urn:marginbench:prime-run-summary:v1",
-        "status": status,
-        "paidModelsInvoked": True,
-        "model": arguments.model,
-        "candidate": arguments.candidate,
-        "scenarios": arguments.scenario,
-        "repetitions": len(_repetition_values(arguments.repetitions, repetition_ids)),
-        "marginSha256": plan["marginSha256"],
-        "durationMs": duration_ms,
-        "exitCode": exit_code,
-        "wallet": {
-            "before": before,
-            "after": after,
-            "observedDebitUSD": observed_wallet_debit,
-        },
-        "estimatedMaximumCostUSD": estimate,
-        "contractMaximumCostUSD": contract_estimate,
-        "liveBudgetCapUSD": live_proxy_cost_cap,
-        "costBoundBasis": plan["costBoundBasis"],
-        "liveBudget": live_budget_report,
-        "infrastructureCodes": infrastructure_codes,
-        **trace_summary,
-        "rawTracesCommitted": False,
-    }
+    summary = (
+        _neutral_execution_summary(
+            arguments,
+            trace_summary,
+            status=status,
+            duration_ms=duration_ms,
+            exit_code=exit_code,
+            wallet_before=before,
+            wallet_after=after,
+            observed_wallet_debit=observed_wallet_debit,
+            estimated_maximum_cost=estimate,
+            contract_maximum_cost=contract_estimate,
+            live_budget_cap=live_proxy_cost_cap,
+            live_budget=live_budget_report,
+            infrastructure_codes=infrastructure_codes,
+        )
+        if plain_control
+        else {
+            "schema": "urn:marginbench:prime-run-summary:v1",
+            "status": status,
+            "paidModelsInvoked": True,
+            "model": arguments.model,
+            "candidate": arguments.candidate,
+            "scenarios": arguments.scenario,
+            "repetitions": len(_repetition_values(arguments.repetitions, repetition_ids)),
+            "marginSha256": plan["marginSha256"],
+            "durationMs": duration_ms,
+            "exitCode": exit_code,
+            "wallet": {
+                "before": before,
+                "after": after,
+                "observedDebitUSD": observed_wallet_debit,
+            },
+            "estimatedMaximumCostUSD": estimate,
+            "contractMaximumCostUSD": contract_estimate,
+            "liveBudgetCapUSD": live_proxy_cost_cap,
+            "costBoundBasis": plan["costBoundBasis"],
+            "liveBudget": live_budget_report,
+            "infrastructureCodes": infrastructure_codes,
+            **trace_summary,
+            "rawTracesCommitted": False,
+        }
+    )
     rendered = canonical(summary)
     print(rendered)
-    if arguments.summary_file:
-        encoded = (rendered + "\n").encode("utf-8")
-        receipt = validate_bytes(encoded)
-        if not receipt["valid"] or receipt["artifactSchema"] != summary["schema"]:
-            raise SystemExit("Generated Prime summary failed validation.")
-        _write_new_artifact(arguments.summary_file, encoded)
+    summary_encoded = (rendered + "\n").encode("utf-8")
+    manifest = None
+    manifest_encoded = None
     if arguments.run_manifest_file and trace_summary["episodeCount"]:
-        manifest = _run_manifest(
+        manifest_builder = _neutral_run_manifest if plain_control else _run_manifest
+        manifest = manifest_builder(
             arguments,
             trace_summary,
             status=status,
@@ -1187,11 +1673,29 @@ def main() -> int:
             observed_wallet_debit=observed_wallet_debit,
             live_budget=live_budget_report,
         )
-        encoded = (canonical(manifest) + "\n").encode("utf-8")
-        receipt = validate_bytes(encoded)
+        manifest_encoded = (canonical(manifest) + "\n").encode("utf-8")
+
+    # Keep the exact generated evidence beside the private raw trace before
+    # validating or publishing it. A validator bug must never strand a paid run:
+    # after a validator fix these immutable private checkpoints can be validated
+    # and promoted without invoking the model again.
+    _write_new_artifact(output / "generated-summary.json", summary_encoded)
+    if manifest_encoded is not None:
+        _write_new_artifact(output / "generated-run.json", manifest_encoded)
+
+    if arguments.summary_file:
+        receipt = validate_bytes(summary_encoded)
+        if not receipt["valid"] or receipt["artifactSchema"] != summary["schema"]:
+            raise SystemExit(
+                "Generated Prime summary failed validation; the exact private checkpoint "
+                "is retained in the raw output directory."
+            )
+        _write_new_artifact(arguments.summary_file, summary_encoded)
+    if manifest_encoded is not None and manifest is not None:
+        receipt = validate_bytes(manifest_encoded)
         if not receipt["valid"] or receipt["artifactSchema"] != manifest["schema"]:
             raise SystemExit("Generated run manifest failed validation.")
-        _write_new_artifact(arguments.run_manifest_file, encoded)
+        _write_new_artifact(arguments.run_manifest_file, manifest_encoded)
     return 0 if status == "completed" else 75
 
 

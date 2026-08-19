@@ -18,6 +18,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -45,6 +46,36 @@ from prime_pilot import claim_paid_start, wallet  # noqa: E402
 
 
 CONFIRMATION = "RUN_PAID_MARGINBENCH_PAIRED_STUDY"
+
+
+def wait_until_paid_start_allowed(
+    path: Path,
+    minimum_interval_seconds: float,
+    *,
+    clock: Callable[[], float] = time.time,
+    sleeper: Callable[[float], None] = time.sleep,
+) -> None:
+    """Wait for the shared provider-start interval without claiming it."""
+    if minimum_interval_seconds <= 0:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            raw = os.read(descriptor, 128).decode("ascii", errors="ignore").strip()
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+        try:
+            previous = float(raw)
+        except ValueError:
+            previous = 0.0
+        remaining = minimum_interval_seconds - (clock() - previous)
+        if previous <= 0 or remaining <= 0:
+            return
+        sleeper(remaining)
 
 
 def _read_json(path: Path, schema: str) -> tuple[dict[str, Any], bytes]:
@@ -353,6 +384,12 @@ def _child_command(
         "--wall-timeout-seconds", str(limits["wallTimeoutSeconds"]),
         "--max-concurrent", str(limits["maxConcurrent"]),
         "--minimum-start-interval-seconds", "0",
+        "--minimum-request-interval-seconds", str(
+            limits.get("minimumRequestIntervalSeconds", 0.0)
+        ),
+        "--live-proxy-timeout-seconds", str(
+            limits.get("liveProxyTimeoutSeconds", 120.0)
+        ),
         "--input-price-per-million", str(pricing["inputPricePerMillion"]),
         "--output-price-per-million", str(pricing["outputPricePerMillion"]),
         "--max-cost-usd", str(max(job["estimatedMaximumCostUSD"], 0.000001)),
@@ -533,6 +570,7 @@ def execute_study(
     wallet_reader: Callable[[Path], dict[str, Any]] = wallet,
     child_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
     start_claimer: Callable[..., None] = claim_paid_start,
+    start_pacer: Callable[[Path, float], None] = wait_until_paid_start_allowed,
     prime_resolver: Callable[[str], str | None] = shutil.which,
 ) -> dict[str, Any]:
     work = arguments.work_dir
@@ -612,12 +650,6 @@ def execute_study(
         reserve = float(plan["budget"]["minimumWalletReserveUSD"])
         if float(current["balanceUSD"]) + 0.000001 < remaining_bound + reserve:
             raise PrimeStudyError("Wallet cannot cover the remaining admission bound and reserve.")
-        start_claimer(
-            PACKAGE_ROOT / "runs" / ".last-paid-study-start",
-            now=arguments.clock(),
-            minimum_interval_seconds=arguments.minimum_start_interval_seconds,
-        )
-
         new_jobs = 0
         for job in plan["jobs"][len(receipts):]:
             current = wallet_reader(prime)
@@ -630,6 +662,19 @@ def execute_study(
             )
             if float(current["balanceUSD"]) + 0.000001 < remaining_bound + reserve:
                 raise PrimeStudyError("Wallet fell below the remaining admission bound and reserve.")
+            paid_start_path = PACKAGE_ROOT / "runs" / ".last-paid-start"
+            start_pacer(
+                paid_start_path,
+                float(plan["limits"].get("minimumStartIntervalSeconds", 300.0)),
+            )
+            start_claimer(
+                paid_start_path,
+                now=arguments.clock(),
+                minimum_interval_seconds=plan["limits"].get(
+                    "minimumStartIntervalSeconds",
+                    300.0,
+                ),
+            )
             paths = _job_paths(work, job)
             command = _child_command(arguments, plan, job, paths, frozen)
             attempt = {
@@ -758,8 +803,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--live-proxy-max-request-bytes", type=int, default=1024 * 1024)
     parser.add_argument("--live-proxy-template-token-allowance", type=int, default=8192)
+    parser.add_argument("--live-proxy-timeout-seconds", type=float, default=120.0)
     parser.add_argument("--minimum-wallet-reserve-usd", type=float, default=80.0)
     parser.add_argument("--minimum-start-interval-seconds", type=float, default=300.0)
+    parser.add_argument("--minimum-request-interval-seconds", type=float, default=0.0)
     parser.add_argument(
         "--max-new-jobs",
         type=int,
@@ -780,6 +827,10 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("max-new-jobs must be between 1 and 1000")
     if not 0 <= arguments.minimum_start_interval_seconds <= 3600:
         raise SystemExit("minimum-start-interval-seconds must be between 0 and 3600")
+    if not 0 < arguments.live_proxy_timeout_seconds <= 300:
+        raise SystemExit("live-proxy-timeout-seconds must be above zero and at most 300")
+    if not 0 <= arguments.minimum_request_interval_seconds <= 60:
+        raise SystemExit("minimum-request-interval-seconds must be between 0 and 60")
     for name in (
         "study_plan",
         "execution_plan",
@@ -804,6 +855,9 @@ def main(argv: list[str] | None = None) -> int:
         "maxConcurrent": arguments.max_concurrent,
         "rolloutTimeoutSeconds": arguments.rollout_timeout_seconds,
         "wallTimeoutSeconds": arguments.wall_timeout_seconds,
+        "liveProxyTimeoutSeconds": arguments.live_proxy_timeout_seconds,
+        "minimumStartIntervalSeconds": arguments.minimum_start_interval_seconds,
+        "minimumRequestIntervalSeconds": arguments.minimum_request_interval_seconds,
         "temperature": arguments.temperature,
         "liveProxyMaxRequestBytes": arguments.live_proxy_max_request_bytes,
         "liveProxyTemplateTokenAllowance": arguments.live_proxy_template_token_allowance,

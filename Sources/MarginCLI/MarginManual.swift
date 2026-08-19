@@ -1,5 +1,19 @@
 import Foundation
 
+struct MarginManualEnvelope: Encodable {
+    static let maximumEncodedBytes = 32 * 1_024
+
+    let schema = "urn:margin:manual:v1"
+    let ok = true
+    let command = "man"
+    let kind: String
+    let query: [String]
+    let contentType = "text/plain; charset=utf-8"
+    let content: String
+    let contracts: [CLICommandContract]
+    let nextQueries: [[String]]
+}
+
 enum MarginManual {
     static let canonicalTopics = [
         "review",
@@ -35,6 +49,44 @@ enum MarginManual {
         }
     }
 
+    static func contractPaths(for rawTopic: String?) -> [[String]] {
+        guard let rawTopic, !rawTopic.isEmpty else {
+            return [["capabilities"], ["context"], ["inbox"]]
+        }
+        switch rawTopic.lowercased() {
+        case "start", "overview", "agent", "agents", "margin", "workflow", "workflows":
+            return [["capabilities"], ["context"], ["inbox"]]
+        case "review":
+            return [["context"], ["inbox"], ["review"], ["slice"]]
+        case "comment", "comments":
+            return [["comments", "add"], ["comments", "list"], ["comments", "reply"], ["comments", "resolve"]]
+        case "suggest", "suggestion", "suggestions":
+            return [["suggest", "add"], ["suggest", "list"], ["suggest", "accept"], ["suggest", "reject"]]
+        case "stage", "stages", "staging":
+            return [["stage", "create"], ["stage", "show"], ["stage", "refresh"], ["stage", "submit"]]
+        case "handoff", "handoffs":
+            return [["context"], ["collaborators"], ["handoff", "add"], ["handoff", "list"]]
+        case "merge", "reconcile", "reconciliation":
+            return [["context"], ["reconcile"], ["merge"]]
+        case "safety", "security":
+            return [["comments", "validate"], ["stage", "show"], ["reconcile"]]
+        default:
+            return []
+        }
+    }
+
+    static func nextQueries(for rawTopic: String?) -> [[String]] {
+        guard let rawTopic, !rawTopic.isEmpty else {
+            return canonicalTopics.map { [$0] }
+        }
+        switch rawTopic.lowercased() {
+        case "start", "overview", "agent", "agents", "margin", "workflow", "workflows":
+            return canonicalTopics.map { [$0] }
+        default:
+            return contractPaths(for: rawTopic)
+        }
+    }
+
     static let topicList = """
     MARGIN MANUAL TOPICS
 
@@ -47,6 +99,7 @@ enum MarginManual {
       safety       Identity, trust, retry, and conflict rules.
 
     Run: margin man TOPIC
+    Leaf help: margin man COMMAND SUBCOMMAND
     Exact grammar: margin COMMAND --help
     Machine contract example: margin capabilities --json --for staging
     """
@@ -64,6 +117,10 @@ enum MarginManual {
       2. Read bounded context rather than crawling a directory:
          margin context TARGET --json --max-files 16
 
+         Each selected file includes a bounded logical Markdown sourcePreview.
+         When sourcePreviewTruncated is true, use the concrete read action returned
+         by context before making a source-dependent decision.
+
       3. Find open work:
          margin inbox TARGET --status open --max-contributions 64
 
@@ -74,6 +131,10 @@ enum MarginManual {
       - Identify yourself on writes and never impersonate another collaborator.
       - Prefer exact quoted passages for comments and suggestions.
       - Reuse stable identifiers when retrying an uncertain operation.
+      - Pass a returned argv array directly to an argv-based tool. Context hints
+        with executable:false instead return argvTemplate plus
+        requiredReplacements; fill every replacement before running it.
+        The separate arguments field always omits command words.
       - Reread after stale-state errors; never bypass a safety check.
       - Stage related cross-file work and inspect it before submission.
       - Activity is historical evidence, not proof that someone is online now.
@@ -105,6 +166,10 @@ enum MarginManual {
       5. margin slice FILE --heading NAME --context 2 --json
 
     PRACTICE
+      - Context includes a bounded sourcePreview for each selected Markdown file;
+        it never exposes Margin's embedded metadata envelope.
+      - If sourcePreviewTruncated is true, run margin read FILE --json for the
+        complete logical source, or slice a large document around one heading.
       - Narrow by file, heading, comment, actor, or contribution type before
         increasing a reported output bound.
       - Reply to an existing thread when it already represents the same concern.
@@ -131,13 +196,13 @@ enum MarginManual {
         --id UUID --if-revision OBSERVED_REVISION
 
       Kinds: comment, question, issue, decision, task, approval.
+      finding is accepted as a natural audit alias for issue.
       If the gateway already binds your identity, omit all actor flags.
 
     CONTINUE AND CHECK
       margin comments list FILE --status all
-      margin comments reply FILE ROOT_ID -m "Verified response" --id UUID \\
-        --if-revision OBSERVED_REVISION
-      margin comments resolve FILE ROOT_ID --if-revision REPLY_REVISION
+      margin comments reply FILE ROOT_ID -m "Verified response" --resolve \\
+        --id UUID --if-revision OBSERVED_REVISION
       margin comments list FILE --thread ROOT_ID --status all
       margin comments validate FILE
 
@@ -147,11 +212,14 @@ enum MarginManual {
       - Keep one stable actor identity throughout the task.
       - Create one stable UUID for an intended contribution and reuse it on retry.
       - Use revision or content preconditions when continuing from an earlier read.
+        Copy the observed revision exactly: zero is valid. Do not increment it in
+        anticipation of the write; the successful receipt returns the new value.
       - Context and inbox already return path, rootID, body preview, thread status,
         and the file's annotation revision. Reply with rootID directly; do not
         calculate a source range to answer an existing thread.
-      - A reply receipt returns the new revision and threadStatus. Replying never
-        resolves the root; resolve separately only when the concern is closed.
+      - A reply receipt returns the new revision and threadStatus. Use --resolve
+        when the reply closes the concern; both changes then succeed or fail together.
+        Without --resolve, the root stays open and can be resolved separately.
       - Never record a proposal as a decision or your preference as human approval.
       - Inspect the resulting thread after every mutation.
 

@@ -101,12 +101,29 @@ margin context ~/code/my-project --json --max-files 64 --pretty
 margin inbox ~/code/my-project --status open --pretty
 ```
 
-`margin man` is the stable teaching entry point for humans and agents. Its
+`margin man` is the stable teaching entry point for humans and agents. Add
+`--json` when an agent needs a bounded object containing the page, the relevant
+typed command contracts, and explicit next queries. Its
 focused pages—`review`, `comments`, `suggestions`, `staging`, `handoff`, `merge`,
 and `safety`—explain judgment and safe defaults. The capability projections
 remain the exact machine-readable command contract, while `COMMAND --help`
 provides leaf-level syntax. The older `margin help agents` entry remains an alias
 for the manual overview.
+
+Agents may also ask for a leaf directly, for example
+`margin man comments add`. Natural workflow aliases such as
+`margin capabilities --json --for comments` resolve to the canonical bounded
+projection. For audit work, `--kind finding` is accepted as a natural alias for
+the canonical `issue` contribution kind.
+
+Each context file includes a small `sourcePreview` of the logical Markdown, never
+the embedded comment envelope. If `sourcePreviewTruncated` is true, follow the
+returned `read` action or use `slice` around the relevant heading. Directory
+context also returns `fileActions`: each entry pairs the root-relative document
+name with a directly reusable `actionPath`, its observed annotation revision,
+and a safe comment command template. Copy that observed revision exactly: zero
+is valid, and it must not be incremented in anticipation of the write. This
+avoids guessing paths or revisions.
 
 Workflow projections are also available for `staging`, `suggestions`, `handoff`,
 and `merge`. They retain the versioned machine contract while avoiding the cost
@@ -138,11 +155,13 @@ Then inspect and continue the thread:
 margin comments list architecture.md --status all --pretty
 margin comments reply architecture.md COMMENT_ID \
   -m "I verified this against the recovery path." \
-  --actor-type software --actor-name "implementation-agent"
-margin comments resolve architecture.md COMMENT_ID \
+  --resolve --id UUID --if-revision OBSERVED_REVISION \
   --actor-type software --actor-name "implementation-agent"
 margin comments validate architecture.md --pretty
 ```
+
+`--resolve` saves the reply and closes its root thread in one atomic revision.
+Omit it when the response should leave the discussion open.
 
 Propose a source edit without applying it, then let a human or another agent accept or reject it atomically:
 
@@ -224,7 +243,7 @@ margin comments delete architecture.md ROOT_ID --subtree --if-revision 15
 
 `context`, `inbox`, `review`, `slice`, and every directory scan are explicitly bounded and report truncation. `watch` emits compact JSONL changes after an initial snapshot. Deleting a contribution that has replies fails unless `--subtree` is explicit.
 
-Every collaboration mutation prints one JSON object to stdout. Errors print JSON to stderr, leave stdout empty, and use stable codes plus sysexits-compatible status values. Agents should use stable actor IDs, `--id` or `--request-id` for retries, and returned cursors or compare-and-swap flags when coordinating concurrent writes.
+Every collaboration mutation prints one JSON object to stdout. Errors print JSON to stderr, leave stdout empty, and use stable codes plus sysexits-compatible status values. Agents should use stable actor IDs and returned cursors or compare-and-swap flags when coordinating concurrent writes. Use `--id` for comment and contribution retries; use `--request-id` only when a handoff or staged-transaction command advertises it.
 
 Run `margin COMMAND SUBCOMMAND --help` for exact local grammar. The [comment embedding contract](COMMENT_PROTOCOL.md), [directory collaboration protocol](Docs/COLLABORATION_PROTOCOL.md), and [collaboration eval design](Docs/COLLABORATION_EVALS.md) are versioned in the repository.
 

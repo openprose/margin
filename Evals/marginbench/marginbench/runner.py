@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Protocol
 
+from .controls import DEFAULT_CONTROL_PROFILE, require_implemented_profile
 from .gateway import GatewayResponse, MarginGateway, ToolPolicy
 from .schema import Actor, EpisodeDefinition, EpisodeResult, HarnessEvent, RoleTask
 from .scorer import score_episode
@@ -191,6 +192,60 @@ class ReferenceDriver:
                 gateway.call(["comments", "validate", tradeoff_path])
                 gateway.call(["comments", "validate", status_path])
             return
+
+        if scenario == "parallel_shards":
+            assignment = reference[role.actor.id]
+            gateway.call([
+                "comments", "add", assignment["path"], "-m", assignment["body"],
+                "--document", "--kind", "issue", "--id", assignment["id"],
+            ])
+            gateway.call(["comments", "list", assignment["path"], "--status", "all"])
+            gateway.call(["comments", "validate", assignment["path"]])
+            return
+
+        if scenario == "specialist_audit":
+            path = reference["path"]
+            gateway.call(["read", path, "--json"])
+            if role.seat == "author":
+                gateway.call([
+                    "comments", "add", path, "-m", reference["decisionBody"],
+                    "--document", "--kind", "decision", "--id", reference["decisionID"],
+                ])
+            else:
+                gateway.call(["comments", "list", path, "--status", "all"])
+                gateway.call([
+                    "comments", "add", path, "-m", reference["issueBody"],
+                    "--document", "--kind", "issue", "--id", reference["issueID"],
+                ])
+            gateway.call(["comments", "list", path, "--status", "all"])
+            gateway.call(["comments", "validate", path])
+            return
+
+        if scenario == "distributed_synthesis":
+            path = reference["path"]
+            if role.seat == "author":
+                gateway.call([
+                    "handoff", "add", path, "-m", reference["handoffBody"],
+                    "--id", reference["handoffID"], "--request-id", reference["requestID"],
+                    "--next-actor", reference["nextActorID"],
+                ])
+                gateway.call(["handoff", "list", path, "--json"])
+            else:
+                gateway.call(["handoff", "list", path, "--json"])
+                listed = gateway.call(["comments", "list", path, "--status", "all"])
+                root = _actual_annotation_id(listed, reference["handoffID"])
+                replied = gateway.call([
+                    "comments", "reply", path, root,
+                    "-m", reference["replyBody"], "--id", reference["replyID"],
+                    "--if-revision", str(_revision(listed)),
+                ])
+                gateway.call([
+                    "comments", "resolve", path, root,
+                    "--if-revision", str(_revision(replied)),
+                ])
+                gateway.call(["comments", "list", path, "--thread", root, "--status", "all"])
+                gateway.call(["comments", "validate", path])
+            return
         raise ValueError(f"Reference policy does not support {scenario}.")
 
 
@@ -242,7 +297,9 @@ def run_episode(
     *,
     candidate_id: str = "baseline",
     policy: ToolPolicy | None = None,
+    control_profile: str = DEFAULT_CONTROL_PROFILE,
 ) -> EpisodeResult:
+    require_implemented_profile(control_profile)
     started = time.perf_counter()
     policy = policy or ToolPolicy()
     episode.materialize(workspace)
@@ -268,8 +325,9 @@ def run_episode(
             )
             driver.run(episode, role, gateway)
 
-        if len(roles) == 1:
-            execute(roles[0])
+        if len(roles) == 1 or control_profile == "single-agent-margin-v1":
+            for role in roles:
+                execute(role)
         else:
             with ThreadPoolExecutor(max_workers=len(roles)) as pool:
                 futures = [pool.submit(execute, role) for role in roles]

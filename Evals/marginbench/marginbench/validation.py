@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from .accounting import rounded_token_cost_usd
 from .candidates import CandidateManifest
 from .controls import per_agent_compute_multiplier, planned_topology
 
@@ -103,9 +104,26 @@ def _schema_name(payload: Any) -> tuple[str, str]:
     names = {
         "urn:marginbench:binary-manifest:v1": "binary-manifest.schema.json",
         "urn:marginbench:candidate:v1": "candidate.schema.json",
+        "urn:marginbench:challenge-catalog:v1": "challenge-catalog.schema.json",
+        "urn:marginbench:checkpoint-promotion:v1": "checkpoint-promotion.schema.json",
         "urn:marginbench:control-catalog:v1": "control-catalog.schema.json",
+        "urn:marginbench:crossover-plan:v1": "crossover-plan.schema.json",
+        "urn:marginbench:crossover-publication-audit:v1": "crossover-publication-audit.schema.json",
+        "urn:marginbench:crossover-prime-completion:v1": "crossover-prime-completion.schema.json",
+        "urn:marginbench:crossover-prime-plan:v1": "crossover-prime-plan.schema.json",
+        "urn:marginbench:crossover-report:v1": "crossover-report.schema.json",
         "urn:marginbench:diagnostic-report:v1": "diagnostic-report.schema.json",
+        "urn:marginbench:efficiency-report:v1": "efficiency-report.schema.json",
         "urn:marginbench:experiment-ledger:v1": "experiment-ledger.schema.json",
+        "urn:marginbench:neutral-facts:v1": "neutral-facts.schema.json",
+        "urn:marginbench:neutral-assessment:v1": "neutral-assessment.schema.json",
+        "urn:marginbench:neutral-feasibility:v1": "neutral-feasibility.schema.json",
+        "urn:marginbench:neutral-isolation-preflight:v1": "neutral-isolation-preflight.schema.json",
+        "urn:marginbench:neutral-prompt-audit:v1": "neutral-prompt-audit.schema.json",
+        "urn:marginbench:neutral-production-preflight:v1": "neutral-production-preflight.schema.json",
+        "urn:marginbench:neutral-prime-run-summary:v1": "neutral-prime-run-summary.schema.json",
+        "urn:marginbench:neutral-run:v1": "neutral-run.schema.json",
+        "urn:marginbench:neutral-served-preflight:v1": "neutral-served-preflight.schema.json",
         "urn:marginbench:execution-plan:v1": "execution-plan.schema.json",
         "urn:marginbench:paired-comparison:v1": "paired-comparison.schema.json",
         "urn:marginbench:prime-run-summary:v1": "prime-run-summary.schema.json",
@@ -119,6 +137,7 @@ def _schema_name(payload: Any) -> tuple[str, str]:
         "urn:marginbench:result:v1": "result.schema.json",
         "urn:marginbench:run:v1": "run-manifest.schema.json",
         "urn:marginbench:study-plan:v1": "study-plan.schema.json",
+        "urn:marginbench:trace-shape-report:v1": "trace-shape-report.schema.json",
         "urn:marginbench:submission:v1": "submission.schema.json",
         "urn:marginbench:submission-verification:v1": "submission-verification.schema.json",
         VALIDATION_SCHEMA: "validation-receipt.schema.json",
@@ -220,16 +239,27 @@ def _live_budget_semantics(
     policy = report["policy"]
     if report["reservedCostUpperBoundUSD"] > policy["maxTotalCostUSD"] + 0.000001:
         errors.append(f"{prefix}: reserved cost exceeds the live budget cap")
-    expected_reported_cost = round(
-        report["reportedPromptTokens"] * policy["inputPricePerMillion"] / 1_000_000
-        + report["reportedCompletionTokens"] * policy["outputPricePerMillion"] / 1_000_000,
-        6,
+    expected_reported_cost = rounded_token_cost_usd(
+        report["reportedPromptTokens"],
+        report["reportedCompletionTokens"],
+        policy["inputPricePerMillion"],
+        policy["outputPricePerMillion"],
     )
     if not _close(expected_reported_cost, report["reportedTokenCostUSD"]):
         errors.append(f"{prefix}: reported token cost does not match token counts and prices")
     if report["reportedTokenCostUSD"] > report["reservedCostUpperBoundUSD"] + 0.000001:
         errors.append(f"{prefix}: reported token cost exceeds the reserved upper bound")
+    gross_reserved = report.get("grossReservedCostUpperBoundUSD")
+    if (
+        gross_reserved is not None
+        and gross_reserved + 0.000001 < report["reservedCostUpperBoundUSD"]
+    ):
+        errors.append(f"{prefix}: gross reservation bound is below the live upper bound")
     forwarded = report["forwardedRequestCount"]
+    settled = report.get("settledRequestCount")
+    outstanding = report.get("outstandingReservationCount")
+    if settled is not None and outstanding is not None and settled + outstanding > forwarded:
+        errors.append(f"{prefix}: settled and outstanding reservations exceed forwarded requests")
     maximum_prompt_tokens = forwarded * min(
         policy["inputTokenCeiling"],
         policy["maxRequestBytes"] * 2 + policy["templateTokenAllowance"],
@@ -307,6 +337,780 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             CandidateManifest(**payload)
         except (TypeError, ValueError) as error:
             errors.append(str(error))
+    elif schema_name == "neutral-facts.schema.json":
+        from .neutral import NeutralLedger
+
+        try:
+            NeutralLedger.from_dict(payload)
+        except (KeyError, TypeError, ValueError) as error:
+            errors.append(str(error))
+    elif schema_name == "neutral-assessment.schema.json":
+        checks = payload["checks"]
+        expected_dimensions = {
+            "outcome": 25 * sum(checks[name] for name in (
+                "allExpectedFacts", "noUnexpectedFacts", "exactFactFields", "committedAll"
+            )),
+            "integrity": 20 * sum(checks[name] for name in (
+                "sourceExpected", "ledgerValid", "duplicateFree",
+                "allOrNoneFinal", "allOrNoneHistory",
+            )),
+            "attribution": 50 * sum(checks[name] for name in (
+                "trustedAttribution", "trustedDecisions"
+            )),
+            "continuity": 100 if checks["continuityObserved"] else 0,
+            "recovery": 100 if checks["recoveryObserved"] else 0,
+        }
+        if payload["dimensions"] != expected_dimensions:
+            errors.append("neutral assessment dimensions disagree with their exact checks")
+        expected_safety = all(checks[name] for name in (
+            "sourceExpected", "ledgerValid", "allOrNoneFinal", "allOrNoneHistory"
+        ))
+        if payload["safetyPassed"] != expected_safety:
+            errors.append("neutral assessment safety flag is inconsistent")
+        if payload["sourcePreserved"] != checks["sourceExpected"]:
+            errors.append("neutral assessment source flag is inconsistent")
+        diagnostics = payload["diagnostics"]
+        field_mismatches = diagnostics.get("fieldMismatchCounts")
+        if field_mismatches is not None:
+            if bool(field_mismatches) == checks["exactFactFields"]:
+                errors.append("neutral field diagnostics disagree with exactFactFields")
+            names = [item["name"] for item in field_mismatches]
+            if names != sorted(names) or len(names) != len(set(names)):
+                errors.append("neutral field diagnostics are not canonical")
+        missing = diagnostics.get("missingExpectedFactCount")
+        unexpected = diagnostics.get("unexpectedFactCount")
+        if missing is not None and unexpected is not None:
+            expected_shared = payload["expectedFactCount"] - missing
+            actual_shared = payload["actualFactCount"] - unexpected
+            if expected_shared != actual_shared:
+                errors.append("neutral fact-count diagnostics disagree on shared facts")
+    elif schema_name == "neutral-feasibility.schema.json":
+        assessments = payload["assessments"]
+        if payload["assessmentCount"] != len(assessments):
+            errors.append("neutral feasibility assessment count is inconsistent")
+        scenario_ids = {
+            assessment["episodeID"].split(":", 1)[0]
+            for assessment in assessments
+        }
+        if payload["scenarioCount"] != len(scenario_ids):
+            errors.append("neutral feasibility scenario count is inconsistent")
+        passed = all(
+            all(assessment["checks"].values())
+            and assessment["safetyPassed"]
+            and assessment["sourcePreserved"]
+            for assessment in assessments
+        )
+        if payload["implementedChecksPassed"] != passed:
+            errors.append("neutral feasibility pass flag is inconsistent")
+    elif schema_name == "neutral-served-preflight.schema.json":
+        assessments = payload["assessments"]
+        if payload["assessmentCount"] != len(assessments):
+            errors.append("neutral served preflight assessment count is inconsistent")
+        if payload["assessmentCount"] != payload["scenarioCount"] * payload["repetitionCount"]:
+            errors.append("neutral served preflight selection totals are inconsistent")
+        episode_ids = [assessment["episodeID"] for assessment in assessments]
+        if len(episode_ids) != len(set(episode_ids)):
+            errors.append("neutral served preflight contains duplicate episodes")
+        if payload["scenarioCount"] != len({assessment["scenario"] for assessment in assessments}):
+            errors.append("neutral served preflight scenario count is inconsistent")
+        trace_count = sum(assessment["traceCount"] for assessment in assessments)
+        if payload["roleProcessCount"] != trace_count:
+            errors.append("neutral served preflight role-process count is inconsistent")
+        passed = all(
+            assessment["implementedChecksPassed"]
+            and all(assessment["checks"].values())
+            and assessment["safetyPassed"]
+            and assessment["sourcePreserved"]
+            for assessment in assessments
+        )
+        if payload["passed"] != passed:
+            errors.append("neutral served preflight pass flag is inconsistent")
+        for index, assessment in enumerate(assessments):
+            checks = assessment["checks"]
+            expected_dimensions = {
+                "outcome": 25 * sum(checks[name] for name in (
+                    "allExpectedFacts", "noUnexpectedFacts", "exactFactFields", "committedAll"
+                )),
+                "integrity": 20 * sum(checks[name] for name in (
+                    "sourceExpected", "ledgerValid", "duplicateFree",
+                    "allOrNoneFinal", "allOrNoneHistory",
+                )),
+                "attribution": 50 * sum(checks[name] for name in (
+                    "trustedAttribution", "trustedDecisions"
+                )),
+                "continuity": 100 if checks["continuityObserved"] else 0,
+                "recovery": 100 if checks["recoveryObserved"] else 0,
+            }
+            if assessment["dimensions"] != expected_dimensions:
+                errors.append(
+                    f"neutral served preflight assessment {index} dimensions are inconsistent"
+                )
+            efficiency = assessment["efficiencyObservations"]
+            if efficiency["toolCallCount"] != sum(efficiency["actionCounts"].values()):
+                errors.append(
+                    f"neutral served preflight assessment {index} call totals are inconsistent"
+                )
+            if efficiency["failedToolCallCount"] > efficiency["toolCallCount"]:
+                errors.append(
+                    f"neutral served preflight assessment {index} failure count exceeds calls"
+                )
+    elif schema_name == "neutral-isolation-preflight.schema.json":
+        episodes = payload["episodes"]
+        if payload["episodeCount"] != len(episodes):
+            errors.append("neutral isolation episode count is inconsistent")
+        if payload["episodeCount"] != payload["scenarioCount"] * payload["repetitionCount"]:
+            errors.append("neutral isolation selection totals are inconsistent")
+        identifiers = [episode["episodeID"] for episode in episodes]
+        if len(identifiers) != len(set(identifiers)):
+            errors.append("neutral isolation contains duplicate episodes")
+        scenario_ids = {episode["scenario"] for episode in episodes}
+        if payload["scenarioCount"] != len(scenario_ids):
+            errors.append("neutral isolation scenario count is inconsistent")
+        expected_cases = {
+            (scenario, repetition)
+            for scenario in scenario_ids
+            for repetition in range(payload["repetitionCount"])
+        }
+        actual_cases = {(episode["scenario"], episode["repetition"]) for episode in episodes}
+        if actual_cases != expected_cases:
+            errors.append("neutral isolation does not cover its scenario/repetition grid")
+        for episode in episodes:
+            expected_prefix = f"{episode['scenario']}:{episode['repetition']}:"
+            if not episode["episodeID"].startswith(expected_prefix):
+                errors.append("neutral isolation episode id is inconsistent")
+            expected_roles = 1 if episode["scenario"] == "human_agent_relay" else 2
+            if episode["roleProcessCount"] != expected_roles:
+                errors.append("neutral isolation role-process count is inconsistent")
+        role_process_count = sum(episode["roleProcessCount"] for episode in episodes)
+        if payload["roleProcessCount"] != role_process_count:
+            errors.append("neutral isolation aggregate role-process count is inconsistent")
+        if payload["distinctRolePromptCount"] != role_process_count:
+            errors.append("neutral isolation distinct prompt count is inconsistent")
+        expected_echoes = payload["fakeModelRequestCount"] - payload["distinctRolePromptCount"]
+        if expected_echoes < 0 or (
+            payload["ownCanaryEchoCount"] + payload["ownCanaryMissingCount"]
+            != expected_echoes
+        ):
+            errors.append("neutral isolation canary accounting is inconsistent")
+        expected_passed = (
+            all(episode["passed"] for episode in episodes)
+            and payload["ownCanaryMissingCount"] == 0
+            and payload["crossRoleCanaryLeakCount"] == 0
+            and payload["malformedRequestCount"] == 0
+            and payload["distinctRolePromptCount"] == role_process_count
+        )
+        if payload["passed"] != expected_passed:
+            errors.append("neutral isolation pass flag is inconsistent")
+    elif schema_name == "neutral-production-preflight.schema.json":
+        episodes = payload["episodes"]
+        if payload["episodeCount"] != len(episodes):
+            errors.append("neutral production preflight episode count is inconsistent")
+        expected_episode_count = payload["scenarioCount"] * payload["repetitionCount"]
+        identifiers = [episode["episodeID"] for episode in episodes]
+        if len(identifiers) != len(set(identifiers)):
+            errors.append("neutral production preflight contains duplicate episodes")
+        for episode in episodes:
+            expected_prefix = f"{episode['scenario']}:{episode['repetition']}:"
+            if not episode["episodeID"].startswith(expected_prefix):
+                errors.append("neutral production preflight episode id is inconsistent")
+            expected_roles = 1 if episode["scenario"] == "human_agent_relay" else 2
+            if episode["roleProcessCount"] != expected_roles:
+                errors.append("neutral production preflight role count is inconsistent")
+        observed_role_processes = sum(
+            episode["roleProcessCount"] for episode in episodes
+        )
+        expected_echoes = (
+            payload["fakeModelRequestCount"] - payload["distinctRolePromptCount"]
+        )
+        expected_passed = (
+            payload["primeExitCode"] == 0
+            and payload["episodeCount"] == expected_episode_count
+            and payload["traceCount"] == payload["expectedRoleProcessCount"]
+            and observed_role_processes == payload["expectedRoleProcessCount"]
+            and payload["distinctRolePromptCount"]
+            == payload["expectedRoleProcessCount"]
+            and expected_echoes >= 0
+            and payload["ownCanaryEchoCount"] == expected_echoes
+            and payload["ownCanaryMissingCount"] == 0
+            and payload["crossRoleCanaryLeakCount"] == 0
+            and payload["malformedRequestCount"] == 0
+            and payload["traceConsistencyPassed"]
+            and payload["officialSummaryValidated"]
+            and not payload["officialSummaryValidationErrors"]
+            and payload["officialRunValidated"]
+            and not payload["officialRunValidationErrors"]
+            and payload["officialRunSha256"] is not None
+            and all(
+                episode["implementedChecksPassed"]
+                and episode["safetyPassed"]
+                and episode["sourcePreserved"]
+                for episode in episodes
+            )
+        )
+        live_budget = payload["liveBudget"]
+        _live_budget_semantics(
+            live_budget,
+            "neutral production preflight live budget",
+            errors,
+        )
+        if live_budget["forwardedRequestCount"] != payload["fakeModelRequestCount"]:
+            errors.append("neutral production preflight request count is inconsistent")
+        if live_budget["rejectedRequestCount"] or live_budget["providerBoundViolationCount"]:
+            expected_passed = False
+        if payload["officialSummaryValidated"] == bool(
+            payload["officialSummaryValidationErrors"]
+        ):
+            errors.append("neutral production summary validation fields disagree")
+        if payload["officialRunValidated"] == bool(
+            payload["officialRunValidationErrors"]
+        ):
+            errors.append("neutral production run validation fields disagree")
+        if payload["passed"] != expected_passed:
+            errors.append("neutral production preflight pass flag is inconsistent")
+    elif schema_name == "neutral-prompt-audit.schema.json":
+        from .entropy import PUBLIC_DEVELOPMENT_KEY
+        from .scenarios import SCENARIO_IDS, generate_episode
+
+        cases = payload["cases"]
+        expected_scenarios = [
+            scenario for scenario in SCENARIO_IDS if scenario in payload["scenarioIDs"]
+        ]
+        if payload["scenarioIDs"] != expected_scenarios:
+            errors.append("neutral prompt audit scenarios are not canonically ordered")
+        if payload["scenarioCount"] != len(payload["scenarioIDs"]):
+            errors.append("neutral prompt audit scenario count is inconsistent")
+        if payload["rolePromptCount"] != len(cases):
+            errors.append("neutral prompt audit role-prompt count is inconsistent")
+        expected_case_keys = []
+        for repetition in range(payload["repetitionCount"]):
+            for scenario in payload["scenarioIDs"]:
+                episode = generate_episode(scenario, PUBLIC_DEVELOPMENT_KEY, repetition)
+                expected_case_keys.extend(
+                    (scenario, repetition, role.seat, role.phase, role.workflow)
+                    for role in episode.roles
+                )
+        actual_case_keys = [
+            (
+                case["scenario"], case["repetition"], case["seat"],
+                case["phase"], case["workflow"],
+            )
+            for case in cases
+        ]
+        if actual_case_keys != expected_case_keys:
+            errors.append("neutral prompt audit role coverage or order is inconsistent")
+        for index, case in enumerate(cases):
+            expected_case_passed = all(case["checks"].values())
+            if case["passed"] != expected_case_passed:
+                errors.append(f"neutral prompt audit case {index} pass flag is inconsistent")
+            semantic_equal = (
+                case["expectedSemanticSha256"] == case["observedSemanticSha256"]
+            )
+            if case["checks"]["exactSemanticProjection"] != semantic_equal:
+                errors.append(
+                    f"neutral prompt audit case {index} semantic digest is inconsistent"
+                )
+        if payload["passed"] != all(case["passed"] for case in cases):
+            errors.append("neutral prompt audit pass flag is inconsistent")
+    elif schema_name == "efficiency-report.schema.json":
+        from .efficiency import (
+            EFFICIENCY_RULES,
+            MAX_TOTAL_SOURCE_BYTES,
+            _contract_evidence_is_valid,
+            _groups,
+            _matched_episodes,
+        )
+
+        observations = payload["observations"]
+        sources = payload["sources"]
+        expected_source_order = sorted(
+            sources,
+            key=lambda value: (value["schema"], value["sha256"]),
+        )
+        if sources != expected_source_order:
+            errors.append("efficiency report sources are not canonically ordered")
+        if len({source["sha256"] for source in sources}) != len(sources):
+            errors.append("efficiency report contains duplicate source artifacts")
+        if sum(source["byteCount"] for source in sources) > MAX_TOTAL_SOURCE_BYTES:
+            errors.append("efficiency report source bytes exceed the aggregate bound")
+        expected_source_schemas = sorted({source["schema"] for source in sources})
+        if payload["sourceSchemas"] != expected_source_schemas:
+            errors.append("efficiency report source schemas disagree with sources")
+        if payload["rules"] != list(EFFICIENCY_RULES):
+            errors.append("efficiency report interpretation rules are not current")
+        if payload["observationCount"] != len(observations):
+            errors.append("efficiency report observation count is inconsistent")
+        episode_ids = {observation["episodeID"] for observation in observations}
+        if payload["episodeCount"] != len(episode_ids):
+            errors.append("efficiency report episode count is inconsistent")
+        expected_order = sorted(
+            observations,
+            key=lambda value: (
+                value["episodeID"], value["controlProfile"], value["candidateID"]
+            ),
+        )
+        if observations != expected_order:
+            errors.append("efficiency observations are not canonically ordered")
+        observation_identities = [
+            (
+                observation["episodeID"],
+                observation["candidateID"],
+                observation["controlProfile"],
+                observation["executionKind"],
+                observation["modelID"],
+            )
+            for observation in observations
+        ]
+        if len(observation_identities) != len(set(observation_identities)):
+            errors.append("efficiency report contains duplicate observations")
+        if payload["groups"] != _groups(observations):
+            errors.append("efficiency report groups disagree with observations")
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for observation in observations:
+            grouped.setdefault(observation["episodeID"], []).append(observation)
+            tool = observation["toolRoundTrips"]
+            usage = observation["modelUsage"]
+            if tool["invalidCount"] > tool["count"]:
+                errors.append("efficiency observation invalid calls exceed total calls")
+            if tool["failedCount"] is not None and tool["failedCount"] > tool["count"]:
+                errors.append("efficiency observation failed calls exceed total calls")
+            expected_missing = sorted([
+                name
+                for name, value in (
+                    ("failed-tool-round-trips", tool["failedCount"]),
+                    ("tool-request-bytes", tool["requestBytes"]),
+                    ("tool-response-bytes", tool["responseBytes"]),
+                    ("cumulative-tool-time", tool["cumulativeToolTimeMs"]),
+                    ("reported-cost", usage["reportedCostUSD"]),
+                )
+                if value is None
+            ])
+            if observation["missingMeasurements"] != expected_missing:
+                errors.append("efficiency missing measurements disagree with null values")
+            if not _contract_evidence_is_valid(observation["comparisonContract"]):
+                errors.append("efficiency comparison-contract evidence is inconsistent")
+            expected_model = observation["executionKind"] == "real-model"
+            if observation["modelExecuted"] != expected_model:
+                errors.append("efficiency execution kind disagrees with model execution")
+            if expected_model != (observation["modelID"] is not None):
+                errors.append("efficiency model identity is inconsistent")
+            plain_profile = (
+                observation["controlProfile"] == "role-separated-plain-markdown-v1"
+            )
+            expected_basis = (
+                "served-workspace-tool-boundary"
+                if plain_profile or not expected_model
+                else "redacted-margin-command-summary"
+            )
+            if tool["measurementBasis"] != expected_basis:
+                errors.append("efficiency tool measurement basis is inconsistent")
+            required_source_schema = (
+                "urn:marginbench:neutral-run:v1"
+                if plain_profile and expected_model
+                else "urn:marginbench:run:v1"
+                if expected_model
+                else "urn:marginbench:neutral-served-preflight:v1"
+            )
+            if required_source_schema not in payload["sourceSchemas"]:
+                errors.append("efficiency observation lacks its declared source class")
+            if not expected_model and any(
+                usage[name] != 0
+                for name in (
+                    "calls", "promptTokens", "cachedInputTokens",
+                    "completionTokens", "reasoningTokens",
+                )
+            ):
+                errors.append("scripted efficiency observation contains model usage")
+        expected_matches = _matched_episodes(grouped)
+        if payload["matchedEpisodes"] != expected_matches:
+            errors.append("efficiency matched-episode summaries are inconsistent")
+    elif schema_name == "neutral-run.schema.json":
+        from .schema import canonical_json
+
+        episodes = payload["episodes"]
+        identifiers = [episode["id"] for episode in episodes]
+        if len(identifiers) != len(set(identifiers)):
+            errors.append("neutral run contains duplicate episode ids")
+        for episode in episodes:
+            expected_id = (
+                f"{episode['scenario']}:{episode['repetition']}:"
+                f"{episode['fingerprint'][:12]}"
+            )
+            if episode["id"] != expected_id:
+                errors.append(f"neutral run episode id is inconsistent: {episode['id']}")
+            checks = episode["checks"]
+            expected_dimensions = {
+                "outcome": 25 * sum(checks[name] for name in (
+                    "allExpectedFacts", "noUnexpectedFacts", "exactFactFields", "committedAll"
+                )),
+                "integrity": 20 * sum(checks[name] for name in (
+                    "sourceExpected", "ledgerValid", "duplicateFree",
+                    "allOrNoneFinal", "allOrNoneHistory",
+                )),
+                "attribution": 50 * sum(checks[name] for name in (
+                    "trustedAttribution", "trustedDecisions"
+                )),
+                "continuity": 100 if checks["continuityObserved"] else 0,
+                "recovery": 100 if checks["recoveryObserved"] else 0,
+            }
+            if episode["dimensions"] != expected_dimensions:
+                errors.append(f"neutral run dimensions are inconsistent: {episode['id']}")
+            if episode["implementedChecksPassed"] != all(checks.values()):
+                errors.append(f"neutral run pass flag is inconsistent: {episode['id']}")
+            expected_safety = all(checks[name] for name in (
+                "sourceExpected", "ledgerValid", "allOrNoneFinal", "allOrNoneHistory"
+            ))
+            if episode["safetyPassed"] != expected_safety:
+                errors.append(f"neutral run safety is inconsistent: {episode['id']}")
+            if episode["sourcePreserved"] != checks["sourceExpected"]:
+                errors.append(f"neutral run source flag is inconsistent: {episode['id']}")
+            tool = episode["toolRoundTrips"]
+            if tool["invalidCount"] > tool["count"] or tool["failedCount"] > tool["count"]:
+                errors.append(f"neutral run tool totals are inconsistent: {episode['id']}")
+            logical_roles = [actor["seat"] for actor in episode["logicalActors"]]
+            try:
+                topology = planned_topology(episode["controlProfile"], logical_roles)
+            except ValueError as error:
+                errors.append(str(error))
+            else:
+                if any(episode[field] != topology[field] for field in topology):
+                    errors.append(f"neutral run topology is inconsistent: {episode['id']}")
+        expected_processes = sum(episode["agentProcessCount"] for episode in episodes)
+        if payload["execution"]["agentProcessCount"] != expected_processes:
+            errors.append("neutral run execution process count is inconsistent")
+        expected_roles = sorted({
+            actor["seat"] for episode in episodes for actor in episode["logicalActors"]
+        })
+        expected_seats = sorted({
+            seat for episode in episodes for seat in episode["traceSeats"]
+        })
+        if payload["execution"]["roles"] != expected_roles:
+            errors.append("neutral run execution roles are inconsistent")
+        if payload["execution"]["traceSeats"] != expected_seats:
+            errors.append("neutral run execution trace seats are inconsistent")
+        if (
+            payload["candidate"]["controlImplementationSha256"]
+            != payload["benchmark"]["implementationSha256"]
+        ):
+            errors.append("neutral run candidate implementation digest is inconsistent")
+        expected_run_id = hashlib.sha256(canonical_json({
+            "candidate": payload["candidate"]["id"],
+            "controlImplementationSha256": payload["candidate"][
+                "controlImplementationSha256"
+            ],
+            "episodes": identifiers,
+            "model": payload["execution"]["model"],
+            "startedAt": payload["execution"]["startedAt"],
+        })).hexdigest()[:32]
+        if payload["runID"] != expected_run_id:
+            errors.append("neutral run id is inconsistent")
+        trace_reported = round(
+            sum(episode["usage"]["reportedCostUSD"] for episode in episodes),
+            6,
+        )
+        if not _close(payload["cost"]["traceReported"], trace_reported):
+            errors.append("neutral run trace-reported cost is inconsistent")
+        expected_unreconciled = round(abs(
+            payload["cost"]["observedWalletDebit"] - payload["cost"]["traceReported"]
+        ), 6)
+        if not _close(payload["cost"]["unreconciled"], expected_unreconciled):
+            errors.append("neutral run unreconciled cost is inconsistent")
+        if "liveBudget" in payload["cost"]:
+            _live_budget_semantics(payload["cost"]["liveBudget"], "neutral run live budget", errors)
+    elif schema_name == "neutral-prime-run-summary.schema.json":
+        episodes = payload["episodes"]
+        if payload["episodeCount"] != len(episodes):
+            errors.append("neutral Prime summary episode count is inconsistent")
+        identifiers = [episode["episodeID"] for episode in episodes]
+        if len(identifiers) != len(set(identifiers)):
+            errors.append("neutral Prime summary contains duplicate episodes")
+        role_run_count = 0
+        for episode in episodes:
+            expected_id = (
+                f"{episode['scenario']}:{episode['repetition']}:"
+                f"{episode['fingerprint'][:12]}"
+            )
+            if episode["episodeID"] != expected_id:
+                errors.append(f"neutral Prime episode id is inconsistent: {episode['episodeID']}")
+            checks = episode["checks"]
+            expected_dimensions = {
+                "outcome": 25 * sum(checks[name] for name in (
+                    "allExpectedFacts", "noUnexpectedFacts", "exactFactFields", "committedAll"
+                )),
+                "integrity": 20 * sum(checks[name] for name in (
+                    "sourceExpected", "ledgerValid", "duplicateFree",
+                    "allOrNoneFinal", "allOrNoneHistory",
+                )),
+                "attribution": 50 * sum(checks[name] for name in (
+                    "trustedAttribution", "trustedDecisions"
+                )),
+                "continuity": 100 if checks["continuityObserved"] else 0,
+                "recovery": 100 if checks["recoveryObserved"] else 0,
+            }
+            if episode["dimensions"] != expected_dimensions:
+                errors.append(
+                    f"neutral Prime dimensions are inconsistent: {episode['episodeID']}"
+                )
+            if episode["implementedChecksPassed"] != all(checks.values()):
+                errors.append(
+                    f"neutral Prime pass flag is inconsistent: {episode['episodeID']}"
+                )
+            if episode["sourcePreserved"] != checks["sourceExpected"]:
+                errors.append(
+                    f"neutral Prime source flag is inconsistent: {episode['episodeID']}"
+                )
+            efficiency = episode["efficiencyObservations"]
+            if efficiency["toolCallCount"] != sum(efficiency["actionCounts"].values()):
+                errors.append(
+                    f"neutral Prime tool totals are inconsistent: {episode['episodeID']}"
+                )
+            role_runs = episode["roleRuns"]
+            role_run_count += len(role_runs)
+            totals = _usage_totals([role["usage"] for role in role_runs])
+            for field, expected in totals.items():
+                if not _close(episode["usage"][field], expected):
+                    errors.append(
+                        f"neutral Prime usage is inconsistent for {field}: {episode['episodeID']}"
+                    )
+            logical_roles = [actor["seat"] for actor in episode["logicalActors"]]
+            try:
+                topology = planned_topology(episode["controlProfile"], logical_roles)
+            except ValueError as error:
+                errors.append(str(error))
+            else:
+                if any(episode[field] != topology[field] for field in topology):
+                    errors.append(
+                        f"neutral Prime topology is inconsistent: {episode['episodeID']}"
+                    )
+        if payload["traceCount"] != role_run_count:
+            errors.append("neutral Prime trace count is inconsistent")
+        wallet = payload["wallet"]
+        observed = round(wallet["before"]["balanceUSD"] - wallet["after"]["balanceUSD"], 6)
+        if not _close(observed, wallet["observedDebitUSD"]):
+            errors.append("neutral Prime wallet debit is inconsistent")
+        _live_budget_semantics(
+            payload["liveBudget"],
+            "neutral Prime live budget",
+            errors,
+            allow_provider_violation=payload["status"] == "infrastructure_error",
+        )
+        if not _close(
+            min(payload["contractMaximumCostUSD"], payload["liveBudgetCapUSD"]),
+            payload["estimatedMaximumCostUSD"],
+        ):
+            errors.append("neutral Prime estimated maximum does not apply its live budget cap")
+        if not _close(
+            payload["liveBudgetCapUSD"],
+            payload["liveBudget"]["policy"]["maxTotalCostUSD"],
+        ):
+            errors.append("neutral Prime live budget cap differs from its policy")
+        if payload["status"] == "completed" and (
+            payload["exitCode"] != 0
+            or payload["traceCount"] == 0
+            or not payload["traceConsistencyPassed"]
+            or payload["infrastructureCodes"]
+            or any(
+                role["stopCondition"] == "error"
+                for episode in episodes
+                for role in episode["roleRuns"]
+            )
+        ):
+            errors.append("completed neutral Prime summary is inconsistent")
+        if not payload["paidModelsInvoked"] and (
+            not _close(wallet["observedDebitUSD"], 0)
+            or any(
+                not _close(episode["usage"]["reportedCostUSD"], 0)
+                for episode in episodes
+            )
+        ):
+            errors.append("no-paid-model neutral Prime summary reports a model charge")
+    elif schema_name == "challenge-catalog.schema.json":
+        from .challenges import DEMAND_AXES, challenge_catalog
+        from .scenarios import SCENARIO_IDS
+
+        axis_ids = [axis["id"] for axis in payload["axes"]]
+        if axis_ids != list(DEMAND_AXES):
+            errors.append("challenge catalog axes are not in the canonical order")
+        challenge_ids = [challenge["scenario"] for challenge in payload["challenges"]]
+        if len(challenge_ids) != len(set(challenge_ids)):
+            errors.append("challenge catalog contains duplicate scenarios")
+        if challenge_ids != list(SCENARIO_IDS):
+            errors.append("challenge catalog does not exactly cover the executable scenarios")
+        if payload != challenge_catalog():
+            errors.append("challenge catalog differs from the frozen executable catalog")
+    elif schema_name == "crossover-plan.schema.json":
+        from .challenges import challenge_catalog, challenge_profile
+        from .crossover import (
+            CONTINUING_PROFILE,
+            CROSSOVER_BENCHMARK_VERSION,
+            MEANINGFUL_SPEED_RATIO,
+            MINIMUM_DIRECTIONAL_PAIRS,
+            QUALITY_TOLERANCE,
+            ROLE_SEPARATED_PROFILE,
+        )
+        from .schema import canonical_json, sha256_bytes
+
+        expected_catalog_sha = sha256_bytes(canonical_json(challenge_catalog()))
+        if payload["benchmarkVersion"] != CROSSOVER_BENCHMARK_VERSION:
+            errors.append("crossover plan benchmark version is not current")
+        if payload["challengeCatalogSha256"] != expected_catalog_sha:
+            errors.append("crossover plan challenge catalog digest is not current")
+        if (
+            payload["minimumPairsForDirectionalClaim"] != MINIMUM_DIRECTIONAL_PAIRS
+            or payload["rules"]
+            != {
+                "qualityTolerancePoints": QUALITY_TOLERANCE,
+                "meaningfulSpeedRatio": MEANINGFUL_SPEED_RATIO,
+                "budgetUnit": "logical-role",
+                "singleAggregateScore": False,
+            }
+        ):
+            errors.append("crossover plan analysis policy is not current")
+        if payload["developmentCases"] != (payload["taskSet"] == "public-development-v1"):
+            errors.append("crossover plan task set disagrees with developmentCases")
+        episodes = payload["episodes"]
+        if payload["episodeCount"] != len(episodes):
+            errors.append("crossover plan episodeCount does not equal episodes length")
+        expected_count = len(payload["scenarioIDs"]) * payload["repetitions"]
+        if payload["episodeCount"] != expected_count:
+            errors.append("crossover plan does not cover every scenario and repetition")
+        identifiers = [episode["id"] for episode in episodes]
+        if len(identifiers) != len(set(identifiers)):
+            errors.append("crossover plan contains duplicate episode IDs")
+        cases = [(episode["scenario"], episode["repetition"]) for episode in episodes]
+        expected_cases = {
+            (scenario, repetition)
+            for scenario in payload["scenarioIDs"]
+            for repetition in range(payload["repetitions"])
+        }
+        if set(cases) != expected_cases or len(cases) != len(set(cases)):
+            errors.append("crossover plan case coverage is inconsistent")
+        logical_roles = 0
+        expected_processes = {ROLE_SEPARATED_PROFILE: 0, CONTINUING_PROFILE: 0}
+        orders = []
+        for episode in episodes:
+            expected_id = (
+                f"{episode['scenario']}:{episode['repetition']}:"
+                f"{episode['fingerprint'][:12]}"
+            )
+            if episode["id"] != expected_id:
+                errors.append(f"crossover episode id is inconsistent: {episode['id']}")
+            profile = challenge_profile(episode["scenario"])
+            if (
+                episode["family"] != profile.family
+                or episode["hypothesis"] != profile.hypothesis
+                or episode["demand"] != dict(profile.demand)
+            ):
+                errors.append(f"crossover challenge metadata is inconsistent: {episode['id']}")
+            logical_roles += len(episode["roles"])
+            for topology_profile in expected_processes:
+                expected_processes[topology_profile] += planned_topology(
+                    topology_profile,
+                    episode["roles"],
+                )["agentProcessCount"]
+            orders.append(tuple(episode["profileOrder"]))
+        if payload["logicalRoleRunsPerProfile"] != logical_roles:
+            errors.append("crossover logical-role budget is inconsistent")
+        if payload["agentProcessesPerProfile"] != expected_processes:
+            errors.append("crossover agent-process totals are inconsistent")
+        forward = sum(order == (ROLE_SEPARATED_PROFILE, CONTINUING_PROFILE) for order in orders)
+        reverse = sum(order == (CONTINUING_PROFILE, ROLE_SEPARATED_PROFILE) for order in orders)
+        if forward + reverse != len(orders) or abs(forward - reverse) > 1:
+            errors.append("crossover topology order is not counterbalanced")
+        for scenario in payload["scenarioIDs"]:
+            scenario_orders = [
+                tuple(episode["profileOrder"])
+                for episode in episodes
+                if episode["scenario"] == scenario
+            ]
+            scenario_forward = scenario_orders.count(
+                (ROLE_SEPARATED_PROFILE, CONTINUING_PROFILE)
+            )
+            scenario_reverse = scenario_orders.count(
+                (CONTINUING_PROFILE, ROLE_SEPARATED_PROFILE)
+            )
+            if abs(scenario_forward - scenario_reverse) > 1:
+                errors.append(
+                    f"crossover topology order is not balanced within scenario: {scenario}"
+                )
+        sufficient = payload["episodeCount"] >= payload["minimumPairsForDirectionalClaim"]
+        if payload["sampleSizeSufficient"] != sufficient:
+            errors.append("crossover plan sample-size flag is inconsistent")
+    elif schema_name == "crossover-report.schema.json":
+        from .crossover import (
+            CONTINUING_PROFILE,
+            ROLE_SEPARATED_PROFILE,
+            CrossoverMeasurement,
+            analyze_crossover,
+        )
+
+        separated: list[CrossoverMeasurement] = []
+        continuing: list[CrossoverMeasurement] = []
+        for observation in payload["observations"]:
+            common = {
+                "episode_id": observation["episodeID"],
+                "scenario": observation["scenario"],
+                "repetition": observation["repetition"],
+                "fingerprint": observation["fingerprint"],
+                "margin_sha256": payload["marginSha256"],
+            }
+            for profile, field, destination in (
+                (ROLE_SEPARATED_PROFILE, "roleSeparated", separated),
+                (CONTINUING_PROFILE, "continuing", continuing),
+            ):
+                measurement = observation[field]
+                usage = measurement["usage"]
+                destination.append(CrossoverMeasurement(
+                    **common,
+                    candidate_id=measurement["candidateID"],
+                    control_profile=profile,
+                    score=measurement["score"],
+                    duration_ms=measurement["durationMs"],
+                    command_count=measurement["commandCount"],
+                    invalid_command_count=measurement["invalidCommandCount"],
+                    safety_passed=measurement["safetyPassed"],
+                    source_preserved=measurement["sourcePreserved"],
+                    dimensions=dict(measurement["dimensions"]),
+                    checks=dict(measurement["checks"]),
+                    model_calls=usage["modelCalls"],
+                    prompt_tokens=usage["promptTokens"],
+                    completion_tokens=usage["completionTokens"],
+                    cached_input_tokens=usage["cachedInputTokens"],
+                    reasoning_tokens=usage["reasoningTokens"],
+                    reported_cost_usd=usage["reportedCostUSD"],
+                ))
+        try:
+            expected = analyze_crossover(
+                separated,
+                continuing,
+                analysis_mode=payload["analysisMode"],
+                plan=payload["plan"],
+                experiment_contract=payload["experimentContract"],
+            )
+        except ValueError as error:
+            errors.append(str(error))
+        else:
+            if payload != expected:
+                errors.append("crossover report does not match its paired measurements")
+    elif schema_name == "crossover-publication-audit.schema.json":
+        paths = [item["path"] for item in payload["artifacts"]]
+        if payload["artifactCount"] != len(payload["artifacts"]):
+            errors.append("publication audit artifactCount does not equal artifacts length")
+        if len(paths) != len(set(paths)):
+            errors.append("publication audit contains duplicate artifact paths")
+        expected_valid = (
+            not payload["errors"]
+            and payload["reportReproduced"]
+            and payload["rawArtifactCount"] == 0
+        )
+        if payload["valid"] != expected_valid:
+            errors.append("publication audit valid flag disagrees with its findings")
+        if payload["runCount"] != payload["summaryCount"]:
+            errors.append("publication audit run and summary counts differ")
+        if payload["valid"]:
+            if payload["runCount"] != payload["episodeCount"] * 2:
+                errors.append("publication audit does not contain both topologies for every episode")
+            if payload["candidateID"] is None:
+                errors.append("valid publication audit lacks a candidate id")
     elif schema_name == "public-manifest.schema.json":
         expected = f"{payload['scenario']}:{payload['repetition']}:{payload['fingerprint'][:12]}"
         if payload["id"] != expected:
@@ -782,6 +1586,94 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             errors.append("diagnostic experiment gate disagrees with safety totals")
         if experiment["minimumMatchedEpisodes"] != (0 if local_gate else 20):
             errors.append("diagnostic minimum matched episodes disagrees with its gate")
+    elif schema_name == "trace-shape-report.schema.json":
+        if payload["sourceCount"] != len(payload["sources"]):
+            errors.append("trace shape sourceCount does not equal sources length")
+        if payload["successCount"] + payload["failureCount"] != payload["toolCallCount"]:
+            errors.append("trace shape success and failure totals do not equal toolCallCount")
+        if payload["blockedCount"] > payload["failureCount"]:
+            errors.append("trace shape blockedCount exceeds failureCount")
+        if payload["leadingLiteralMarginCount"] > payload["toolCallCount"]:
+            errors.append("trace shape leading executable count exceeds toolCallCount")
+        unanswered = payload.get("unansweredToolCallCount", 0)
+        unanswered_rows = payload.get("unansweredCommands", [])
+        if sum(item["count"] for item in unanswered_rows) != unanswered:
+            errors.append("trace unanswered command counts disagree with the report")
+        command_total = 0
+        command_success = 0
+        command_failure = 0
+        command_blocked = 0
+        for command in payload["commands"]:
+            if command["successCount"] + command["failureCount"] != command["count"]:
+                errors.append(f"trace command totals disagree: {command['name']}")
+            if command["blockedCount"] > command["failureCount"]:
+                errors.append(f"trace command blocked count exceeds failures: {command['name']}")
+            command_total += command["count"]
+            command_success += command["successCount"]
+            command_failure += command["failureCount"]
+            command_blocked += command["blockedCount"]
+        if command_total != payload["toolCallCount"]:
+            errors.append("trace command counts do not equal toolCallCount")
+        if command_success != payload["successCount"] or command_failure != payload["failureCount"]:
+            errors.append("trace command outcome totals disagree with the report")
+        if command_blocked != payload["blockedCount"]:
+            errors.append("trace command blocked totals disagree with the report")
+        signatures = payload.get("commandSignatures")
+        if signatures is not None:
+            signature_total = 0
+            signature_success = 0
+            signature_failure = 0
+            signature_blocked = 0
+            for signature in signatures:
+                if signature["successCount"] + signature["failureCount"] != signature["count"]:
+                    errors.append(
+                        f"trace command-signature totals disagree: {signature['command']}"
+                    )
+                if signature["blockedCount"] > signature["failureCount"]:
+                    errors.append(
+                        "trace command-signature blocked count exceeds failures: "
+                        f"{signature['command']}"
+                    )
+                if signature["flags"] != sorted(signature["flags"]):
+                    errors.append(
+                        f"trace command-signature flags are not canonical: {signature['command']}"
+                    )
+                signature_errors = signature.get("errors")
+                if signature_errors is not None and sum(
+                    item["count"] for item in signature_errors
+                ) != signature["failureCount"]:
+                    errors.append(
+                        "trace command-signature error counts disagree with failures: "
+                        f"{signature['command']}"
+                    )
+                signature_total += signature["count"]
+                signature_success += signature["successCount"]
+                signature_failure += signature["failureCount"]
+                signature_blocked += signature["blockedCount"]
+            if signature_total != payload["toolCallCount"]:
+                errors.append("trace command-signature counts do not equal toolCallCount")
+            if (
+                signature_success != payload["successCount"]
+                or signature_failure != payload["failureCount"]
+            ):
+                errors.append("trace command-signature outcomes disagree with the report")
+            if signature_blocked != payload["blockedCount"]:
+                errors.append("trace command-signature blocked totals disagree with the report")
+        if sum(item["traceCount"] for item in payload["scenarios"]) != payload["traceCount"]:
+            errors.append("trace scenario trace counts do not equal traceCount")
+        if sum(item["toolCallCount"] for item in payload["scenarios"]) != payload["toolCallCount"]:
+            errors.append("trace scenario tool counts do not equal toolCallCount")
+        if sum(item["failureCount"] for item in payload["scenarios"]) != payload["failureCount"]:
+            errors.append("trace scenario failure counts disagree with the report")
+        if sum(item["blockedCount"] for item in payload["scenarios"]) != payload["blockedCount"]:
+            errors.append("trace scenario blocked counts disagree with the report")
+        if sum(
+            item.get("unansweredToolCallCount", 0)
+            for item in payload["scenarios"]
+        ) != unanswered:
+            errors.append("trace scenario unanswered counts disagree with the report")
+        if sum(item["count"] for item in payload["sequences"]) > payload["traceCount"]:
+            errors.append("trace sequence counts exceed traceCount")
     elif schema_name == "binary-manifest.schema.json":
         artifacts = payload["artifacts"]
         for field in ("architecture", "platform", "path"):
@@ -889,6 +1781,115 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 first_positions[first] += 1
         if abs(first_positions[payload["baselineCandidate"]] - first_positions[payload["candidate"]]) > 1:
             errors.append("execution plan candidate-first order is not counterbalanced")
+    elif schema_name == "crossover-prime-plan.schema.json":
+        if payload["id"] != submission_identifier(payload):
+            errors.append("crossover Prime plan id does not match its canonical content")
+        if payload["developmentCases"] != (payload["taskSet"] == "public-development-v1"):
+            errors.append("crossover Prime plan case partition is inconsistent")
+        jobs = payload["jobs"]
+        if payload["jobCount"] != len(jobs):
+            errors.append("crossover Prime plan jobCount does not equal jobs length")
+        if [item["ordinal"] for item in jobs] != list(range(1, len(jobs) + 1)):
+            errors.append("crossover Prime plan ordinals are not contiguous")
+        if payload["agentProcessCount"] != sum(item["agentProcessCount"] for item in jobs):
+            errors.append("crossover Prime plan agent-process total is inconsistent")
+        job_ids = [item["id"] for item in jobs]
+        if len(job_ids) != len(set(job_ids)):
+            errors.append("crossover Prime plan contains duplicate job ids")
+        limits = payload["limits"]
+        pricing = payload["pricing"]
+        per_cell_cap = payload["budget"]["liveProxyCapPerCellUSD"]
+        episodes: dict[str, list[dict[str, Any]]] = {}
+        for job in jobs:
+            if job["candidateID"] != payload["candidate"]["id"]:
+                errors.append(f"crossover Prime job names another candidate: {job['ordinal']}")
+            expected_episode = (
+                f"{job['scenario']}:{job['repetition']}:"
+                f"{job['fingerprint'][:12]}"
+            )
+            if job["episodeID"] != expected_episode:
+                errors.append(f"crossover Prime job episode identity is inconsistent: {job['ordinal']}")
+            identity = {
+                "schema": "urn:marginbench:crossover-prime-job:v1",
+                "ordinal": job["ordinal"],
+                "episodeID": job["episodeID"],
+                "candidateID": job["candidateID"],
+                "controlProfile": job["controlProfile"],
+            }
+            if job["id"] != submission_identifier(identity):
+                errors.append(f"crossover Prime job id is inconsistent: {job['ordinal']}")
+            try:
+                topology = planned_topology(job["controlProfile"], job["roles"])
+            except ValueError as error:
+                errors.append(str(error))
+            else:
+                if any(job[field] != topology[field] for field in topology):
+                    errors.append(f"crossover Prime job topology is inconsistent: {job['ordinal']}")
+            attempts = (
+                job["agentProcessCount"]
+                * per_agent_compute_multiplier(job["controlProfile"], job["roles"])
+                * limits["maxTurns"]
+                * limits["upstreamAttemptsPerTurn"]
+            )
+            contract = round(attempts * (
+                limits["inputTokenCeilingPerCall"]
+                * pricing["inputPricePerMillion"]
+                / 1_000_000
+                + (
+                    limits["maxTokensPerCall"]
+                    + limits["providerResponseTokenAllowance"]
+                )
+                * pricing["outputPricePerMillion"]
+                / 1_000_000
+                + pricing["billingOverheadUSDPerCall"]
+            ), 6)
+            expected_live_cap = round(min(contract, per_cell_cap), 6)
+            if not _close(contract, job["contractMaximumCostUSD"]):
+                errors.append(
+                    f"crossover Prime job contract bound is inconsistent: {job['ordinal']}"
+                )
+            if not _close(expected_live_cap, job["liveProxyCapUSD"]):
+                errors.append(
+                    f"crossover Prime job live proxy cap is inconsistent: {job['ordinal']}"
+                )
+            episodes.setdefault(job["episodeID"], []).append(job)
+        for episode_id, pair in episodes.items():
+            if len(pair) != 2:
+                errors.append(
+                    f"crossover Prime episode does not contain exactly two cells: {episode_id[:200]}"
+                )
+                continue
+            if {item["controlProfile"] for item in pair} != {
+                "role-separated-margin-only-v1",
+                "single-agent-margin-v1",
+            }:
+                errors.append(
+                    f"crossover Prime episode does not cover both topologies: {episode_id[:200]}"
+                )
+            immutable = ("scenario", "repetition", "fingerprint", "roles")
+            if any(pair[0][field] != pair[1][field] for field in immutable):
+                errors.append(f"crossover Prime episode pair metadata differs: {episode_id[:200]}")
+        expected_maximum = round(sum(float(item["liveProxyCapUSD"]) for item in jobs), 6)
+        if not _close(expected_maximum, payload["budget"]["estimatedMaximumCostUSD"]):
+            errors.append("crossover Prime aggregate cost does not equal cell caps")
+        expected_contract = round(
+            sum(float(item["contractMaximumCostUSD"]) for item in jobs),
+            6,
+        )
+        if not _close(expected_contract, payload["budget"]["contractMaximumCostUSD"]):
+            errors.append("crossover Prime aggregate contract bound is inconsistent")
+        if (
+            payload["budget"]["estimatedMaximumCostUSD"]
+            > payload["budget"]["hardStudyCapUSD"] + 0.000001
+        ):
+            errors.append("crossover Prime estimate exceeds its hard study cap")
+    elif schema_name == "crossover-prime-completion.schema.json":
+        if payload["jobCount"] % 2 != 0:
+            errors.append("crossover Prime completion has an odd cell count")
+        if payload["sampleSizeSufficient"] != (payload["jobCount"] // 2 >= 20):
+            errors.append("crossover Prime completion sample-size status is inconsistent")
+        if payload["allSafe"] != (payload["directionalConclusion"] != "unsafe"):
+            errors.append("crossover Prime completion safety conclusion is inconsistent")
     elif schema_name == "prime-study-plan.schema.json":
         if payload["id"] != submission_identifier(payload):
             errors.append("Prime study plan id does not match its canonical content")

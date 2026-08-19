@@ -17,6 +17,7 @@ def implementation_files(package_root: Path) -> tuple[Path, ...]:
     explicit = (
         package_root / "pyproject.toml",
         package_root / "hatch_build.py",
+        package_root / "crossover_pilot.py",
         package_root / "paired_pilot.py",
         package_root / "preflight.py",
         package_root / "prime_pilot.py",

@@ -81,6 +81,11 @@ jobs:
             -s "$MARGINBENCH_ROOT/tests" -p 'test_*.py'
           PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli self-test \
             --margin-bin "$MARGINBENCH_BINARY"
+          PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli neutral-feasibility
+          for bundle in "$MARGINBENCH_ROOT"/results/crossover/v*; do
+            PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli audit-crossover \
+              "$bundle"
+          done
 
       - name: Run the Prime Verifiers contracts and no-model rehearsal
         run: |
@@ -97,6 +102,37 @@ jobs:
           PYTHONPATH="$MARGINBENCH_ROOT" "$MARGINBENCH_ROOT/preflight.py" \
             --margin-bin "$MARGINBENCH_BINARY" --server \
             --control-profile single-agent-margin-v1
+          mkdir -p build/ci-marginbench-dist
+          PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli \
+            neutral-prompt-audit \
+            > build/ci-marginbench-dist/neutral-prompt-audit.json
+          PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli validate \
+            build/ci-marginbench-dist/neutral-prompt-audit.json > /dev/null
+          PYTHONPATH="$MARGINBENCH_ROOT" \
+            "$HOME/.local/share/uv/tools/prime/bin/python" -m marginbench.cli \
+            neutral-served-preflight \
+            > build/ci-marginbench-dist/neutral-served-preflight.json
+          PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli validate \
+            build/ci-marginbench-dist/neutral-served-preflight.json > /dev/null
+          PYTHONPATH="$MARGINBENCH_ROOT" \
+            "$HOME/.local/share/uv/tools/prime/bin/python" -m marginbench.cli \
+            neutral-isolation-preflight \
+            > build/ci-marginbench-dist/neutral-isolation-preflight.json
+          PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli validate \
+            build/ci-marginbench-dist/neutral-isolation-preflight.json > /dev/null
+          PYTHONPATH="$MARGINBENCH_ROOT" \
+            "$HOME/.local/share/uv/tools/prime/bin/python" -m marginbench.cli \
+            neutral-production-preflight \
+            > build/ci-marginbench-dist/neutral-production-preflight.json
+          PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli validate \
+            build/ci-marginbench-dist/neutral-production-preflight.json > /dev/null
+          PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli efficiency-report \
+            build/ci-marginbench-dist/neutral-served-preflight.json \
+            "$MARGINBENCH_ROOT/results/crossover/v17/cells/0001-parallel-shards-role-5cdfb0a164.run.json" \
+            "$MARGINBENCH_ROOT/results/crossover/v17/cells/0002-parallel-shards-continuing-422c21b182.run.json" \
+            > build/ci-marginbench-dist/efficiency-report.json
+          PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli validate \
+            build/ci-marginbench-dist/efficiency-report.json > /dev/null
           mkdir -p build/ci-marginbench-private
           cleanup_private_key() {
             if [ -f build/ci-marginbench-private/holdout.key ]; then
@@ -147,6 +183,13 @@ jobs:
           PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli validate \
             "$MARGINBENCH_ROOT/results/EXPERIMENT_LEDGER.json" \
             > build/ci-marginbench-dist/validation-receipt.json
+          for bundle in "$MARGINBENCH_ROOT"/results/crossover/v*; do
+            version="$(basename "$bundle")"
+            PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli audit-crossover \
+              "$bundle" > "build/ci-marginbench-dist/crossover-$version-audit.json"
+            PYTHONPATH="$MARGINBENCH_ROOT" python -m marginbench.cli validate \
+              "build/ci-marginbench-dist/crossover-$version-audit.json" > /dev/null
+          done
 
       - name: Retain the checked package and validation receipt
         uses: actions/upload-artifact@v4

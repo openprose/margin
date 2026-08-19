@@ -347,10 +347,16 @@ public struct CommentService: Sendable {
         creator: MarginActor,
         annotationID: String? = nil,
         reopen: Bool = false,
+        resolveAfterReply: Bool = false,
         preconditions: CommentMutationPreconditions = CommentMutationPreconditions()
     ) throws -> CommentMutationReceipt {
         try validateMessage(message)
         try validateActor(creator)
+        guard !(reopen && resolveAfterReply) else {
+            throw CommentProtocolError.invalidEnvelope(
+                "A reply cannot reopen and resolve the same thread in one operation."
+            )
+        }
         let parentID = MarginID.annotation(parentID)
         let id = MarginID.annotation(annotationID)
         let timestamp = Self.timestamp()
@@ -372,10 +378,14 @@ public struct CommentService: Sendable {
                 created: timestamp,
                 modified: timestamp,
                 body: MarginCommentBody(value: message),
-                target: .resource(parentID)
+                target: .resource(parentID),
+                extensions: resolveAfterReply
+                    ? ["margin:resolveAfterReply": .bool(true)]
+                    : [:]
             )
             if let existing = index[id] {
-                guard semanticallyEquivalent(existing, annotation) else {
+                guard semanticallyEquivalent(existing, annotation),
+                      resolvesAfterReply(existing) == resolveAfterReply else {
                     throw CommentProtocolError.idConflict(id)
                 }
                 return AtomicDocumentMutation(
@@ -398,6 +408,15 @@ public struct CommentService: Sendable {
                 index[rootID] = envelope.items[rootIndex]
             }
             envelope.items.append(annotation)
+            if resolveAfterReply {
+                guard let rootIndex = envelope.items.firstIndex(where: { $0.id == rootID }) else {
+                    throw CommentProtocolError.commentNotFound(rootID)
+                }
+                envelope.items[rootIndex].status = .resolved
+                envelope.items[rootIndex].statusModified = timestamp
+                envelope.items[rootIndex].statusModifiedBy = creator
+                envelope.items[rootIndex].modified = timestamp
+            }
             advance(&envelope, timestamp: timestamp)
             let output = try codec.encode(bodyData: decoded.bodyData, envelope: envelope)
             return AtomicDocumentMutation(
@@ -860,6 +879,10 @@ public struct CommentService: Sendable {
             lhs.creator == rhs.creator &&
             lhs.body == rhs.body &&
             equivalentTarget(lhs.target, rhs.target)
+    }
+
+    private func resolvesAfterReply(_ annotation: MarginComment) -> Bool {
+        annotation.extensions["margin:resolveAfterReply"] == .bool(true)
     }
 
     private func equivalentTarget(_ lhs: CommentTarget, _ rhs: CommentTarget) -> Bool {

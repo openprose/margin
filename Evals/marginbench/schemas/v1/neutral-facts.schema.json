@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:neutral-facts:v1",
+  "title": "MarginBench representation-neutral collaboration facts v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "format", "facts"],
+  "properties": {
+    "schema": {"const": "urn:marginbench:neutral-facts:v1"},
+    "format": {"const": "marginbench-neutral-v2"},
+    "facts": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {"$ref": "#/$defs/fact"}
+    }
+  },
+  "$defs": {
+    "optionalScalar": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\r\\n\\u0000]+$"
+    },
+    "factID": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+    },
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "kind", "file", "quote", "author", "state", "parent", "root",
+        "nextActor", "assignee", "priority", "audience", "expectedText",
+        "replacementText", "decisionBy", "transaction", "body", "extensions"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/factID"},
+        "kind": {
+          "enum": [
+            "approval", "comment", "decision", "handoff", "issue", "question",
+            "reply", "suggestion", "task"
+          ]
+        },
+        "file": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\r\\n\\u0000]+\\.md$"
+        },
+        "quote": {"$ref": "#/$defs/optionalScalar"},
+        "author": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[^\\r\\n\\u0000]+$"
+        },
+        "state": {"enum": ["open", "resolved", "accepted", "rejected", "none"]},
+        "parent": {
+          "oneOf": [{"$ref": "#/$defs/factID"}, {"type": "null"}]
+        },
+        "root": {"$ref": "#/$defs/factID"},
+        "nextActor": {"$ref": "#/$defs/optionalScalar"},
+        "assignee": {"$ref": "#/$defs/optionalScalar"},
+        "priority": {
+          "type": ["string", "null"],
+          "enum": ["low", "normal", "high", "urgent", null]
+        },
+        "audience": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^[^\\r\\n\\u0000]+$"
+          }
+        },
+        "expectedText": {"$ref": "#/$defs/optionalScalar"},
+        "replacementText": {"$ref": "#/$defs/optionalScalar"},
+        "decisionBy": {"$ref": "#/$defs/optionalScalar"},
+        "transaction": {"$ref": "#/$defs/optionalScalar"},
+        "body": {"type": "string", "minLength": 1, "maxLength": 65536},
+        "extensions": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": {"pattern": "^X-[A-Za-z0-9][A-Za-z0-9 -]{0,61}$"},
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^[^\\r\\n\\u0000]+$"
+          }
+        }
+      }
+    }
+  }
+}

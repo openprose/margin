@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:crossover-publication-audit:v1",
+  "title": "MarginBench redacted crossover publication audit receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "valid", "rootName", "candidateID", "artifactCount", "runCount",
+    "summaryCount", "episodeCount", "rawArtifactCount", "reportReproduced",
+    "allPairsSafe", "sampleSizeSufficient", "artifacts", "errors"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:crossover-publication-audit:v1"},
+    "valid": {"type": "boolean"},
+    "rootName": {"type": "string", "minLength": 1, "maxLength": 255},
+    "candidateID": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+    "artifactCount": {"type": "integer", "minimum": 0, "maximum": 128},
+    "runCount": {"type": "integer", "minimum": 0, "maximum": 128},
+    "summaryCount": {"type": "integer", "minimum": 0, "maximum": 128},
+    "episodeCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+    "rawArtifactCount": {"type": "integer", "minimum": 0, "maximum": 128},
+    "reportReproduced": {"type": "boolean"},
+    "allPairsSafe": {"type": ["boolean", "null"]},
+    "sampleSizeSufficient": {"type": ["boolean", "null"]},
+    "artifacts": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "schema", "sha256", "byteCount"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$"
+          },
+          "schema": {"type": "string", "pattern": "^urn:marginbench:", "maxLength": 256},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "byteCount": {"type": "integer", "minimum": 1, "maximum": 16777216}
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,127}$"},
+          "message": {"type": "string", "minLength": 1, "maxLength": 1024},
+          "path": {"type": "string", "minLength": 1, "maxLength": 1024}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"valid": {"const": true}}},
+      "then": {
+        "properties": {
+          "candidateID": {"type": "string"},
+          "rawArtifactCount": {"const": 0},
+          "reportReproduced": {"const": true},
+          "allPairsSafe": {"type": "boolean"},
+          "sampleSizeSufficient": {"type": "boolean"},
+          "errors": {"maxItems": 0}
+        }
+      },
+      "else": {"properties": {"errors": {"minItems": 1}}}
+    }
+  ]
+}

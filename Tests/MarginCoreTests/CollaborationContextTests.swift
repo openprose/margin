@@ -64,6 +64,9 @@ final class CollaborationContextTests: XCTestCase {
         XCTAssertEqual(context.cursor.files.map(\.path), ["README.md", "notes/équipe.md"])
         XCTAssertFalse(context.truncation.isTruncated)
         XCTAssertEqual(context.files[1].outline.first?.title, "Café ☕️")
+        XCTAssertEqual(context.files[0].sourcePreview, "# Root\n\nWelcome.\n")
+        XCTAssertFalse(context.files[0].sourcePreviewTruncated)
+        XCTAssertTrue(context.availableActions.contains(.readDocument))
         XCTAssertTrue(context.availableActions.contains(.replyToThread))
         XCTAssertTrue(context.availableActions.contains(.resolveThread))
         XCTAssertEqual(
@@ -118,6 +121,33 @@ final class CollaborationContextTests: XCTestCase {
         XCTAssertEqual(ownerActivity.assignedOpenContributionIDs, ["urn:task:two"])
         XCTAssertTrue(contribution.reference.hasPrefix("document#"))
         XCTAssertEqual(contribution.reference.split(separator: "#").last?.count, 8)
+    }
+
+    func testContextSourcePreviewIsBoundedAndExcludesEmbeddedMetadata() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("preview.md")
+        let body = "# Preview\n\nA deliberately longer logical Markdown source.\n"
+        try Data(body.utf8).write(to: file)
+        _ = try CommentService().add(
+            at: file,
+            message: "Metadata must stay out of the source preview.",
+            creator: MarginActor(id: "urn:agent:preview", type: .software, name: "Preview Agent"),
+            anchor: .document,
+            annotationID: "urn:comment:preview"
+        )
+
+        let root = try CollaborationRootResolver().document(at: file)
+        let context = try CollaborationContextService().context(
+            root: root,
+            limits: CollaborationContextLimits(maxSourcePreviewBytes: 12)
+        )
+        let preview = try XCTUnwrap(context.files.first)
+        XCTAssertTrue(preview.sourcePreview.hasPrefix("# Preview"))
+        XCTAssertTrue(preview.sourcePreviewTruncated)
+        XCTAssertLessThanOrEqual(preview.sourcePreview.utf8.count, 15)
+        XCTAssertFalse(preview.sourcePreview.contains("margin:comments"))
+        XCTAssertFalse(preview.sourcePreview.contains("Metadata must stay out"))
     }
 
     func testExplicitPathRejectsTraversalAndSymlinkEscapeButAllowsUnicodeAndHiddenFile() throws {

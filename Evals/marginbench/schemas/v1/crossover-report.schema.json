@@ -1,0 +1,325 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:crossover-report:v1",
+  "title": "MarginBench collaboration crossover report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "benchmarkVersion", "analysisMode", "challengeCatalogSha256", "plan",
+    "experimentContract", "experimentContractSha256", "profiles",
+    "marginSha256", "episodeCount", "minimumPairsForDirectionalClaim",
+    "sampleSizeSufficient", "allPairsSafe", "thresholds", "overall", "families",
+    "axes", "observations", "rules"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:crossover-report:v1"},
+    "benchmarkVersion": {"const": "0.2.0-crossover"},
+    "analysisMode": {"enum": ["model-free-reference", "measured-model"]},
+    "challengeCatalogSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "plan": {"$ref": "urn:marginbench:crossover-plan:v1"},
+    "experimentContract": {"$ref": "#/$defs/experimentContract"},
+    "experimentContractSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "profiles": {
+      "type": "object", "additionalProperties": false,
+      "required": ["roleSeparated", "continuing"],
+      "properties": {
+        "roleSeparated": {"const": "role-separated-margin-only-v1"},
+        "continuing": {"const": "single-agent-margin-v1"}
+      }
+    },
+    "marginSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "episodeCount": {"type": "integer", "minimum": 1, "maximum": 900},
+    "minimumPairsForDirectionalClaim": {"type": "integer", "minimum": 2},
+    "sampleSizeSufficient": {"type": "boolean"},
+    "allPairsSafe": {"type": "boolean"},
+    "thresholds": {
+      "type": "object", "additionalProperties": false,
+      "required": ["qualityTolerancePoints", "meaningfulSpeedRatio"],
+      "properties": {
+        "qualityTolerancePoints": {"type": "number", "minimum": 0, "maximum": 100},
+        "meaningfulSpeedRatio": {"type": "number", "exclusiveMinimum": 1}
+      }
+    },
+    "overall": {"$ref": "#/$defs/aggregate"},
+    "families": {
+      "type": "array", "minItems": 1, "maxItems": 64,
+      "items": {"$ref": "#/$defs/aggregate"}
+    },
+    "axes": {
+      "type": "array", "minItems": 1, "maxItems": 35,
+      "items": {"$ref": "#/$defs/axisAggregate"}
+    },
+    "observations": {
+      "type": "array", "minItems": 1, "maxItems": 900,
+      "items": {"$ref": "#/$defs/observation"}
+    },
+    "rules": {
+      "type": "array", "minItems": 5, "maxItems": 16,
+      "items": {"type": "string", "minLength": 1, "maxLength": 512}
+    }
+  },
+  "$defs": {
+    "demand": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "parallelism", "informationDistribution", "specialization", "reviewIndependence",
+        "workspaceVolatility", "continuity", "coupling"
+      ],
+      "properties": {
+        "parallelism": {"type": "integer", "minimum": 0, "maximum": 4},
+        "informationDistribution": {"type": "integer", "minimum": 0, "maximum": 4},
+        "specialization": {"type": "integer", "minimum": 0, "maximum": 4},
+        "reviewIndependence": {"type": "integer", "minimum": 0, "maximum": 4},
+        "workspaceVolatility": {"type": "integer", "minimum": 0, "maximum": 4},
+        "continuity": {"type": "integer", "minimum": 0, "maximum": 4},
+        "coupling": {"type": "integer", "minimum": 0, "maximum": 4}
+      }
+    },
+    "usage": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "modelCalls", "promptTokens", "completionTokens", "cachedInputTokens",
+        "reasoningTokens", "reportedCostUSD"
+      ],
+      "properties": {
+        "modelCalls": {"type": "integer", "minimum": 0},
+        "promptTokens": {"type": "integer", "minimum": 0},
+        "completionTokens": {"type": "integer", "minimum": 0},
+        "cachedInputTokens": {"type": "integer", "minimum": 0},
+        "reasoningTokens": {"type": "integer", "minimum": 0},
+        "reportedCostUSD": {"type": "number", "minimum": 0}
+      }
+    },
+    "measurement": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "candidateID", "score", "durationMs", "commandCount", "invalidCommandCount",
+        "safetyPassed", "sourcePreserved", "dimensions", "checks", "usage"
+      ],
+      "properties": {
+        "candidateID": {"type": "string", "minLength": 1, "maxLength": 256},
+        "score": {"type": "number", "minimum": 0, "maximum": 100},
+        "durationMs": {"type": "number", "minimum": 0},
+        "commandCount": {"type": "integer", "minimum": 0},
+        "invalidCommandCount": {"type": "integer", "minimum": 0},
+        "safetyPassed": {"type": "boolean"},
+        "sourcePreserved": {"type": "boolean"},
+        "dimensions": {"$ref": "#/$defs/dimensions"},
+        "checks": {"$ref": "#/$defs/checks"},
+        "usage": {"$ref": "#/$defs/usage"}
+      }
+    },
+    "delta": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "score", "durationMs", "speedRatio", "commandCount", "invalidCommandCount",
+        "modelCalls", "promptTokens", "completionTokens", "cachedInputTokens",
+        "reasoningTokens", "reportedCostUSD"
+      ],
+      "properties": {
+        "score": {"type": "number", "minimum": -100, "maximum": 100},
+        "durationMs": {"type": "number"},
+        "speedRatio": {"type": "number", "minimum": 0},
+        "commandCount": {"type": "integer"},
+        "invalidCommandCount": {"type": "integer"},
+        "modelCalls": {"type": "integer"},
+        "promptTokens": {"type": "integer"},
+        "completionTokens": {"type": "integer"},
+        "cachedInputTokens": {"type": "integer"},
+        "reasoningTokens": {"type": "integer"},
+        "reportedCostUSD": {"type": "number"}
+      }
+    },
+    "aggregate": {
+      "allOf": [{"$ref": "#/$defs/aggregateBase"}],
+      "unevaluatedProperties": false
+    },
+    "aggregateBase": {
+      "type": "object",
+      "required": [
+        "label", "pairCount", "sampleSizeSufficient", "pairSafe", "meanScoreDelta",
+        "scoreDelta95CI", "meanDurationMsDelta", "meanSpeedRatio", "speedRatio95CI",
+        "meanCommandCountDelta", "meanInvalidCommandCountDelta", "meanModelCallsDelta",
+        "meanPromptTokensDelta", "meanCompletionTokensDelta", "meanCachedInputTokensDelta",
+        "meanReasoningTokensDelta", "meanReportedCostUSDDelta",
+        "meanDimensionDeltas", "roleSeparatedFailedCheckCounts",
+        "continuingFailedCheckCounts", "leaderCounts", "descriptiveLeader", "directionalConclusion"
+      ],
+      "properties": {
+        "label": {"type": "string", "minLength": 1, "maxLength": 256},
+        "pairCount": {"type": "integer", "minimum": 1},
+        "sampleSizeSufficient": {"type": "boolean"},
+        "pairSafe": {"type": "boolean"},
+        "meanScoreDelta": {"type": "number", "minimum": -100, "maximum": 100},
+        "scoreDelta95CI": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {"type": "number", "minimum": -100, "maximum": 100}
+        },
+        "meanDurationMsDelta": {"type": "number"},
+        "meanSpeedRatio": {"type": "number", "minimum": 0},
+        "speedRatio95CI": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {"type": "number", "minimum": 0}
+        },
+        "meanCommandCountDelta": {"type": "number"},
+        "meanInvalidCommandCountDelta": {"type": "number"},
+        "meanModelCallsDelta": {"type": "number"},
+        "meanPromptTokensDelta": {"type": "number"},
+        "meanCompletionTokensDelta": {"type": "number"},
+        "meanCachedInputTokensDelta": {"type": "number"},
+        "meanReasoningTokensDelta": {"type": "number"},
+        "meanReportedCostUSDDelta": {"type": "number"},
+        "meanDimensionDeltas": {"$ref": "#/$defs/signedDimensions"},
+        "roleSeparatedFailedCheckCounts": {"$ref": "#/$defs/checkCounts"},
+        "continuingFailedCheckCounts": {"$ref": "#/$defs/checkCounts"},
+        "leaderCounts": {
+          "type": "object", "additionalProperties": false,
+          "required": ["role-separated", "continuing", "inconclusive", "unsafe"],
+          "properties": {
+            "role-separated": {"type": "integer", "minimum": 0},
+            "continuing": {"type": "integer", "minimum": 0},
+            "inconclusive": {"type": "integer", "minimum": 0},
+            "unsafe": {"type": "integer", "minimum": 0}
+          }
+        },
+        "descriptiveLeader": {"enum": ["role-separated", "continuing", "inconclusive", "unsafe"]},
+        "directionalConclusion": {"enum": ["role-separated", "continuing", "inconclusive", "unsafe", "insufficient-data"]}
+      }
+    },
+    "axisAggregate": {
+      "allOf": [
+        {"$ref": "#/$defs/aggregateBase"},
+        {
+          "type": "object",
+          "required": ["axis", "level"],
+          "properties": {
+            "axis": {"type": "string", "minLength": 1, "maxLength": 64},
+            "level": {"type": "integer", "minimum": 0, "maximum": 4}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "observation": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "episodeID", "scenario", "repetition", "fingerprint", "family", "hypothesis",
+        "demand", "pairSafe", "roleSeparated", "continuing", "delta", "dimensionDeltas",
+        "descriptiveLeader"
+      ],
+      "properties": {
+        "episodeID": {"type": "string", "minLength": 1, "maxLength": 512},
+        "scenario": {
+          "enum": [
+            "human_agent_relay", "agent_agent_handoff", "concurrent_review",
+            "suggestion_decision", "staged_multifile", "directory_handoff",
+            "parallel_shards", "specialist_audit", "distributed_synthesis"
+          ]
+        },
+        "repetition": {"type": "integer", "minimum": 0, "maximum": 99},
+        "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "family": {"type": "string", "minLength": 1, "maxLength": 128},
+        "hypothesis": {"enum": ["continuing-favored", "role-separated-favored", "conditional"]},
+        "demand": {"$ref": "#/$defs/demand"},
+        "pairSafe": {"type": "boolean"},
+        "roleSeparated": {"$ref": "#/$defs/measurement"},
+        "continuing": {"$ref": "#/$defs/measurement"},
+        "delta": {"$ref": "#/$defs/delta"},
+        "dimensionDeltas": {"$ref": "#/$defs/signedDimensions"},
+        "descriptiveLeader": {"enum": ["role-separated", "continuing", "inconclusive", "unsafe"]}
+      }
+    },
+    "dimensions": {
+      "type": "object", "minProperties": 1, "maxProperties": 32,
+      "propertyNames": {"type": "string", "minLength": 1, "maxLength": 128},
+      "additionalProperties": {"type": "number", "minimum": 0, "maximum": 100}
+    },
+    "signedDimensions": {
+      "type": "object", "minProperties": 1, "maxProperties": 32,
+      "propertyNames": {"type": "string", "minLength": 1, "maxLength": 128},
+      "additionalProperties": {"type": "number", "minimum": -100, "maximum": 100}
+    },
+    "checks": {
+      "type": "object", "minProperties": 1, "maxProperties": 64,
+      "propertyNames": {"type": "string", "minLength": 1, "maxLength": 128},
+      "additionalProperties": {"type": "boolean"}
+    },
+    "checkCounts": {
+      "type": "object", "minProperties": 1, "maxProperties": 64,
+      "propertyNames": {"type": "string", "minLength": 1, "maxLength": 128},
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "experimentContract": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "mode", "candidate", "benchmark", "execution", "costPolicy"],
+      "properties": {
+        "schema": {"const": "urn:marginbench:experiment-contract:v1"},
+        "mode": {"enum": ["model-free-reference", "measured-model"]},
+        "track": {"type": "string", "minLength": 1, "maxLength": 128},
+        "candidate": {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "marginSha256"],
+          "properties": {
+            "id": {"type": "string", "minLength": 1, "maxLength": 256},
+            "marginSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "manualSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "settingsSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          }
+        },
+        "benchmark": {
+          "type": "object", "additionalProperties": false,
+          "required": ["name", "version", "taskSet", "developmentCases"],
+          "properties": {
+            "name": {"const": "MarginBench"},
+            "version": {"type": "string", "minLength": 1, "maxLength": 128},
+            "taskSet": {"enum": ["public-development-v1", "private-holdout-v1"]},
+            "developmentCases": {"type": "boolean"},
+            "implementationSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          }
+        },
+        "execution": {
+          "type": "object", "additionalProperties": false,
+          "required": [
+            "provider", "model", "adapter", "harness", "runtime", "roles", "limits",
+            "retryPolicy"
+          ],
+          "properties": {
+            "provider": {"type": "string", "minLength": 1, "maxLength": 256},
+            "model": {"type": "string", "minLength": 1, "maxLength": 256},
+            "adapter": {"type": "string", "minLength": 1, "maxLength": 256},
+            "harness": {"type": "string", "minLength": 1, "maxLength": 256},
+            "runtime": {"type": "string", "minLength": 1, "maxLength": 256},
+            "roles": {
+              "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true,
+              "items": {"type": "string", "minLength": 1, "maxLength": 128}
+            },
+            "limits": {
+              "type": "object", "maxProperties": 32,
+              "propertyNames": {"type": "string", "minLength": 1, "maxLength": 128},
+              "additionalProperties": {"type": ["number", "string", "boolean", "null"]}
+            },
+            "retryPolicy": {"type": "string", "minLength": 1, "maxLength": 1024}
+          }
+        },
+        "costPolicy": {
+          "type": "object", "additionalProperties": false,
+          "required": ["currency", "hardAdmissionCap", "liveBudgetCap", "pricing"],
+          "properties": {
+            "currency": {"const": "USD"},
+            "hardAdmissionCap": {"type": "number", "minimum": 0},
+            "liveBudgetCap": {"type": ["number", "null"], "minimum": 0},
+            "pricing": {
+              "type": "object", "maxProperties": 32,
+              "propertyNames": {"type": "string", "minLength": 1, "maxLength": 128},
+              "additionalProperties": {"type": ["number", "string", "boolean", "null"]}
+            },
+            "liveBudgetPolicy": {
+              "type": ["object", "null"], "maxProperties": 32,
+              "additionalProperties": {"type": ["number", "string", "boolean", "null"]}
+            }
+          }
+        }
+      }
+    }
+  }
+}

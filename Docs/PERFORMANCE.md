@@ -116,3 +116,19 @@ median / 5.832 ms p95 and the full 69,995-byte capability contract measured
 7.441 ms median / 8.119 ms p95. Workflow projections are 7.0–18.8 KB and stay
 filesystem-free. These CLI timings are separate from the AppKit window-visible
 probe above.
+
+### Structured-manual follow-up
+
+The later v0.3.2 structured-manual candidate changed only static CLI teaching
+and context metadata; no AppKit launch-path source changed. The standard
+three-warm-up/fifteen-run probe measured **320.756 ms median** and **332.541 ms
+p95**, with **162.031 MiB median RSS**. This is inside the broad session-to-
+session spread documented above and does not isolate a regression; the main app
+executable remains 2,807,872 bytes.
+
+Across 100 fresh CLI processes after three warmups, ordinary help measured
+**6.044 ms median / 7.367 ms p95**, structured `man comments --json` measured
+**6.861 / 8.357 ms**, and `capabilities --json --for comments` measured **7.183
+/ 8.477 ms**. The corresponding structured outputs are 12,716 and 19,797
+bytes, both below their hard bounds and independent of filesystem or network
+state.

@@ -19,7 +19,12 @@ from unittest.mock import patch
 import httpx
 
 from marginbench.binary import resolve_margin_binary, validate_packaged_binary
-from marginbench.budget_proxy import InferenceBudgetGate, InferenceBudgetPolicy, InferenceBudgetProxy
+from marginbench.budget_proxy import (
+    InferenceBudgetGate,
+    InferenceBudgetPolicy,
+    InferenceBudgetProxy,
+    InferenceRequestPacer,
+)
 from marginbench.candidates import CandidateManifest, load_results, paired_compare
 from marginbench.controls import (
     DEFAULT_CONTROL_PROFILE,
@@ -30,7 +35,7 @@ from marginbench.controls import (
 from marginbench.diagnostics import DiagnosticError, diagnose_artifacts
 from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY
 from marginbench.fake_model import scripted_response
-from marginbench.gateway import MarginGateway
+from marginbench.gateway import MarginGateway, event_command_path, read_command_events
 from marginbench.keys import create_holdout_key
 from marginbench.phase_identity import PhaseIdentityController, read_phase_identity
 from marginbench.provenance import implementation_files, implementation_sha256
@@ -42,9 +47,11 @@ from marginbench.scorer import score_episode
 from marginbench.scheduling import build_execution_plan
 from marginbench.studies import build_study_plan
 from marginbench.submission import SubmissionError, build_submission, verify_submission
+from marginbench.trace_shapes import summarize_trace_shapes
 from marginbench.validation import submission_identifier, validate_artifact, validate_bytes
 from prime_pilot import (
     _create_private_output_directory,
+    _effective_stop_condition,
     _execution_status,
     _run_manifest,
     _summarize_traces,
@@ -106,6 +113,21 @@ class MarginBenchCoreTests(unittest.TestCase):
         if self.binary is None:
             self.skipTest(f"Build Margin first or install a packaged Linux artifact: {BINARY}")
 
+    def test_reply_shorthand_is_scored_as_the_same_semantic_command(self) -> None:
+        self.assertEqual(
+            event_command_path([
+                "comments", "add", "review.md", "--parent", "urn:uuid:parent",
+                "-m", "Verified", "--id", "00000000-0000-4000-8000-000000000001",
+            ]),
+            "comments reply",
+        )
+        self.assertEqual(
+            event_command_path([
+                "comments", "reply", "review.md", "urn:uuid:parent", "-m", "Verified",
+            ]),
+            "comments reply",
+        )
+
     def test_generation_is_deterministic_but_keyed(self) -> None:
         first = generate_episode("agent_agent_handoff", KEY, 7)
         repeated = generate_episode("agent_agent_handoff", KEY, 7)
@@ -116,6 +138,191 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertNotIn("oracle", manifest)
         self.assertNotIn("files", manifest)
         self.assertNotIn(first.oracle["reference"]["handoffBody"], json.dumps(manifest))
+
+    def test_model_output_limit_is_not_reported_as_deliberate_completion(self) -> None:
+        self.assertEqual(
+            _effective_stop_condition({
+                "stop_condition": "agent_completed",
+                "calls": [{"finish_reason": "length"}],
+            }),
+            "model_output_limit",
+        )
+        self.assertEqual(
+            _effective_stop_condition({
+                "stop_condition": "agent_completed",
+                "calls": [{"finish_reason": "stop"}],
+            }),
+            "agent_completed",
+        )
+        self.assertEqual(
+            _effective_stop_condition({
+                "stop_condition": "max_turns",
+                "calls": [{"finish_reason": "length"}],
+            }),
+            "max_turns",
+        )
+
+    def test_trace_shape_report_finds_command_friction_without_retaining_content(self) -> None:
+        secret = "private-body-and-path-8e12"
+        trace = {
+            "traces": [{
+                "task": {"data": {"scenario_id": "parallel_shards", "prompt": secret}},
+                "agent": {"name": "author"},
+                "calls": [{"finish_reason": "length"}],
+                "stop_condition": "agent_completed",
+                "nodes": [
+                    {"message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "private-call-id",
+                            "name": "margin",
+                            "arguments": json.dumps({"arguments": [
+                                "margin", "comments", "add", f"{secret}.md",
+                                "--document", "-m", secret, "--contribution-id",
+                                "private-contribution-id",
+                            ]}),
+                        }],
+                    }},
+                    {"message": {
+                        "role": "tool",
+                        "tool_call_id": "private-call-id",
+                        "content": json.dumps({
+                            "ok": False,
+                            "exitCode": 64,
+                            "errorCode": "MARGINBENCH_COMMAND_BLOCKED",
+                            "stdout": None,
+                            "stderr": {"private": secret},
+                        }),
+                    }},
+                ],
+            }],
+        }
+        with tempfile.TemporaryDirectory(prefix="marginbench-trace-shape-") as temporary:
+            path = Path(temporary) / "traces.jsonl"
+            path.write_text(json.dumps(trace) + "\n", encoding="utf-8")
+            report = summarize_trace_shapes([path.parent])
+        encoded = canonical_json(report).decode("utf-8")
+        self.assertTrue(validate_bytes(encoded.encode("utf-8"))["valid"])
+        self.assertNotIn(secret, encoded)
+        self.assertNotIn("private-call-id", encoded)
+        self.assertNotIn("private-contribution-id", encoded)
+        self.assertEqual(report["leadingLiteralMarginCount"], 1)
+        self.assertEqual(report["blockedCount"], 1)
+        self.assertEqual(report["commands"][0]["name"], "comments add")
+        self.assertEqual(
+            report["commandSignatures"],
+            [{
+                "command": "comments add",
+                "flags": ["--contribution-id", "--document", "-m"],
+                "count": 1,
+                "successCount": 0,
+                "failureCount": 1,
+                "blockedCount": 1,
+                "errors": [{"name": "MARGINBENCH_COMMAND_BLOCKED", "count": 1}],
+            }],
+        )
+        self.assertEqual(report["errors"][0]["name"], "MARGINBENCH_COMMAND_BLOCKED")
+        self.assertIn({"name": "--contribution-id", "count": 1}, report["flags"])
+        self.assertEqual(report["finalFinishReasons"], [{"name": "length", "count": 1}])
+        self.assertEqual(report["stopConditions"], [{"name": "agent_completed", "count": 1}])
+        self.assertEqual(
+            report["scenarios"][0]["finalFinishReasons"],
+            [{"name": "length", "count": 1}],
+        )
+
+    def test_trace_shape_report_understands_plain_workspace_without_retaining_content(self) -> None:
+        secret = "private-plain-body-and-path-2a71"
+        trace = {
+            "traces": [{
+                "task": {"data": {"scenario_id": "parallel_shards", "prompt": secret}},
+                "agent": {"name": "reviewer"},
+                "nodes": [
+                    {"message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "private-read-id",
+                            "name": "workspace",
+                            "arguments": json.dumps({
+                                "action": "read",
+                                "path": f"{secret}.md",
+                            }),
+                        }],
+                    }},
+                    {"message": {
+                        "role": "tool",
+                        "tool_call_id": "private-read-id",
+                        "content": json.dumps({
+                            "ok": True,
+                            "result": {"text": secret, "sha256": "0" * 64},
+                        }),
+                    }},
+                    {"message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "private-write-id",
+                            "name": "workspace",
+                            "arguments": json.dumps({
+                                "action": "write",
+                                "path": f"{secret}.md",
+                                "text": secret,
+                                "if_sha256": "0" * 64,
+                            }),
+                        }],
+                    }},
+                    {"message": {
+                        "role": "tool",
+                        "tool_call_id": "private-write-id",
+                        "content": json.dumps({
+                            "ok": False,
+                            "error": {"code": "PRECONDITION_FAILED", "message": secret},
+                        }),
+                    }},
+                ],
+            }],
+        }
+        with tempfile.TemporaryDirectory(prefix="marginbench-plain-trace-shape-") as temporary:
+            path = Path(temporary) / "traces.jsonl"
+            path.write_text(json.dumps(trace) + "\n", encoding="utf-8")
+            report = summarize_trace_shapes([path])
+        encoded = canonical_json(report).decode("utf-8")
+        self.assertTrue(validate_bytes(encoded.encode("utf-8"))["valid"])
+        self.assertNotIn(secret, encoded)
+        self.assertEqual(report["successCount"], 1)
+        self.assertEqual(report["failureCount"], 1)
+        self.assertEqual(report["blockedCount"], 0)
+        self.assertEqual(report["unansweredToolCallCount"], 0)
+        self.assertEqual(
+            [item["name"] for item in report["commands"]],
+            ["workspace read", "workspace write"],
+        )
+        self.assertEqual(report["errors"], [{"name": "PRECONDITION_FAILED", "count": 1}])
+
+    def test_trace_shape_report_counts_an_unanswered_workspace_call(self) -> None:
+        trace = {
+            "traces": [{
+                "task": {"data": {"scenario_id": "parallel_shards"}},
+                "agent": {"name": "reviewer"},
+                "nodes": [{"message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "pending-call",
+                        "name": "workspace",
+                        "arguments": json.dumps({"action": "read", "path": "private.md"}),
+                    }],
+                }}],
+            }],
+        }
+        with tempfile.TemporaryDirectory(prefix="marginbench-pending-trace-shape-") as temporary:
+            path = Path(temporary) / "traces.jsonl"
+            path.write_text(json.dumps(trace) + "\n", encoding="utf-8")
+            report = summarize_trace_shapes([path])
+        self.assertTrue(validate_bytes(canonical_json(report))["valid"])
+        self.assertEqual(report["toolCallCount"], 0)
+        self.assertEqual(report["unansweredToolCallCount"], 1)
+        self.assertEqual(
+            report["unansweredCommands"],
+            [{"name": "workspace read", "count": 1}],
+        )
 
     def test_result_contract_rejects_nonfinite_unsafe_and_inconsistent_values(self) -> None:
         values = {
@@ -168,7 +375,7 @@ class MarginBenchCoreTests(unittest.TestCase):
                 self.assertIsInstance(invocation, dict)
                 self.assertIsInstance(invocation.get("arguments"), list)
                 self.assertTrue(invocation["arguments"])
-        self.assertEqual(expected_roles, 11)
+        self.assertEqual(expected_roles, 17)
 
         handoff = generate_episode("agent_agent_handoff", KEY, 0)
         continued = scripted_response([
@@ -207,9 +414,9 @@ class MarginBenchCoreTests(unittest.TestCase):
     def test_preflight_counts_traces_from_the_selected_agent_topology(self) -> None:
         self.assertEqual(
             _expected_trace_count("role-separated-margin-only-v1", KEY),
-            11,
+            17,
         )
-        self.assertEqual(_expected_trace_count("single-agent-margin-v1", KEY), 6)
+        self.assertEqual(_expected_trace_count("single-agent-margin-v1", KEY), 9)
 
     def test_preflight_uses_only_an_explicit_holdout_key(self) -> None:
         variable = "MARGINBENCH_HOLDOUT_KEY"
@@ -284,6 +491,9 @@ class MarginBenchCoreTests(unittest.TestCase):
             max_tokens_per_call=250,
             max_turns=4,
             rollout_timeout_seconds=30.0,
+            wall_timeout_seconds=300.0,
+            live_proxy_timeout_seconds=120.0,
+            minimum_start_interval_seconds=300.0,
             temperature=0.0,
             prior_infrastructure_attempts=0,
             scenario=["agent_agent_handoff"],
@@ -435,6 +645,9 @@ class MarginBenchCoreTests(unittest.TestCase):
             max_tokens_per_call=250,
             max_turns=4,
             rollout_timeout_seconds=30.0,
+            wall_timeout_seconds=300.0,
+            live_proxy_timeout_seconds=120.0,
+            minimum_start_interval_seconds=300.0,
             temperature=0.0,
             prior_infrastructure_attempts=0,
             scenario=[episode.scenario_id],
@@ -508,7 +721,9 @@ class MarginBenchCoreTests(unittest.TestCase):
             self.assertEqual(payload["$schema"], "https://json-schema.org/draft/2020-12/schema")
             self.assertNotIn(payload["$id"], schemas)
             schemas[payload["$id"]] = payload
-        self.assertEqual(len(schemas), 25)
+        self.assertEqual(len(schemas), 43)
+        self.assertIn("urn:marginbench:crossover-prime-plan:v1", schemas)
+        self.assertIn("urn:marginbench:crossover-prime-completion:v1", schemas)
 
         try:
             from jsonschema import Draft202012Validator
@@ -559,15 +774,15 @@ class MarginBenchCoreTests(unittest.TestCase):
             development_cases=False,
         )
         self.assertEqual(plan, repeated)
-        self.assertEqual(plan["episodeCount"], 24)
+        self.assertEqual(plan["episodeCount"], 36)
         self.assertEqual(plan["controlProfile"], DEFAULT_CONTROL_PROFILE)
         self.assertTrue(plan["sampleSizeSufficient"])
         self.assertEqual(plan["totalRoleRuns"], plan["roleRunsPerCandidate"] * 2)
         self.assertEqual(plan["agentProcessesPerCandidate"], plan["roleRunsPerCandidate"])
         self.assertEqual(plan["totalAgentProcesses"], plan["totalRoleRuns"])
         orders = [tuple(item["candidateOrder"]) for item in plan["episodes"]]
-        self.assertEqual(orders.count(("baseline", "candidate-v2")), 12)
-        self.assertEqual(orders.count(("candidate-v2", "baseline")), 12)
+        self.assertEqual(orders.count(("baseline", "candidate-v2")), 18)
+        self.assertEqual(orders.count(("candidate-v2", "baseline")), 18)
         encoded = json.dumps(plan)
         self.assertNotIn("oracle", encoded)
         self.assertNotIn("prompt", encoded)
@@ -649,13 +864,13 @@ class MarginBenchCoreTests(unittest.TestCase):
             path.write_text(json.dumps(study), encoding="utf-8")
             plan = build_execution_plan(path)
             self.assertEqual(plan, build_execution_plan(path))
-            self.assertEqual(plan["episodeCount"], 24)
-            self.assertEqual(plan["jobCount"], 48)
+            self.assertEqual(plan["episodeCount"], 36)
+            self.assertEqual(plan["jobCount"], 72)
             self.assertEqual(plan["roleProcessCount"], study["totalRoleRuns"])
             self.assertEqual(plan["agentProcessCount"], study["totalAgentProcesses"])
             first = [job["candidateID"] for job in plan["jobs"] if job["candidatePosition"] == 0]
-            self.assertEqual(first.count("baseline"), 12)
-            self.assertEqual(first.count("candidate-v2"), 12)
+            self.assertEqual(first.count("baseline"), 18)
+            self.assertEqual(first.count("candidate-v2"), 18)
             self.assertTrue(validate_bytes(json.dumps(plan).encode("utf-8"))["valid"])
             encoded = json.dumps(plan)
             self.assertNotIn("oracle", encoded)
@@ -783,7 +998,11 @@ class MarginBenchCoreTests(unittest.TestCase):
         implemented = [item for item in catalog["profiles"] if item["status"] == "implemented"]
         self.assertEqual(
             [item["id"] for item in implemented],
-            [DEFAULT_CONTROL_PROFILE, "single-agent-margin-v1"],
+            [
+                DEFAULT_CONTROL_PROFILE,
+                "single-agent-margin-v1",
+                "role-separated-plain-markdown-v1",
+            ],
         )
         self.assertEqual(implemented[0]["toolSurface"], ["margin"])
         self.assertFalse(implemented[0]["shellAccess"])
@@ -951,6 +1170,9 @@ class MarginBenchCoreTests(unittest.TestCase):
             max_output_tokens=500,
             max_total_tokens=1200,
             rollout_timeout_seconds=30.0,
+            wall_timeout_seconds=300.0,
+            live_proxy_timeout_seconds=120.0,
+            minimum_start_interval_seconds=300.0,
         )
         command = build_eval_command(arguments, Path("/prime/eval"), Path("/output"))
         self.assertEqual(command[command.index("--num-tasks") + 1], "2")
@@ -1045,7 +1267,7 @@ class MarginBenchCoreTests(unittest.TestCase):
                 input_price_per_million=1.0,
                 output_price_per_million=1.0,
                 billing_overhead_usd_per_call=0.0,
-                max_total_cost_usd=0.0004,
+                max_total_cost_usd=0.00023,
             )
             with InferenceBudgetProxy(
                 f"http://{host}:{port}/api/v1",
@@ -1186,9 +1408,36 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(report["policy"]["allowedModel"], "test/model")
         self.assertEqual(report["reportedPromptTokens"], 10)
         self.assertEqual(report["reportedCompletionTokens"], 5)
+        self.assertEqual(report["settledRequestCount"], 1)
+        self.assertEqual(report["outstandingReservationCount"], 0)
         self.assertEqual(report["providerBoundViolationCount"], 0)
         self.assertFalse(report["latchedClosed"])
-        self.assertLessEqual(report["reservedCostUpperBoundUSD"], 0.0004)
+        self.assertLessEqual(report["reservedCostUpperBoundUSD"], 0.00023)
+
+    def test_inference_request_pacer_spaces_provider_starts_without_wall_clock_delay(self) -> None:
+        now = [100.0]
+        sleeps: list[float] = []
+
+        def sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+            now[0] += seconds
+
+        pacer = InferenceRequestPacer(
+            6.0,
+            clock=lambda: now[0],
+            sleeper=sleep,
+        )
+        pacer.wait()
+        now[0] += 2.0
+        pacer.wait()
+        now[0] += 9.0
+        pacer.wait()
+
+        self.assertEqual(sleeps, [4.0])
+        self.assertEqual(now[0], 115.0)
+        for invalid in (-1, 61, float("nan"), True):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                InferenceRequestPacer(invalid)
 
     def test_inference_budget_policy_and_upstream_url_reject_ambiguous_types(self) -> None:
         values = {
@@ -1237,6 +1486,111 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(report["forwardedRequestCount"], 5)
         self.assertEqual(report["rejectedRequestCount"], 27)
         self.assertEqual(report["reservedCostUpperBoundUSD"], 0.0001)
+
+    def test_inference_budget_report_and_validator_agree_at_half_microdollar(self) -> None:
+        policy = InferenceBudgetPolicy(
+            allowed_model="test/model",
+            max_request_bytes=1_048_576,
+            template_token_allowance=8192,
+            input_token_ceiling=400_000,
+            max_output_tokens=1800,
+            input_price_per_million=0.75,
+            output_price_per_million=4.5,
+            billing_overhead_usd_per_call=0.0002,
+            max_total_cost_usd=1.5,
+            response_token_allowance=8,
+        )
+        gate = InferenceBudgetGate(policy)
+        for _ in range(2):
+            reservation = gate.reserve(1_048_576, 1800)
+            self.assertIsNotNone(reservation)
+            gate.record_response(
+                {
+                    "usage": {
+                        "prompt_tokens": 71_929,
+                        "completion_tokens": 1_047,
+                    }
+                },
+                reservation,
+            )
+        report = gate.report()
+        self.assertEqual(report["reportedTokenCostUSD"], 0.117316)
+        errors: list[str] = []
+        from marginbench.validation import _live_budget_semantics
+
+        _live_budget_semantics(report, "test budget", errors)
+        self.assertEqual(errors, [])
+
+    def test_inference_budget_gate_reuses_settled_sequential_headroom(self) -> None:
+        policy = InferenceBudgetPolicy(
+            allowed_model="test/model",
+            max_request_bytes=64,
+            template_token_allowance=0,
+            input_token_ceiling=1000,
+            max_output_tokens=100,
+            input_price_per_million=1.0,
+            output_price_per_million=1.0,
+            billing_overhead_usd_per_call=0.0,
+            max_total_cost_usd=0.0003,
+        )
+        gate = InferenceBudgetGate(policy)
+        for _ in range(10):
+            reservation = gate.reserve(50, 100)
+            self.assertIsNotNone(reservation)
+            gate.record_response(
+                {"usage": {"prompt_tokens": 5, "completion_tokens": 5}},
+                reservation,
+            )
+        report = gate.report()
+        self.assertEqual(report["forwardedRequestCount"], 10)
+        self.assertEqual(report["settledRequestCount"], 10)
+        self.assertEqual(report["outstandingReservationCount"], 0)
+        self.assertEqual(report["reservedCostUpperBoundUSD"], 0.0001)
+        self.assertEqual(report["grossReservedCostUpperBoundUSD"], 0.002)
+        self.assertEqual(report["rejectedRequestCount"], 0)
+
+    def test_inference_budget_gate_retains_unsettled_response_reservation(self) -> None:
+        gate = InferenceBudgetGate(InferenceBudgetPolicy(
+            allowed_model="test/model",
+            max_request_bytes=64,
+            template_token_allowance=0,
+            input_token_ceiling=1000,
+            max_output_tokens=100,
+            input_price_per_million=1.0,
+            output_price_per_million=1.0,
+            billing_overhead_usd_per_call=0.0,
+            max_total_cost_usd=0.00025,
+        ))
+        reservation = gate.reserve(50, 100)
+        self.assertIsNotNone(reservation)
+        gate.record_response({"error": {"code": "upstream"}}, reservation)
+        self.assertIsNone(gate.reserve(50, 100))
+        report = gate.report()
+        self.assertEqual(report["settledRequestCount"], 0)
+        self.assertEqual(report["outstandingReservationCount"], 1)
+        self.assertEqual(report["reservedCostUpperBoundUSD"], 0.0002)
+
+    def test_inference_budget_gate_settles_reservation_only_once(self) -> None:
+        gate = InferenceBudgetGate(InferenceBudgetPolicy(
+            allowed_model="test/model",
+            max_request_bytes=64,
+            template_token_allowance=0,
+            input_token_ceiling=1000,
+            max_output_tokens=100,
+            input_price_per_million=1.0,
+            output_price_per_million=1.0,
+            billing_overhead_usd_per_call=0.0,
+            max_total_cost_usd=0.001,
+        ))
+        reservation = gate.reserve(50, 100)
+        self.assertIsNotNone(reservation)
+        payload = {"usage": {"prompt_tokens": 5, "completion_tokens": 5}}
+        gate.record_response(payload, reservation)
+        gate.record_response(payload, reservation)
+        report = gate.report()
+        self.assertEqual(report["settledRequestCount"], 1)
+        self.assertEqual(report["providerBoundViolationCount"], 1)
+        self.assertTrue(report["latchedClosed"])
 
     def test_inference_budget_gate_latches_closed_after_provider_bound_violation(self) -> None:
         gate = InferenceBudgetGate(InferenceBudgetPolicy(
@@ -1404,7 +1758,16 @@ class MarginBenchCoreTests(unittest.TestCase):
                 "--document", "--id", "4ff7ed11-5899-4ed2-a282-4e0362f43cba",
             ])
             self.assertTrue(response.ok)
+            atomic_reply = gateway.call([
+                "comments", "reply", "note.md",
+                "urn:uuid:4ff7ed11-5899-4ed2-a282-4e0362f43cba",
+                "-m", "Verified without retaining this prose in telemetry.",
+                "--resolve", "--mutation-id", "5b9f6319-38b7-49b7-a916-6f707984ce85",
+            ])
+            self.assertTrue(atomic_reply.ok)
             self.assertNotIn(secret_body, log.read_text(encoding="utf-8"))
+            recorded = read_command_events(log)
+            self.assertEqual(recorded[-1].command, "comments reply --resolve")
             context = gateway.call(["context", "note.md", "--json"])
             self.assertTrue(context.ok)
             available = (context.json or {}).get("result", {}).get("availableActions", [])
@@ -1481,6 +1844,79 @@ class MarginBenchCoreTests(unittest.TestCase):
             )
             self.assertLessEqual(rescored.score, 25.0)
             self.assertFalse(rescored.safety_passed)
+
+    def test_wrong_body_does_not_erase_independent_creator_attribution(self) -> None:
+        episode = generate_episode("agent_agent_handoff", KEY, 0)
+        with tempfile.TemporaryDirectory(prefix="marginbench-attribution-test-") as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            complete = run_episode(episode, self.binary, workspace, ReferenceDriver())
+            self.assertTrue(complete.checks["all_expected_annotations"])
+            expected = episode.oracle["annotations"][0]
+            editor = MarginGateway(
+                self.binary,
+                workspace,
+                Actor("urn:marginbench:test-editor", "Test Editor", "software"),
+                "author",
+                event_log=root / ".marginbench-control" / "events.jsonl",
+            )
+            edited = editor.call([
+                "comments", "edit", expected["path"], expected["id"],
+                "-m", "The durable body is now intentionally wrong.",
+            ])
+            self.assertTrue(edited.ok)
+            rescored = score_episode(
+                episode,
+                workspace,
+                self.binary,
+                root / ".marginbench-control" / "events.jsonl",
+            )
+            self.assertFalse(rescored.checks["all_expected_annotations"])
+            self.assertTrue(rescored.checks["attribution"])
+
+    def test_synthesis_prompts_do_not_present_placeholders_as_exact_text(self) -> None:
+        specialist = generate_episode("specialist_audit", KEY, 0)
+        distributed = generate_episode("distributed_synthesis", KEY, 0)
+        specialist_text = "\n".join(role.prompt for role in specialist.roles)
+        distributed_text = "\n".join(role.prompt for role in distributed.roles)
+        for marker in ("ORIGINAL", "SECURE", "NAME."):
+            self.assertNotIn(marker, specialist_text)
+        self.assertNotIn("A-TOKEN", distributed_text)
+        self.assertIn("Do not write a generic", specialist_text)
+        self.assertIn("Do not write a generic", distributed_text)
+
+    def test_specialist_diagnostics_localize_unresolved_template_markers(self) -> None:
+        episode = generate_episode("specialist_audit", KEY, 0)
+        with tempfile.TemporaryDirectory(prefix="marginbench-specialist-diagnostic-") as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            complete = run_episode(episode, self.binary, workspace, ReferenceDriver())
+            self.assertTrue(complete.checks["diagnostic_recorded_choice_recovered"])
+            self.assertTrue(complete.checks["diagnostic_secure_choice_recovered"])
+            issue = episode.oracle["annotations"][1]
+            editor = MarginGateway(
+                self.binary,
+                workspace,
+                Actor("urn:marginbench:test-editor", "Test Editor", "software"),
+                "reviewer",
+                event_log=root / ".marginbench-control" / "events.jsonl",
+            )
+            edited = editor.call([
+                "comments", "edit", issue["path"], issue["id"], "-m",
+                "Security correction: ORIGINAL is ineligible; choose SECURE.",
+            ])
+            self.assertTrue(edited.ok)
+            rescored = score_episode(
+                episode,
+                workspace,
+                self.binary,
+                root / ".marginbench-control" / "events.jsonl",
+            )
+            self.assertTrue(rescored.checks["diagnostic_decision_fact_recovered"])
+            self.assertFalse(rescored.checks["diagnostic_recorded_choice_recovered"])
+            self.assertFalse(rescored.checks["diagnostic_secure_choice_recovered"])
+            self.assertTrue(rescored.checks["diagnostic_sentence_shape_valid"])
+            self.assertFalse(rescored.checks["diagnostic_template_markers_absent"])
 
     def test_unrequested_extra_contribution_cannot_receive_exact_outcome_credit(self) -> None:
         episode = generate_episode("human_agent_relay", KEY, 0)
@@ -1821,6 +2257,9 @@ class MarginBenchCoreTests(unittest.TestCase):
                 max_tokens_per_call=250,
                 max_turns=4,
                 rollout_timeout_seconds=30.0,
+                wall_timeout_seconds=300.0,
+                live_proxy_timeout_seconds=120.0,
+                minimum_start_interval_seconds=300.0,
                 temperature=0.0,
                 prior_infrastructure_attempts=0,
                 scenario=["agent_agent_handoff"],
@@ -1845,6 +2284,11 @@ class MarginBenchCoreTests(unittest.TestCase):
             artifact = output / "run.json"
             artifact.write_text(json.dumps(manifest), encoding="utf-8")
             self.assertTrue(validate_artifact(artifact)["valid"])
+            representation_manifest = json.loads(json.dumps(manifest))
+            representation_manifest["track"] = "representation"
+            artifact.write_text(json.dumps(representation_manifest), encoding="utf-8")
+            self.assertTrue(validate_artifact(artifact)["valid"])
+            artifact.write_text(json.dumps(manifest), encoding="utf-8")
             loaded = load_results(artifact)
             self.assertEqual(len(loaded), 1)
             self.assertEqual(loaded[0].candidate_id, "validation-test")

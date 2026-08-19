@@ -228,20 +228,41 @@ enum CollaborationCLI {
         let targetArgument = try cursor.require("file or directory")
         let target = try PathResolver.existingItem(targetArgument)
         try cursor.rejectRemaining()
+        let invocationTargetIsDirectory = targetIsDirectory(target)
         let selection = try resolveSelection(target: target, options: options)
         let snapshot = try contextService.context(
             root: selection.root,
             paths: selection.paths,
             limits: options.limits
         )
+        let directTarget = directContextTarget(
+            invocationTarget: targetArgument,
+            targetIsDirectory: invocationTargetIsDirectory,
+            root: selection.root,
+            files: snapshot.files
+        )
         let result = ContextResult(
+            invocationTarget: targetArgument,
+            directFileTarget: directTarget,
+            pathSemantics: contextPathSemantics(
+                invocationTargetIsDirectory: invocationTargetIsDirectory,
+                hasDirectFileTarget: directTarget != nil
+            ),
             cursor: try snapshot.cursor.token(),
             files: snapshot.files,
+            fileActions: snapshot.files.map {
+                ContextFileAction(file: $0, root: selection.root)
+            },
             actors: snapshot.actors,
             activity: snapshot.activity,
             truncation: snapshot.truncation,
             availableActions: snapshot.availableActions,
-            workflowGuidance: ContextWorkflowHint.forSnapshot(snapshot)
+            workflowGuidance: ContextWorkflowHint.forSnapshot(
+                snapshot,
+                directTarget: directTarget,
+                invocationTarget: targetArgument,
+                invocationTargetIsDirectory: invocationTargetIsDirectory
+            )
         )
         try write(command: "context", root: selection.root, result: result, pretty: pretty)
     }
@@ -306,6 +327,10 @@ enum CollaborationCLI {
         let items = loaded.files.flatMap { file in
             file.comments.map { listed in
                 let annotation = listed.annotation
+                let actionURL = selection.root.kind == .document
+                    ? URL(fileURLWithPath: selection.root.path, isDirectory: false)
+                    : URL(fileURLWithPath: selection.root.path, isDirectory: true)
+                        .appendingPathComponent(file.path, isDirectory: false)
                 return InboxItem(
                     reference: shortReference(
                         path: file.path,
@@ -316,6 +341,7 @@ enum CollaborationCLI {
                     rootID: listed.rootID,
                     parentID: listed.parentID,
                     path: file.path,
+                    actionPath: pathRelativeToCurrentDirectoryIfPossible(actionURL.path),
                     kind: contributionKind(annotation),
                     actorID: annotation.creator.id,
                     actorName: annotation.creator.name,
@@ -325,6 +351,7 @@ enum CollaborationCLI {
                     ),
                     created: annotation.created,
                     modified: annotation.modified,
+                    annotationRevision: file.annotationRevision,
                     threadStatus: listed.threadStatus,
                     range: listed.anchor?.range,
                     anchorState: listed.anchor?.state,
@@ -343,6 +370,7 @@ enum CollaborationCLI {
                 assigneeID: assigneeID
             ),
             items: items,
+            workflowGuidance: items.first.map(ContextWorkflowHint.forInboxItem) ?? [],
             truncation: loaded.truncation
         )
         try write(command: "inbox", root: selection.root, result: result, pretty: pretty)
@@ -388,7 +416,14 @@ enum CollaborationCLI {
                 throw CLIError("ROOT_MISMATCH", "The change set belongs to another collaboration root.", exit: .data)
             }
             let receipt = try stageStore.stage(changeSet)
-            try write(command: "stage.create", root: root, result: receipt, pretty: pretty)
+            try write(
+                command: "stage.create",
+                root: root,
+                result: receipt,
+                pretty: pretty,
+                notice: "Stage saved immutably. Review it before submitting the all-or-nothing transaction.",
+                nextActions: stageReviewActions(root: root, stageID: receipt.stageID)
+            )
 
         case "list":
             let limit = try cursor.takeInt("--limit") ?? 128
@@ -400,7 +435,7 @@ enum CollaborationCLI {
             guard (0...CollaborationStageStore.maximumListAggregateBytes).contains(maximumAggregateBytes) else {
                 throw CLIError.usage("--max-bytes must be between 0 and 268435456.")
             }
-            let root = try resolveRoot(cursor.require("root"))
+            let root = try cursor.pop().map(resolveRoot) ?? resolveDefaultRoot()
             try cursor.rejectRemaining()
             let listing = try stageStore.list(
                 root: root,
@@ -408,6 +443,9 @@ enum CollaborationCLI {
                 maximumAggregateBytes: maximumAggregateBytes
             )
             let stages = try listing.stages.map { try StageSummary($0) }
+            let nextActions = stages.first.map {
+                stageReviewActions(root: root, stageID: $0.stageID)
+            }
             try write(
                 command: "stage.list",
                 root: root,
@@ -420,7 +458,11 @@ enum CollaborationCLI {
                     hitAggregateByteLimit: listing.omittedCanonicalBytes > 0,
                     isTruncated: listing.isTruncated
                 ),
-                pretty: pretty
+                pretty: pretty,
+                notice: nextActions == nil
+                    ? "No pending stage is available."
+                    : "Newest pending stage selected for exact review actions.",
+                nextActions: nextActions
             )
 
         case "show":
@@ -443,7 +485,9 @@ enum CollaborationCLI {
                 root: root,
                 result: detail,
                 pretty: pretty,
-                maximumBytes: StageDetail.maximumEncodedBytes
+                maximumBytes: StageDetail.maximumEncodedBytes,
+                notice: "Review the bounded operation summary, then submit this exact stage or refresh it if current files have changed.",
+                nextActions: stageReviewActions(root: root, stageID: changeSet.stageID)
             )
 
         case "refresh":
@@ -456,7 +500,17 @@ enum CollaborationCLI {
                 root: root,
                 newStageID: requestedID
             )
-            try write(command: "stage.refresh", root: root, result: receipt, pretty: pretty)
+            try write(
+                command: "stage.refresh",
+                root: root,
+                result: receipt,
+                pretty: pretty,
+                notice: "A new immutable stage was created; the prior stage remains available for audit.",
+                nextActions: stageReviewActions(
+                    root: root,
+                    stageID: receipt.refreshedStageID
+                )
+            )
 
         case "discard":
             let root = try resolveRoot(cursor.require("root"))
@@ -488,6 +542,7 @@ enum CollaborationCLI {
                         "stageID": stageID,
                         "stageRetained": "true",
                         "recoveryCommand": "margin stage refresh ROOT STAGE_ID",
+                        "recoveryRoot": root.path,
                     ]
                 )
             }
@@ -539,7 +594,9 @@ enum CollaborationCLI {
             let envelope = CollaborationCommandEnvelope(
                 command: "stage.show",
                 root: root,
-                result: detail
+                result: detail,
+                notice: "Review the bounded operation summary, then submit this exact stage or refresh it if current files have changed.",
+                nextActions: stageReviewActions(root: root, stageID: changeSet.stageID)
             )
             let encoder = JSONEncoder()
             encoder.outputFormatting = pretty
@@ -602,7 +659,7 @@ enum CollaborationCLI {
         let message = try takeMessage(cursor: &cursor)
         let actor = try takeActor(cursor: &cursor)
         let audience = try cursor.takeValues("--audience")
-        let requestedContributionID = try cursor.takeValue("--id")
+        let requestedContributionID = try cursor.takeValue(["--id", "--contribution-id"])
         let normalizedContributionID = requestedContributionID.map(MarginID.annotation)
         let identities = try takeIdentities(
             cursor: &cursor,
@@ -794,6 +851,14 @@ enum CollaborationCLI {
     private static func handoffAdd(_ cursor: inout ArgumentCursor) throws {
         let pretty = cursor.takeFlag("--pretty")
         _ = cursor.takeFlag("--json")
+        let commentRevision = try cursor.takeValue("--if-revision")
+        let commentContentSHA = try cursor.takeValue("--if-content-sha")
+        if commentRevision != nil || commentContentSHA != nil {
+            throw CLIError.usage(
+                "Handoffs use a whole-root cursor rather than comment revision guards. " +
+                    "Replace --if-revision/--if-content-sha with --starting-cursor MCUR1."
+            )
+        }
         let explicitRoot = try cursor.takeValue("--root")
         let explicitPath = try cursor.takeValue("--path")
         let message = try takeMessage(cursor: &cursor)
@@ -804,7 +869,7 @@ enum CollaborationCLI {
         let nextActors = try cursor.takeValues("--next-actor")
         let startingToken = try cursor.takeValue("--starting-cursor")
         let finishingToken = try cursor.takeValue("--finishing-cursor")
-        let requestedContributionID = try cursor.takeValue("--id")
+        let requestedContributionID = try cursor.takeValue(["--id", "--contribution-id"])
         let normalizedContributionID = requestedContributionID.map(MarginID.annotation)
         let identities = try takeIdentities(
             cursor: &cursor,
@@ -1031,6 +1096,28 @@ enum CollaborationCLI {
         try rootResolver.resolve(target: PathResolver.existingItem(raw))
     }
 
+    private static func resolveDefaultRoot() throws -> CollaborationRoot {
+        let current = try PathResolver.existingItem(FileManager.default.currentDirectoryPath)
+        let fallback = try rootResolver.directory(at: current)
+        let startingDevice = try FileManager.default
+            .attributesOfItem(atPath: current.path)[.systemNumber] as? NSNumber
+        var directory = current
+        while true {
+            let candidate = try rootResolver.directory(at: directory)
+            if candidate.workspaceID != nil { return candidate }
+            if directory.path == "/" { break }
+            let parentPath = (directory.path as NSString).deletingLastPathComponent
+            let normalizedParent = parentPath.isEmpty ? "/" : parentPath
+            let parent = URL(fileURLWithPath: normalizedParent, isDirectory: true).standardizedFileURL
+            guard parent.path.count < directory.path.count else { break }
+            let parentDevice = try FileManager.default
+                .attributesOfItem(atPath: parent.path)[.systemNumber] as? NSNumber
+            guard startingDevice == nil || parentDevice == startingDevice else { break }
+            directory = parent
+        }
+        return fallback
+    }
+
     private static func resolveSelection(
         target: URL,
         options: ContextOptions
@@ -1081,6 +1168,7 @@ enum CollaborationCLI {
         let maxHeadings = try cursor.takeInt("--max-headings") ?? defaults.maxHeadingsPerFile
         let maxContributions = try cursor.takeInt("--max-contributions") ?? defaults.maxContributionsPerFile
         let maxPreviewBytes = try cursor.takeInt("--max-preview-bytes") ?? defaults.maxBodyPreviewBytes
+        let maxSourceBytes = try cursor.takeInt("--max-source-bytes") ?? defaults.maxSourcePreviewBytes
         let limits = CollaborationContextLimits(
             discovery: CollaborationDiscoveryLimits(
                 maxFiles: maxFiles,
@@ -1089,7 +1177,8 @@ enum CollaborationCLI {
             ),
             maxHeadingsPerFile: maxHeadings,
             maxContributionsPerFile: maxContributions,
-            maxBodyPreviewBytes: maxPreviewBytes
+            maxBodyPreviewBytes: maxPreviewBytes,
+            maxSourcePreviewBytes: maxSourceBytes
         )
         try limits.validate()
         return ContextOptions(explicitRoot: explicitRoot, paths: paths, limits: limits)
@@ -1496,7 +1585,11 @@ enum CollaborationCLI {
             let matches = snapshot.comments.filter(matching)
             let selected = Array(matches.prefix(limits.maxContributionsPerFile))
             omitted += max(0, matches.count - selected.count)
-            files.append(LoadedAnnotationFile(path: file.path, comments: selected))
+            files.append(LoadedAnnotationFile(
+                path: file.path,
+                annotationRevision: snapshot.revision,
+                comments: selected
+            ))
             cursors.append(try CollaborationFileCursor(
                 path: file.path,
                 documentID: decoded.envelope?.document.id,
@@ -1805,6 +1898,84 @@ enum CollaborationCLI {
         return String(value[..<end]) + "…"
     }
 
+    private static func targetIsDirectory(_ target: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: target.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
+    }
+
+    private static func directContextTarget(
+        invocationTarget: String,
+        targetIsDirectory: Bool,
+        root: CollaborationRoot,
+        files: [CollaborationContextFile]
+    ) -> String? {
+        guard targetIsDirectory else { return invocationTarget }
+        guard files.count == 1, let path = files.first?.path else { return nil }
+        let target: URL
+        if root.kind == .document || path == "." {
+            target = URL(fileURLWithPath: root.path, isDirectory: false)
+        } else {
+            target = URL(fileURLWithPath: root.path, isDirectory: true)
+                .appendingPathComponent(path, isDirectory: false)
+        }
+        return pathRelativeToCurrentDirectoryIfPossible(target.path)
+    }
+
+    /// Keep bounded context directly actionable without unnecessarily turning a
+    /// caller-relative workspace path into a machine-specific absolute path.
+    /// Absolute paths remain the fallback when the selected document is outside
+    /// the current directory.
+    static func pathRelativeToCurrentDirectoryIfPossible(
+        _ absolutePath: String,
+        currentDirectoryPath: String = FileManager.default.currentDirectoryPath
+    ) -> String {
+        let current = URL(fileURLWithPath: currentDirectoryPath, isDirectory: true)
+            .standardizedFileURL.resolvingSymlinksInPath().path
+        let target = URL(fileURLWithPath: absolutePath, isDirectory: false)
+            .standardizedFileURL.resolvingSymlinksInPath().path
+        let prefix = current.hasSuffix("/") ? current : current + "/"
+        guard target.hasPrefix(prefix) else { return target }
+        let relative = String(target.dropFirst(prefix.count))
+        return relative.isEmpty ? "." : relative
+    }
+
+    private static func contextPathSemantics(
+        invocationTargetIsDirectory: Bool,
+        hasDirectFileTarget: Bool
+    ) -> String {
+        if !invocationTargetIsDirectory {
+            return "invocationTarget is a file and is directly reusable. files[].path is relative to the collaboration root; fileActions[].actionPath is reusable by file-only commands."
+        }
+        if hasDirectFileTarget {
+            return "invocationTarget is a directory and is not valid for file-only comment commands. directFileTarget and fileActions[].actionPath are caller-relative when safe and directly reusable."
+        }
+        return "invocationTarget is a directory. files[].path is relative to root; use the matching fileActions[].actionPath for file-only commands."
+    }
+
+    private static func stageReviewActions(
+        root: CollaborationRoot,
+        stageID: String
+    ) -> [CollaborationNextAction] {
+        [
+            CollaborationNextAction(
+                condition: "review this exact immutable stage before deciding",
+                command: "stage show",
+                arguments: [root.path, stageID]
+            ),
+            CollaborationNextAction(
+                condition: "submit only after the bounded stage review is accepted",
+                command: "stage submit",
+                arguments: [root.path, stageID]
+            ),
+            CollaborationNextAction(
+                condition: "if submit reports stale files, derive a new immutable stage",
+                command: "stage refresh",
+                arguments: [root.path, stageID]
+            ),
+        ]
+    }
+
     private static func slug(_ value: String) -> String {
         let scalars = value.lowercased().unicodeScalars
         let mapped = scalars.map { scalar -> Character in
@@ -1851,6 +2022,14 @@ private struct CollaborationNextAction: Encodable {
     let condition: String
     let command: String
     let arguments: [String]
+    let argv: [String]
+
+    init(condition: String, command: String, arguments: [String]) {
+        self.condition = condition
+        self.command = command
+        self.arguments = arguments
+        self.argv = command.split(separator: " ").map(String.init) + arguments
+    }
 }
 
 private struct ContextOptions {
@@ -1942,8 +2121,12 @@ private enum SuggestionSelectorArguments {
 }
 
 private struct ContextResult: Encodable {
+    let invocationTarget: String
+    let directFileTarget: String?
+    let pathSemantics: String
     let cursor: String
     let files: [CollaborationContextFile]
+    let fileActions: [ContextFileAction]
     let actors: [CollaborationActor]
     let activity: [CollaborationActorActivity]
     let truncation: CollaborationContextTruncation
@@ -1951,79 +2134,284 @@ private struct ContextResult: Encodable {
     let workflowGuidance: [ContextWorkflowHint]
 }
 
+private struct ContextFileAction: Encodable {
+    let path: String
+    let actionPath: String
+    let annotationRevision: Int
+    let annotationRevisionSemantics = "observed-pre-write-value; copy exactly; zero is valid"
+    let commentArgvTemplate: [String]
+    let requiredReplacements = ["KIND", "TEXT", "UUID"]
+
+    init(file: CollaborationContextFile, root: CollaborationRoot) {
+        path = file.path
+        let url: URL
+        if root.kind == .document || file.path == "." {
+            url = URL(fileURLWithPath: root.path, isDirectory: false)
+        } else {
+            url = URL(fileURLWithPath: root.path, isDirectory: true)
+                .appendingPathComponent(file.path, isDirectory: false)
+        }
+        actionPath = CollaborationCLI.pathRelativeToCurrentDirectoryIfPossible(url.path)
+        annotationRevision = file.cursor.annotationRevision
+        commentArgvTemplate = [
+            "comments", "add", actionPath, "--document", "--kind", "KIND",
+            "-m", "TEXT", "--contribution-id", "UUID", "--if-revision",
+            String(annotationRevision),
+        ]
+    }
+}
+
 private struct ContextWorkflowHint: Encodable {
     let purpose: String
     let command: String
     let arguments: [String]
     let note: String
+    let executable: Bool
+    let argv: [String]?
+    let argvTemplate: [String]?
+    let requiredReplacements: [String]?
 
-    static let defaults = [
-        ContextWorkflowHint(
+    init(purpose: String, command: String, arguments: [String], note: String) {
+        self.purpose = purpose
+        self.command = command
+        self.arguments = arguments
+        self.note = note
+        let complete = command.split(separator: " ").map(String.init) + arguments
+        var seen = Set<String>()
+        let replacements = arguments.compactMap { argument -> String? in
+            guard Self.isPlaceholder(argument), seen.insert(argument).inserted else { return nil }
+            return argument
+        }
+        executable = replacements.isEmpty
+        argv = replacements.isEmpty ? complete : nil
+        argvTemplate = replacements.isEmpty ? nil : complete
+        requiredReplacements = replacements.isEmpty ? nil : replacements
+    }
+
+    private static func isPlaceholder(_ value: String) -> Bool {
+        guard let first = value.unicodeScalars.first,
+              CharacterSet.uppercaseLetters.contains(first) else { return false }
+        return value.unicodeScalars.allSatisfy {
+            CharacterSet.uppercaseLetters.contains($0)
+                || CharacterSet.decimalDigits.contains($0)
+                || $0 == "_"
+        }
+    }
+
+    private static func argument(_ placeholder: String, directTarget: String?) -> String {
+        guard placeholder == "FILE" || placeholder == "TARGET" else { return placeholder }
+        return directTarget ?? placeholder
+    }
+
+    static func defaults(directTarget: String?) -> [ContextWorkflowHint] {
+        [ContextWorkflowHint(
             purpose: "answer an existing open thread",
             command: "comments reply",
             arguments: [
-                "FILE", "ROOT_ID", "-m", "TEXT", "--id", "UUID",
+                argument("FILE", directTarget: directTarget), "ROOT_ID", "-m", "TEXT", "--id", "UUID",
                 "--if-revision", "OBSERVED_ANNOTATION_REVISION",
             ],
-            note: "Reply with the rootID directly; no source-range calculation is needed."
+            note: "Reply with the rootID directly; no source-range calculation is needed. Reuse invocationTarget instead of files[].path when a file was supplied. Add --resolve when this reply is also authorized to close the concern."
+        ),
+        ContextWorkflowHint(
+            purpose: "answer and close an existing open thread atomically",
+            command: "comments reply",
+            arguments: [
+                argument("FILE", directTarget: directTarget), "ROOT_ID", "-m", "TEXT", "--resolve",
+                "--id", "UUID", "--if-revision", "OBSERVED_ANNOTATION_REVISION",
+            ],
+            note: "The reply and root resolution share one revision: both are saved or neither is. Use only when closure is authorized."
         ),
         ContextWorkflowHint(
             purpose: "close an addressed thread",
             command: "comments resolve",
-            arguments: ["FILE", "ROOT_ID", "--if-revision", "REPLY_REVISION"],
+            arguments: [argument("FILE", directTarget: directTarget), "ROOT_ID", "--if-revision", "REPLY_REVISION"],
             note: "Replying does not resolve the root. Resolve only when the task authorizes closure."
         ),
         ContextWorkflowHint(
             purpose: "verify a complete durable thread",
             command: "comments list",
-            arguments: ["FILE", "--thread", "ROOT_ID", "--status", "all"],
+            arguments: [argument("FILE", directTarget: directTarget), "--thread", "ROOT_ID", "--status", "all"],
             note: "Use --thread ROOT_ID and then validate the document."
         ),
         ContextWorkflowHint(
             purpose: "start typed document-level work",
             command: "comments add",
             arguments: [
-                "FILE", "--document", "--kind", "KIND", "-m", "TEXT",
-                "--id", "UUID", "--if-revision", "OBSERVED_ANNOTATION_REVISION",
+                argument("FILE", directTarget: directTarget), "--document", "--kind", "KIND", "-m", "TEXT",
+                "--contribution-id", "UUID", "--if-revision", "OBSERVED_ANNOTATION_REVISION",
             ],
-            note: "Choose the requested kind explicitly: comment, question, issue, decision, task, or approval."
-        ),
-    ]
+            note: "Choose the requested kind explicitly: comment, question, issue, decision, task, or approval. Copy the observed annotation revision exactly; zero is valid and must not be incremented before the write."
+        )]
+    }
 
-    static func forSnapshot(_ snapshot: CollaborationContextSnapshot) -> [ContextWorkflowHint] {
-        let kinds = Set(snapshot.files.flatMap(\.contributions).map(\.kind))
+    static func forInboxItem(_ item: InboxItem) -> [ContextWorkflowHint] {
+        [ContextWorkflowHint(
+            purpose: "reply to the first matching open inbox thread",
+            command: "comments reply",
+            arguments: [
+                item.actionPath, item.rootID, "-m", "TEXT", "--id", "UUID",
+                "--if-revision", String(item.annotationRevision),
+            ],
+            note: "The path, root ID, and revision come from this inbox snapshot. Replace only TEXT and UUID."
+        ),
+        ContextWorkflowHint(
+            purpose: "reply and close the first matching open inbox thread atomically",
+            command: "comments reply",
+            arguments: [
+                item.actionPath, item.rootID, "-m", "TEXT", "--resolve", "--id", "UUID",
+                "--if-revision", String(item.annotationRevision),
+            ],
+            note: "Use only when closure is authorized. The reply and resolution both succeed or neither does."
+        ),
+        ContextWorkflowHint(
+            purpose: "verify the first matching durable thread",
+            command: "comments list",
+            arguments: [item.actionPath, "--thread", item.rootID, "--status", "all"],
+            note: "Verify the complete thread and validate the document after mutating it."
+        )]
+    }
+
+    static func forSnapshot(
+        _ snapshot: CollaborationContextSnapshot,
+        directTarget: String?,
+        invocationTarget: String,
+        invocationTargetIsDirectory: Bool
+    ) -> [ContextWorkflowHint] {
+        let contributions = snapshot.files.flatMap(\.contributions)
+        let kinds = Set(contributions.map(\.kind))
+        let sourceHints = sourceReadingHints(snapshot, directTarget: directTarget)
+        if contributions.isEmpty {
+            return sourceHints + startingWork(
+                snapshot,
+                directTarget: directTarget,
+                invocationTarget: invocationTarget,
+                invocationTargetIsDirectory: invocationTargetIsDirectory
+            )
+        }
         var relevant: [ContextWorkflowHint] = []
         if kinds.contains(.suggestion) {
             relevant += [
                 ContextWorkflowHint(
                     purpose: "inspect durable suggestions",
                     command: "suggest list",
-                    arguments: ["TARGET"],
+                    arguments: [argument("TARGET", directTarget: directTarget)],
                     note: "Use the returned contribution IDs with suggest accept or suggest reject."
                 ),
                 ContextWorkflowHint(
                     purpose: "accept an authorized source change",
                     command: "suggest accept",
-                    arguments: ["TARGET", "SUGGESTION_ID"],
+                    arguments: [argument("TARGET", directTarget: directTarget), "SUGGESTION_ID"],
                     note: "Acceptance edits Markdown and may fail on stale source; reread instead of forcing it."
                 ),
                 ContextWorkflowHint(
                     purpose: "reject a suggestion without editing source",
                     command: "suggest reject",
-                    arguments: ["TARGET", "SUGGESTION_ID"],
+                    arguments: [argument("TARGET", directTarget: directTarget), "SUGGESTION_ID"],
                     note: "Rejection is safe after source drift and records the deciding actor."
                 ),
             ]
         }
         if kinds.contains(.handoff) {
-            relevant.append(ContextWorkflowHint(
-                purpose: "inspect durable handoffs",
-                command: "handoff list",
-                arguments: ["TARGET"],
-                note: "Use the handoff rootID for a reply; the next collaborator does not need the prior transcript."
-            ))
+            let handoff = contributions.first { $0.kind == .handoff }
+            let handoffFile = handoff.flatMap { contribution in
+                snapshot.files.first { $0.path == contribution.path }
+            }
+            let fileArgument = directTarget ?? handoff?.path ?? "FILE"
+            relevant += [
+                ContextWorkflowHint(
+                    purpose: "inspect durable handoffs",
+                    command: "handoff list",
+                    arguments: [argument("TARGET", directTarget: directTarget)],
+                    note: "Use the handoff rootID for a reply; the next collaborator does not need the prior transcript."
+                ),
+                ContextWorkflowHint(
+                    purpose: "inspect one handoff annotation",
+                    command: "comments get",
+                    arguments: [fileArgument, handoff?.id ?? "HANDOFF_ID"],
+                    note: "comments get always takes the file before the annotation ID."
+                ),
+                ContextWorkflowHint(
+                    purpose: "answer the first durable handoff",
+                    command: "comments reply",
+                    arguments: [
+                        fileArgument, handoff?.rootID ?? "HANDOFF_ROOT_ID", "-m", "TEXT", "--id", "UUID",
+                        "--if-revision", handoffFile.map { String($0.cursor.annotationRevision) }
+                            ?? "OBSERVED_ANNOTATION_REVISION",
+                    ],
+                    note: "The file, root ID, and observed revision are concrete. Replace only TEXT and UUID. Add --resolve when the response also completes the handoff."
+                ),
+            ]
         }
-        return relevant + defaults
+        return sourceHints + relevant + defaults(directTarget: directTarget)
+    }
+
+    private static func sourceReadingHints(
+        _ snapshot: CollaborationContextSnapshot,
+        directTarget: String?
+    ) -> [ContextWorkflowHint] {
+        guard let file = snapshot.files.first(where: { $0.sourcePreviewTruncated }) else { return [] }
+        let fileArgument: String
+        if let directTarget, snapshot.files.count == 1 {
+            fileArgument = directTarget
+        } else if snapshot.root.kind == .document || file.path == "." {
+            fileArgument = CollaborationCLI.pathRelativeToCurrentDirectoryIfPossible(snapshot.root.path)
+        } else {
+            let target = URL(fileURLWithPath: snapshot.root.path, isDirectory: true)
+                .appendingPathComponent(file.path, isDirectory: false)
+            fileArgument = CollaborationCLI.pathRelativeToCurrentDirectoryIfPossible(target.path)
+        }
+        return [ContextWorkflowHint(
+            purpose: "read beyond the bounded Markdown source preview",
+            command: "read",
+            arguments: [fileArgument, "--json"],
+            note: "sourcePreview is intentionally bounded. Use read for the complete logical Markdown before making a source-dependent decision."
+        )]
+    }
+
+    private static func startingWork(
+        _ snapshot: CollaborationContextSnapshot,
+        directTarget: String?,
+        invocationTarget: String,
+        invocationTargetIsDirectory: Bool
+    ) -> [ContextWorkflowHint] {
+        let selectedFile = snapshot.files.count == 1 ? snapshot.files[0] : nil
+        let selectedPath = selectedFile?.path ?? "RELATIVE_MARKDOWN_PATH"
+        let selectedRevision = selectedFile.map { String($0.cursor.annotationRevision) }
+            ?? "OBSERVED_ANNOTATION_REVISION"
+        var handoffArguments: [String]
+        if invocationTargetIsDirectory {
+            handoffArguments = [invocationTarget, "--path", selectedPath]
+        } else {
+            handoffArguments = [directTarget ?? invocationTarget]
+        }
+        handoffArguments += [
+            "-m", "TEXT", "--next-actor", "ACTOR_ID", "--contribution-id", "UUID",
+            "--request-id", "UUID",
+        ]
+        return [
+            ContextWorkflowHint(
+                purpose: "start a durable handoff",
+                command: "handoff add",
+                arguments: handoffArguments,
+                note: "For directory context, keep the directory TARGET and its root-relative --path. The starting cursor is captured automatically; do not reuse a cursor from a different root."
+            ),
+            ContextWorkflowHint(
+                purpose: "verify the new handoff",
+                command: "handoff list",
+                arguments: [directTarget ?? invocationTarget],
+                note: "Run after handoff add and inspect the returned id, actor, recipient, and body."
+            ),
+            ContextWorkflowHint(
+                purpose: "start typed document-level work",
+                command: "comments add",
+                arguments: [
+                    directTarget ?? "FILE", "--document", "--kind", "KIND", "-m", "TEXT",
+                    "--contribution-id", "UUID", "--if-revision", selectedRevision,
+                ],
+                note: "Choose the requested kind explicitly. For directory context, take the exact file and revision from fileActions instead of shortening files[].path or assuming revision zero."
+            ),
+        ]
     }
 }
 
@@ -2045,6 +2433,7 @@ private struct InboxResult: Encodable {
     let cursor: String
     let filter: InboxFilter
     let items: [InboxItem]
+    let workflowGuidance: [ContextWorkflowHint]
     let truncation: ListTruncation
 }
 
@@ -2054,12 +2443,14 @@ private struct InboxItem: Encodable {
     let rootID: String
     let parentID: String?
     let path: String
+    let actionPath: String
     let kind: CollaborationContributionKind
     let actorID: String
     let actorName: String
     let bodyPreview: String
     let created: String
     let modified: String
+    let annotationRevision: Int
     let threadStatus: MarginCommentStatus
     let range: UnicodeScalarRange?
     let anchorState: AnchorResolutionState?
@@ -2422,6 +2813,7 @@ private struct SuggestionDispositionResult: Encodable {
 
 private struct LoadedAnnotationFile {
     let path: String
+    let annotationRevision: Int
     let comments: [ListedComment]
 }
 

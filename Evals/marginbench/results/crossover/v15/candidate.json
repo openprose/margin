@@ -1,0 +1,15 @@
+{
+  "id": "margin-0.3.2-actionable-context-v15",
+  "manual_sha256": "ef146c72e496818ca7b28bee4b3635d0ec794be40ad48ca39e1f71779a5834cd",
+  "margin_sha256": "84c1161831f77b6bd31e93930676693aa95ff8a8d065770aa0b0d97aa66dc912",
+  "schema": "urn:marginbench:candidate:v1",
+  "settings": {
+    "adapter": "prime-verifiers-v1",
+    "benchmarkVersion": "0.1.0",
+    "change": "actionable-multifile-context-and-progressive-help",
+    "toolSurface": [
+      "margin"
+    ]
+  },
+  "settings_sha256": "e2deafd259f9eaddc066af6486fb95fe92b73af545a2c9112b9553aa58aff125"
+}

@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:crossover-prime-plan:v1",
+  "title": "MarginBench budget-bound topology crossover Prime plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "id", "candidate", "benchmarkImplementationSha256",
+    "crossoverPlanSha256", "taskSet", "developmentCases", "generationKeyID",
+    "model", "track", "limits", "pricing", "budget", "failurePolicy",
+    "jobCount", "agentProcessCount", "jobs"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:crossover-prime-plan:v1"},
+    "id": {"$ref": "#/$defs/prefixedSha256"},
+    "candidate": {"$ref": "#/$defs/candidate"},
+    "benchmarkImplementationSha256": {"$ref": "#/$defs/sha256"},
+    "crossoverPlanSha256": {"$ref": "#/$defs/sha256"},
+    "taskSet": {"enum": ["public-development-v1", "private-holdout-v1"]},
+    "developmentCases": {"type": "boolean"},
+    "generationKeyID": {"$ref": "#/$defs/prefixedSha256"},
+    "model": {"type": "string", "minLength": 1, "maxLength": 256},
+    "track": {"const": "team"},
+    "limits": {"$ref": "#/$defs/limits"},
+    "pricing": {"$ref": "#/$defs/pricing"},
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "currency", "contractMaximumCostUSD", "estimatedMaximumCostUSD",
+        "liveProxyCapPerCellUSD", "hardStudyCapUSD", "minimumWalletReserveUSD"
+      ],
+      "properties": {
+        "currency": {"const": "USD"},
+        "contractMaximumCostUSD": {"type": "number", "minimum": 0},
+        "estimatedMaximumCostUSD": {"type": "number", "minimum": 0},
+        "liveProxyCapPerCellUSD": {
+          "type": "number", "exclusiveMinimum": 0, "maximum": 15
+        },
+        "hardStudyCapUSD": {
+          "type": "number", "exclusiveMinimum": 0, "maximum": 50
+        },
+        "minimumWalletReserveUSD": {"type": "number", "minimum": 0}
+      }
+    },
+    "failurePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "automaticPaidRetry", "continueAfterUnsafeOrIncompleteCell",
+        "completedCellReplay", "orphanedAttempt"
+      ],
+      "properties": {
+        "automaticPaidRetry": {"const": false},
+        "continueAfterUnsafeOrIncompleteCell": {"const": false},
+        "completedCellReplay": {"const": "verify-and-skip"},
+        "orphanedAttempt": {"const": "stop-for-operator-review"}
+      }
+    },
+    "jobCount": {"type": "integer", "minimum": 2, "maximum": 2000},
+    "agentProcessCount": {"type": "integer", "minimum": 2, "maximum": 64000},
+    "jobs": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2000,
+      "items": {"$ref": "#/$defs/job"}
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "prefixedSha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "manifestSha256", "manifestDigest", "marginSha256",
+        "manualSha256", "settingsSha256"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "manifestSha256": {"$ref": "#/$defs/sha256"},
+        "manifestDigest": {"$ref": "#/$defs/sha256"},
+        "marginSha256": {"$ref": "#/$defs/sha256"},
+        "manualSha256": {
+          "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+        },
+        "settingsSha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxTurns", "maxInputTokens", "maxOutputTokens", "maxTotalTokens",
+        "inputTokenCeilingPerCall", "inputTokenCeilingSource",
+        "upstreamAttemptsPerTurn", "maxTokensPerCall",
+        "providerResponseTokenAllowance", "maxConcurrent",
+        "rolloutTimeoutSeconds", "wallTimeoutSeconds", "temperature",
+        "liveProxyMaxRequestBytes", "liveProxyTemplateTokenAllowance"
+      ],
+      "properties": {
+        "maxTurns": {"type": "integer", "minimum": 1},
+        "maxInputTokens": {"type": "integer", "minimum": 1},
+        "maxOutputTokens": {"type": "integer", "minimum": 1},
+        "maxTotalTokens": {"type": "integer", "minimum": 1},
+        "inputTokenCeilingPerCall": {"type": "integer", "minimum": 1},
+        "inputTokenCeilingSource": {
+          "type": "string", "minLength": 9, "maxLength": 2048,
+          "pattern": "^https://"
+        },
+        "upstreamAttemptsPerTurn": {"type": "integer", "minimum": 1},
+        "maxTokensPerCall": {"type": "integer", "minimum": 1},
+        "providerResponseTokenAllowance": {
+          "type": "integer", "minimum": 0, "maximum": 4096
+        },
+        "maxConcurrent": {"const": 1},
+        "rolloutTimeoutSeconds": {"type": "number", "exclusiveMinimum": 0},
+        "wallTimeoutSeconds": {"type": "number", "exclusiveMinimum": 0},
+        "liveProxyTimeoutSeconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 300},
+        "minimumStartIntervalSeconds": {"type": "number", "minimum": 0, "maximum": 3600},
+        "minimumRequestIntervalSeconds": {"type": "number", "minimum": 0, "maximum": 60},
+        "temperature": {"type": "number", "minimum": 0, "maximum": 2},
+        "liveProxyMaxRequestBytes": {
+          "type": "integer", "minimum": 1, "maximum": 16777216
+        },
+        "liveProxyTemplateTokenAllowance": {
+          "type": "integer", "minimum": 0, "maximum": 1000000
+        }
+      }
+    },
+    "pricing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputPricePerMillion", "outputPricePerMillion",
+        "billingOverheadUSDPerCall", "source"
+      ],
+      "properties": {
+        "inputPricePerMillion": {"type": "number", "minimum": 0},
+        "outputPricePerMillion": {"type": "number", "minimum": 0},
+        "billingOverheadUSDPerCall": {
+          "type": "number", "minimum": 0, "maximum": 1
+        },
+        "source": {
+          "type": "string", "minLength": 9, "maxLength": 2048,
+          "pattern": "^https://"
+        }
+      }
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "id", "ordinal", "episodeID", "candidateID",
+        "controlProfile", "scenario", "repetition", "fingerprint", "roles",
+        "agentProcessCount", "traceSeats", "phasePolicy",
+        "contractMaximumCostUSD", "liveProxyCapUSD"
+      ],
+      "properties": {
+        "schema": {"const": "urn:marginbench:crossover-prime-job:v1"},
+        "id": {"$ref": "#/$defs/prefixedSha256"},
+        "ordinal": {"type": "integer", "minimum": 1, "maximum": 2000},
+        "episodeID": {"type": "string", "minLength": 1, "maxLength": 512},
+        "candidateID": {"type": "string", "minLength": 1, "maxLength": 256},
+        "controlProfile": {
+          "enum": [
+            "role-separated-margin-only-v1",
+            "single-agent-margin-v1"
+          ]
+        },
+        "scenario": {"type": "string", "minLength": 1, "maxLength": 256},
+        "repetition": {"type": "integer", "minimum": 0, "maximum": 99},
+        "fingerprint": {"$ref": "#/$defs/sha256"},
+        "roles": {
+          "type": "array", "minItems": 1, "maxItems": 32,
+          "items": {"type": "string", "minLength": 1, "maxLength": 128}
+        },
+        "agentProcessCount": {"type": "integer", "minimum": 1, "maximum": 32},
+        "traceSeats": {
+          "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 128}
+        },
+        "phasePolicy": {
+          "enum": ["scenario-defined", "serial-stable-role-order"]
+        },
+        "contractMaximumCostUSD": {"type": "number", "minimum": 0},
+        "liveProxyCapUSD": {
+          "type": "number", "exclusiveMinimum": 0, "maximum": 15
+        }
+      }
+    }
+  }
+}

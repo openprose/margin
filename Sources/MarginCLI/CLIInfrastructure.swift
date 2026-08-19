@@ -141,6 +141,21 @@ struct ArgumentCursor {
         return value
     }
 
+    mutating func takeValue(_ names: [String]) throws -> String? {
+        var matches: [(name: String, value: String)] = []
+        for name in names {
+            if let value = try takeValue(name) {
+                matches.append((name, value))
+            }
+        }
+        guard matches.count <= 1 else {
+            throw CLIError.usage(
+                "Use only one of \(names.joined(separator: ", "))."
+            )
+        }
+        return matches.first?.value
+    }
+
     mutating func takeValues(_ name: String) throws -> [String] {
         var result: [String] = []
         while let value = try takeValue(name) { result.append(value) }

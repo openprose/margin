@@ -149,14 +149,17 @@ def score_episode(
     for expected in episode.oracle.get("annotations", []):
         path = str(expected["path"])
         candidates = [item for item in by_file.get(path, []) if _id_matches(_annotation_id(item), str(expected["id"]))]
+        identity_match = candidates[0] if len(candidates) == 1 else None
         exact = [item for item in candidates if _annotation_body(item) == expected.get("body")]
         match = exact[0] if len(exact) == 1 else None
         annotation_checks.append(match is not None)
-        if match is None:
+        if identity_match is None:
             attribution_checks.append(False)
+        else:
+            attribution_checks.append(_creator_id(identity_match) == expected.get("creatorID"))
+        if match is None:
             continue
         found_ids.add(str(expected["id"]))
-        attribution_checks.append(_creator_id(match) == expected.get("creatorID"))
         if expected.get("kind"):
             annotation_checks.append(_kind(match) == expected["kind"])
         if expected.get("status"):
@@ -180,6 +183,63 @@ def score_episode(
             )
 
     all_items = [item for items in by_file.values() for item in items]
+
+    def body_for_reference(identifier: object) -> str:
+        if not isinstance(identifier, str):
+            return ""
+        matches = [item for item in all_items if _id_matches(_annotation_id(item), identifier)]
+        return _annotation_body(matches[0]) if len(matches) == 1 else ""
+
+    diagnostic_checks: dict[str, bool] = {}
+    reference = episode.oracle.get("reference")
+    if isinstance(reference, dict) and episode.scenario_id == "specialist_audit":
+        decision_body = body_for_reference(reference.get("decisionID"))
+        issue_body = body_for_reference(reference.get("issueID"))
+        performance_choice = reference.get("performanceChoice")
+        secure_choice = reference.get("secureChoice")
+        diagnostic_checks = {
+            "diagnostic_decision_fact_recovered": (
+                isinstance(performance_choice, str) and performance_choice in decision_body
+            ),
+            "diagnostic_recorded_choice_recovered": (
+                isinstance(performance_choice, str) and performance_choice in issue_body
+            ),
+            "diagnostic_secure_choice_recovered": (
+                isinstance(secure_choice, str) and secure_choice in issue_body
+            ),
+            "diagnostic_sentence_shape_valid": (
+                issue_body.startswith("Security correction: ")
+                and issue_body.endswith(".")
+                and issue_body.count(" is ineligible; choose ") == 1
+            ),
+            "diagnostic_template_markers_absent": not any(
+                marker in issue_body for marker in ("ORIGINAL", "SECURE", "A-TOKEN", "NAME")
+            ),
+        }
+    elif isinstance(reference, dict) and episode.scenario_id == "distributed_synthesis":
+        handoff_body = body_for_reference(reference.get("handoffID"))
+        reply_body = body_for_reference(reference.get("replyID"))
+        evidence_a = reference.get("evidenceA")
+        evidence_b = reference.get("evidenceB")
+        diagnostic_checks = {
+            "diagnostic_handoff_evidence_recovered": (
+                isinstance(evidence_a, str) and evidence_a in handoff_body
+            ),
+            "diagnostic_reply_handoff_evidence_recovered": (
+                isinstance(evidence_a, str) and evidence_a in reply_body
+            ),
+            "diagnostic_reply_private_evidence_recovered": (
+                isinstance(evidence_b, str) and evidence_b in reply_body
+            ),
+            "diagnostic_sentence_shape_valid": (
+                reply_body.startswith("Synthesis: ")
+                and reply_body.endswith(".")
+                and reply_body.count(" + ") == 1
+            ),
+            "diagnostic_template_markers_absent": not any(
+                marker in reply_body for marker in ("ORIGINAL", "SECURE", "A-TOKEN", "NAME")
+            ),
+        }
     actual_ids = [_annotation_id(item) for item in all_items]
     duplicate_free = len(actual_ids) == len(set(actual_ids))
     expected_ids = [str(item["id"]) for item in episode.oracle.get("annotations", [])]
@@ -255,6 +315,7 @@ def score_episode(
         "valid_documents": all(valid.values()),
         "workspace_policy": not blocked,
         "valid_command_use": valid_command_use,
+        **diagnostic_checks,
     }
     dimensions = {
         "outcome": _mean([

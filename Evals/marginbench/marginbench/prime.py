@@ -17,11 +17,29 @@ from .binary import resolve_margin_binary
 from .controls import DEFAULT_CONTROL_PROFILE, planned_topology, require_implemented_profile
 from .entropy import PUBLIC_DEVELOPMENT_KEY
 from .phase_identity import PhaseIdentityController
+from .plain_gateway import PlainProvenanceLog, PlainWorkspaceGateway
+from .plain_prompts import plain_role_task
+from .plain_reference import apply_plain_harness_event
 from .runner import apply_harness_event
 from .scenarios import SCENARIO_IDS, generate_episode
-from .schema import EpisodeDefinition, RoleTask
+from .schema import Actor, EpisodeDefinition, RoleTask
 from .scorer import score_episode
+from .neutral import NeutralLedger
+from .neutral_scorer import score_neutral_state
 from .servers.gateway import MarginGatewayConfig, MarginGatewayToolset
+from .servers.plain_gateway import PlainGatewayConfig, PlainGatewayToolset
+
+
+def _reported_token_count(traces: list[vf.Trace], field: str) -> int:
+    """Sum provider-reported call usage without Trace's branch-deduplication math."""
+    if field not in {"prompt_tokens", "completion_tokens"}:
+        raise ValueError("Unsupported reported token field.")
+    return sum(
+        int(getattr(call.usage, field, 0) or 0)
+        for trace in traces
+        for call in trace.calls
+        if call.usage is not None
+    )
 
 
 async def _run_continuing_phases(
@@ -207,6 +225,9 @@ class MarginBenchEnv(vf.Env[MarginBenchEnvConfig]):
             raise TypeError(f"MarginBenchEnv requires MarginBenchTask, got {type(task).__name__}.")
         episode = self._trusted_episode(task)
         self.taskset.scrub_generation_key()
+        if task.data.control_profile == "role-separated-plain-markdown-v1":
+            await self._run_gated_plain_profile(task, agents, episode)
+            return
         binary = resolve_margin_binary(self.taskset.config.margin_binary)
         started = time.perf_counter()
         with tempfile.TemporaryDirectory(prefix="marginbench-v1-") as temporary:
@@ -344,6 +365,127 @@ class MarginBenchEnv(vf.Env[MarginBenchEnvConfig]):
                 for name, value in result.checks.items():
                     trace.record_metric(f"marginbench/check/{name}", float(value))
                 trace.info["marginbench"] = public_result
+
+    async def _run_gated_plain_profile(
+        self,
+        task: MarginBenchTask,
+        agents: vf.Agents,
+        episode: EpisodeDefinition,
+    ) -> None:
+        """Run the representation-neutral plain-Markdown collaboration control."""
+        started = time.perf_counter()
+        with tempfile.TemporaryDirectory(prefix="marginbench-plain-v1-") as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            control = root / "control"
+            control.mkdir(mode=0o700)
+            state = control / "state"
+            provenance_path = control / "provenance.jsonl"
+            episode.materialize(workspace)
+            (workspace / "COLLABORATION.md").write_bytes(NeutralLedger(()).encode())
+            if episode.scenario_id == "staged_multifile":
+                (workspace / "STAGE.md").write_text(
+                    "# Stage cursor\n\nUninitialized.\n",
+                    encoding="utf-8",
+                )
+            traces: list[vf.Trace] = []
+
+            def provenance() -> PlainProvenanceLog:
+                return PlainProvenanceLog(provenance_path)
+
+            async def apply_events(phase: int, timing: str) -> None:
+                for event in episode.events:
+                    if event.phase == phase and event.timing == timing:
+                        actor = Actor(**event.payload["actor"])
+                        await asyncio.to_thread(
+                            apply_plain_harness_event,
+                            episode,
+                            event,
+                            PlainWorkspaceGateway(workspace, actor, state, provenance()),
+                        )
+
+            async def run_role(role: RoleTask) -> None:
+                agent = getattr(agents, role.seat)
+                projected = plain_role_task(episode, role)
+                toolset = PlainGatewayToolset(PlainGatewayConfig(
+                    workspace=str(workspace),
+                    state_directory=str(state),
+                    provenance_path=str(provenance_path),
+                    actor_id=role.actor.id,
+                    actor_name=role.actor.name,
+                    actor_type=role.actor.type,
+                ))
+                async with serve_shared(
+                    [toolset],
+                    harness_is_local=runtime_is_local(agent.runtime_config),
+                ) as tools:
+                    traces.append(await agent.run(task.for_role(projected), tools=tools))
+
+            for phase in sorted({role.phase for role in episode.roles}):
+                await apply_events(phase, "before")
+                phase_roles = [role for role in episode.roles if role.phase == phase]
+                if len(phase_roles) == 1:
+                    await run_role(phase_roles[0])
+                else:
+                    await asyncio.gather(*(run_role(role) for role in phase_roles))
+                await apply_events(phase, "after")
+
+            assessment = await asyncio.to_thread(
+                score_neutral_state,
+                episode,
+                workspace,
+                state,
+                provenance(),
+            )
+            assessment["durationMs"] = round((time.perf_counter() - started) * 1_000, 3)
+            assessment["controlProfile"] = task.data.control_profile
+            assessment["controlRunnable"] = True
+            assessment["implementedChecksPassed"] = all(assessment["checks"].values())
+            calls = provenance().call_snapshot()
+            assessment["efficiencyObservations"] = {
+                "toolCallCount": len(calls),
+                "failedToolCallCount": sum(not event.succeeded for event in calls),
+                "requestByteCount": sum(event.request_byte_count for event in calls),
+                "responseByteCount": sum(event.response_byte_count for event in calls),
+                "toolDurationMicroseconds": sum(event.duration_microseconds for event in calls),
+                "actionCounts": {
+                    action: sum(event.action == action for event in calls)
+                    for action in ("guide", "list", "read", "write", "invalid")
+                },
+                "modelCallCount": sum(len(trace.calls) for trace in traces),
+                "inputTokenCount": _reported_token_count(traces, "prompt_tokens"),
+                "outputTokenCount": _reported_token_count(traces, "completion_tokens"),
+                "costUSD": None,
+                "scalarScore": None,
+            }
+            assessment["logicalActors"] = [
+                {
+                    "seat": role.seat,
+                    "phase": role.phase,
+                    "id": role.actor.id,
+                    "name": role.actor.name,
+                    "type": role.actor.type,
+                }
+                for role in sorted(episode.roles, key=lambda item: item.phase)
+            ]
+            assessment.update(planned_topology(
+                task.data.control_profile,
+                [role.seat for role in episode.roles],
+            ))
+            for trace in traces:
+                for name, value in assessment["dimensions"].items():
+                    trace.record_metric(f"marginbench-neutral/{name}", value / 100.0)
+                for name, value in assessment["checks"].items():
+                    trace.record_metric(f"marginbench-neutral/check/{name}", float(value))
+                trace.record_metric(
+                    "marginbench-neutral/implemented-checks-passed",
+                    float(assessment["implementedChecksPassed"]),
+                )
+                # The neutral result is deliberately non-scalar. Production
+                # aggregation consumes this structured assessment, while the
+                # development alias keeps older no-model gates compatible.
+                trace.info["marginbenchNeutral"] = assessment
+                trace.info["marginbenchNeutralDevelopment"] = assessment
 
     def _policy(self):
         from .gateway import ToolPolicy

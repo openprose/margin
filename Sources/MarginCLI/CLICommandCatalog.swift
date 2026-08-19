@@ -163,6 +163,17 @@ enum CLICapabilityWorkflow: String, CaseIterable, Encodable {
     case handoff
     case merge
 
+    static func parse(_ rawValue: String) -> CLICapabilityWorkflow? {
+        switch rawValue.lowercased() {
+        case "review", "comment", "comments", "commenting": return .review
+        case "stage", "stages", "staging": return .staging
+        case "suggest", "suggestion", "suggestions": return .suggestions
+        case "handoff", "handoffs": return .handoff
+        case "merge", "reconcile", "reconciliation": return .merge
+        default: return nil
+        }
+    }
+
     var summary: String {
         switch self {
         case .review: return "Bounded document review, threaded comments, and inbox triage."
@@ -255,11 +266,11 @@ enum CLICommandCatalog {
         )
     ]
     private static let preconditionOptions = [
-        option("--if-revision", value: "N", description: "Require the current comment revision to equal N."),
+        option("--if-revision", value: "N", description: "Require the observed current revision N exactly; zero is valid."),
         option("--if-content-sha", value: "SHA", description: "Require the current logical-Markdown SHA-256 digest.")
     ]
     private static let typedContributionOptions = [
-        option("--kind", value: "KIND", choices: ["comment", "question", "issue", "decision", "task", "approval"], description: "Typed contribution kind; defaults to the backward-compatible comment path."),
+        option("--kind", value: "KIND", choices: ["comment", "question", "issue", "finding", "decision", "task", "approval"], description: "Typed contribution kind; finding is an alias for issue. Defaults to the backward-compatible comment path."),
         option("--assignee", value: "ACTOR_ID", description: "Task assignee; valid only with --kind task."),
         option("--priority", value: "PRIORITY", choices: ["low", "normal", "high", "urgent"], description: "Task priority; defaults to normal and is valid only with --kind task."),
         option("--audience", value: "ACTOR_ID", repeatable: true, description: "Intended actor audience; repeat for several actors."),
@@ -305,6 +316,12 @@ enum CLICommandCatalog {
             schema: "urn:margin:cli:v1",
             description: "Human-readable UTF-8 by default, or one command envelope with --json."
         )
+        let manualOutput = CLIOutputContract(
+            encoding: "text-or-json",
+            framing: "utf8-lf-or-single-object-lf",
+            schema: "urn:margin:manual:v1",
+            description: "Human-readable manual text by default, or one bounded manual object with --json."
+        )
         let commentsJSON = CLIOutputContract(
             encoding: "json",
             framing: "single-object-lf",
@@ -323,10 +340,10 @@ enum CLICommandCatalog {
             command(
                 "man",
                 summary: "Teach Margin's safe human-agent workflows through concise progressive manual pages.",
-                usage: ["margin man [TOPIC]", "margin man --list"],
-                arguments: [argument("TOPIC", kind: "manual-topic", required: false, description: "One of review, comments, suggestions, staging, handoff, merge, or safety.")],
-                options: [option("--list", description: "List canonical manual topics without loading a page.")],
-                output: text
+                usage: ["margin man [TOPIC] [--json [--pretty]]", "margin man COMMAND SUBCOMMAND [--json [--pretty]]", "margin man --list [--json [--pretty]]"],
+                arguments: [argument("TOPIC", kind: "manual-topic-or-command-path", required: false, description: "A workflow topic or an exact command/subcommand path.")],
+                options: [option("--list", description: "List canonical manual topics without loading a page."), json, pretty],
+                output: manualOutput
             ),
             command(
                 "version",
@@ -339,7 +356,7 @@ enum CLICommandCatalog {
                 "capabilities",
                 summary: "Emit the full bounded command contract or a small workflow projection without filesystem access.",
                 usage: ["margin capabilities --json [--pretty]", "margin capabilities --json --for WORKFLOW [--pretty]"],
-                options: [requiredOption("--json", description: "Emit the capabilities contract."), option("--for", value: "WORKFLOW", choices: CLICapabilityWorkflow.allCases.map(\.rawValue), description: "Return only commands relevant to review, staging, suggestions, handoff, or merge."), pretty],
+                options: [requiredOption("--json", description: "Emit the capabilities contract."), option("--for", value: "WORKFLOW", choices: CLICapabilityWorkflow.allCases.map(\.rawValue), description: "Return only commands relevant to review, staging, suggestions, handoff, or merge. Natural aliases such as comments, stage, and reconcile are accepted."), pretty],
                 output: CLIOutputContract(
                     encoding: "json",
                     framing: "single-object-lf",
@@ -422,10 +439,13 @@ enum CLICommandCatalog {
             ),
             command(
                 "comments", "add",
-                summary: "Start a new passage- or document-level thread. To answer an existing thread, use comments reply instead.",
-                usage: ["margin comments add FILE (-m TEXT | --message-file PATH | --stdin) ANCHOR [--kind KIND] [TYPED_OPTIONS] [MUTATION_OPTIONS]"],
+                summary: "Start a thread. --parent is reply shorthand; add --resolve to reply and close atomically.",
+                usage: ["margin comments add FILE (-m TEXT | --message-file PATH | --stdin) ANCHOR [--kind KIND] [TYPED_OPTIONS] [MUTATION_OPTIONS]", "margin comments add FILE (-m TEXT | --message-file PATH | --stdin) --parent PARENT [--resolve] [MUTATION_OPTIONS]"],
                 arguments: [file],
-                options: messageOptions + anchorOptions + typedContributionOptions + [option("--id", value: "UUID", description: "Client-chosen annotation UUID and idempotency identity.")] + commentMutationOptions,
+                options: messageOptions + anchorOptions + typedContributionOptions + [
+                    option("--parent", value: "PARENT", description: "Reply shorthand; --resolve closes atomically."),
+                    option("--id", "--contribution-id", "--mutation-id", value: "UUID", description: "Client-chosen annotation or typed-contribution UUID and idempotency identity."),
+                ] + commentMutationOptions,
                 sideEffects: "mutates-file",
                 output: commentsJSON
             ),
@@ -449,10 +469,14 @@ enum CLICommandCatalog {
             ),
             command(
                 "comments", "reply",
-                summary: "Reply to any annotation in a comment tree. A reply never resolves the root thread; run comments resolve separately when the concern is closed.",
-                usage: ["margin comments reply FILE PARENT (-m TEXT | --message-file PATH | --stdin) [--reopen] [MUTATION_OPTIONS]"],
+                summary: "Reply to any annotation in a comment tree. Use --resolve to save the reply and close the root thread atomically.",
+                usage: ["margin comments reply FILE PARENT (-m TEXT | --message-file PATH | --stdin) [--reopen | --resolve] [MUTATION_OPTIONS]"],
                 arguments: [file, argument("PARENT", kind: "annotation-id", description: "Parent annotation UUID or urn:uuid identifier.")],
-                options: messageOptions + [option("--reopen", description: "Reopen the root thread while replying."), option("--id", value: "UUID", description: "Client-chosen annotation UUID and idempotency identity.")] + commentMutationOptions,
+                options: messageOptions + [
+                    option("--reopen", description: "Reopen the root thread while replying."),
+                    option("--resolve", description: "Save the reply and resolve the root thread in one atomic revision."),
+                    option("--id", "--mutation-id", value: "UUID", description: "Client-chosen annotation UUID and idempotency identity."),
+                ] + commentMutationOptions,
                 sideEffects: "mutates-file",
                 output: commentsJSON
             ),
@@ -599,6 +623,12 @@ enum CLICommandCatalog {
     private static func collaborationCommands(output: CLIOutputContract) -> [CLICommandContract] {
         let target = argument("TARGET", kind: "file-or-directory", description: "Existing Markdown file or explicit directory root.")
         let root = argument("ROOT", kind: "file-or-directory", description: "Existing document or directory collaboration root.")
+        let optionalRoot = argument(
+            "ROOT",
+            kind: "file-or-directory",
+            required: false,
+            description: "Existing collaboration root; defaults to the current directory with workspace discovery."
+        )
         let presentation = [option("--json", description: "Accepted for uniform invocation; collaboration commands always emit JSON."), pretty]
         let selection = [
             option("--root", value: "DIRECTORY", description: "Use an explicit directory boundary instead of workspace discovery."),
@@ -608,7 +638,8 @@ enum CLICommandCatalog {
             option("--max-depth", value: "N", description: "Bound directory traversal depth; defaults to 32."),
             option("--max-headings", value: "N", description: "Bound headings returned per file; defaults to 32."),
             option("--max-contributions", value: "N", description: "Bound contributions returned per file after command filters; defaults to 64."),
-            option("--max-preview-bytes", value: "N", description: "Bound each contribution body preview; defaults to 240 bytes.")
+            option("--max-preview-bytes", value: "N", description: "Bound each contribution body preview; defaults to 240 bytes."),
+            option("--max-source-bytes", value: "N", description: "Bound each Markdown source preview; defaults to 2048 bytes. Use read for the complete source.")
         ]
         let mutationTarget = [
             option("--root", value: "DIRECTORY", description: "Use an explicit directory collaboration boundary."),
@@ -647,7 +678,7 @@ enum CLICommandCatalog {
             ),
             command(
                 "context",
-                summary: "Return bounded context with root thread IDs, current revisions, exact available command paths, argument guidance, and an mcur1 cursor.",
+                summary: "Return bounded source previews, root thread IDs, current revisions, exact available command paths, typed argv templates, and an mcur1 cursor.",
                 usage: ["margin context TARGET [--json] [SELECTION_OPTIONS] [--pretty]"],
                 arguments: [target],
                 options: selection + [option("--json", description: "Accepted for uniform invocation; context always emits JSON."), pretty],
@@ -665,7 +696,7 @@ enum CLICommandCatalog {
             ),
             command(
                 "inbox",
-                summary: "Filter contribution work first, then return a bounded result with matching omissions.",
+                summary: "Filter contribution work first, then return bounded items with reusable action paths, revisions, and workflow guidance.",
                 usage: ["margin inbox TARGET [--status open|resolved|all] [--kind KIND ...] [SELECTION_OPTIONS] [--pretty]"],
                 arguments: [target],
                 options: [option("--status", value: "STATUS", choices: ["open", "resolved", "all"], description: "Filter by root thread status; defaults to open."), option("--kind", value: "KIND", repeatable: true, choices: CollaborationContributionKind.allCases.map(\.rawValue), description: "Filter by typed contribution kind."), option("--actor", value: "ID", description: "Filter by creator actor id."), option("--assignee", value: "ID", description: "Filter by assignee actor id.")] + selection + presentation,
@@ -693,8 +724,8 @@ enum CLICommandCatalog {
             command(
                 "stage", "list",
                 summary: "List bounded staged metadata without contribution bodies or file images.",
-                usage: ["margin stage list ROOT [--limit N] [--max-bytes N] [--pretty]"],
-                arguments: [root],
+                usage: ["margin stage list [ROOT] [--limit N] [--max-bytes N] [--pretty]"],
+                arguments: [optionalRoot],
                 options: [option("--limit", value: "N", description: "Maximum summaries to return; 0 to 4096, default 128."), option("--max-bytes", value: "N", description: "Maximum aggregate canonical stage bytes decoded; 0 to 268435456, default 67108864. Byte omissions are reported.")] + presentation,
                 sideEffects: "reads-stages",
                 output: output
@@ -758,7 +789,7 @@ enum CLICommandCatalog {
                 summary: "Add a resilient passage replacement suggestion with base provenance.",
                 usage: ["margin suggest add TARGET (--quote EXACT [--prefix P --suffix S] [--occurrence N] | --range START:END | --from LINE:COL --to LINE:COL) [--expect TEXT] --replacement TEXT -m MESSAGE [OPTIONS]"],
                 arguments: [target],
-                options: mutationTarget + [option("--quote", value: "EXACT", description: "Resolve a unique exact passage without coordinate arithmetic."), option("--prefix", value: "TEXT", description: "Text immediately before --quote for disambiguation."), option("--suffix", value: "TEXT", description: "Text immediately after --quote for disambiguation."), option("--occurrence", value: "N", description: "One-based duplicate quote occurrence."), option("--range", value: "START:END", description: "Half-open Unicode-scalar range."), option("--from", value: "LINE:COL", description: "One-based grapheme start; requires --to."), option("--to", value: "LINE:COL", description: "One-based grapheme end; requires --from."), option("--expect", value: "TEXT", description: "Optional exact-match precondition; derived from the resolved passage when omitted."), requiredOption("--replacement", value: "TEXT", description: "Replacement logical Markdown."), option("--id", value: "ID", description: "Stable contribution and retry identity."), option("--audience", value: "ACTOR_ID", repeatable: true, description: "Intended actor audience.")] + messageOptions + actorOptions + identities + presentation,
+                options: mutationTarget + [option("--quote", value: "EXACT", description: "Resolve a unique exact passage without coordinate arithmetic."), option("--prefix", value: "TEXT", description: "Text immediately before --quote for disambiguation."), option("--suffix", value: "TEXT", description: "Text immediately after --quote for disambiguation."), option("--occurrence", value: "N", description: "One-based duplicate quote occurrence."), option("--range", value: "START:END", description: "Half-open Unicode-scalar range."), option("--from", value: "LINE:COL", description: "One-based grapheme start; requires --to."), option("--to", value: "LINE:COL", description: "One-based grapheme end; requires --from."), option("--expect", value: "TEXT", description: "Optional exact-match precondition; derived from the resolved passage when omitted."), requiredOption("--replacement", value: "TEXT", description: "Replacement logical Markdown."), option("--id", "--contribution-id", value: "ID", description: "Stable contribution and retry identity."), option("--audience", value: "ACTOR_ID", repeatable: true, description: "Intended actor audience.")] + messageOptions + actorOptions + identities + presentation,
                 sideEffects: "mutates-file-metadata",
                 output: output
             ),
@@ -783,9 +814,13 @@ enum CLICommandCatalog {
             command(
                 "handoff", "add",
                 summary: "Record a handoff with start/finish cursors and explicit follow-up references.",
-                usage: ["margin handoff add TARGET -m MESSAGE [HANDOFF_OPTIONS] [ACTOR_OPTIONS] [IDENTITY_OPTIONS]"],
+                usage: [
+                    "margin handoff add TARGET -m MESSAGE [HANDOFF_OPTIONS] [ACTOR_OPTIONS] [IDENTITY_OPTIONS]",
+                    "margin handoff add FILE -m TEXT --next-actor ACTOR_ID --contribution-id UUID --request-id UUID",
+                    "margin handoff add DIRECTORY --path RELATIVE_FILE -m TEXT --next-actor ACTOR_ID --contribution-id UUID --request-id UUID",
+                ],
                 arguments: [target],
-                options: mutationTarget + [option("--starting-cursor", value: "MCUR1", description: "Starting cursor; defaults to the captured current cursor and remains stable on fixed-id replay."), option("--finishing-cursor", value: "MCUR1", description: "Optional finishing cursor."), option("--touched", value: "ID", repeatable: true, description: "Touched annotation id."), option("--unresolved", value: "ID", repeatable: true, description: "Unresolved contribution or issue id."), option("--next-actor", value: "ID", repeatable: true, description: "Intended next actor id."), option("--audience", value: "ID", repeatable: true, description: "Intended audience actor id."), option("--id", value: "ID", description: "Stable handoff contribution and retry identity.")] + messageOptions + actorOptions + identities + presentation,
+                options: mutationTarget + [option("--starting-cursor", value: "MCUR1", description: "Whole-root concurrency guard for this handoff; use this instead of comment-only --if-revision/--if-content-sha. Omit it to capture the current cursor automatically."), option("--finishing-cursor", value: "MCUR1", description: "Optional finishing cursor."), option("--touched", value: "ID", repeatable: true, description: "Touched annotation id."), option("--unresolved", value: "ID", repeatable: true, description: "Unresolved contribution or issue id."), option("--next-actor", value: "ID", repeatable: true, description: "Intended next actor id."), option("--audience", value: "ID", repeatable: true, description: "Intended audience actor id."), option("--id", "--contribution-id", value: "ID", description: "Aliases for one stable handoff contribution/retry identity; use either spelling, never both.")] + messageOptions + actorOptions + identities + presentation,
                 sideEffects: "mutates-file-metadata",
                 output: output
             ),

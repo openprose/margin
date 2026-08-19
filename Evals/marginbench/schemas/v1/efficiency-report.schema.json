@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:efficiency-report:v1",
+  "title": "MarginBench representation-aware efficiency report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "sourceSchemas", "sources", "observationCount", "episodeCount",
+    "scalarRankingPermitted", "rules", "observations", "groups", "matchedEpisodes"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:efficiency-report:v1"},
+    "sourceSchemas": {
+      "type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true,
+      "items": {"enum": [
+        "urn:marginbench:neutral-run:v1",
+        "urn:marginbench:neutral-served-preflight:v1",
+        "urn:marginbench:run:v1"
+      ]}
+    },
+    "sources": {
+      "type": "array", "minItems": 1, "maxItems": 64,
+      "items": {"$ref": "#/$defs/source"}
+    },
+    "observationCount": {"type": "integer", "minimum": 1, "maximum": 4096},
+    "episodeCount": {"type": "integer", "minimum": 1, "maximum": 4096},
+    "scalarRankingPermitted": {"const": false},
+    "rules": {
+      "type": "array", "minItems": 6, "maxItems": 6,
+      "items": {"type": "string", "minLength": 1, "maxLength": 240}
+    },
+    "observations": {
+      "type": "array", "minItems": 1, "maxItems": 4096,
+      "items": {"$ref": "#/$defs/observation"}
+    },
+    "groups": {
+      "type": "array", "minItems": 1, "maxItems": 4096,
+      "items": {"$ref": "#/$defs/group"}
+    },
+    "matchedEpisodes": {
+      "type": "array", "minItems": 1, "maxItems": 4096,
+      "items": {"$ref": "#/$defs/match"}
+    }
+  },
+  "$defs": {
+    "boundedCount": {"type": "integer", "minimum": 0, "maximum": 1000000000000},
+    "nullableCount": {"type": ["integer", "null"], "minimum": 0, "maximum": 1000000000000},
+    "nullableNumber": {"type": ["number", "null"], "minimum": 0, "maximum": 1000000000000},
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "sha256", "byteCount"],
+      "properties": {
+        "schema": {
+          "enum": [
+            "urn:marginbench:neutral-run:v1",
+            "urn:marginbench:neutral-served-preflight:v1",
+            "urn:marginbench:run:v1"
+          ]
+        },
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "byteCount": {"type": "integer", "minimum": 1, "maximum": 16777216}
+      }
+    },
+    "tool": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "count", "failedCount", "invalidCount", "requestBytes", "responseBytes",
+        "cumulativeToolTimeMs", "measurementBasis"
+      ],
+      "properties": {
+        "count": {"$ref": "#/$defs/boundedCount"},
+        "failedCount": {"$ref": "#/$defs/nullableCount"},
+        "invalidCount": {"$ref": "#/$defs/boundedCount"},
+        "requestBytes": {"$ref": "#/$defs/nullableCount"},
+        "responseBytes": {"$ref": "#/$defs/nullableCount"},
+        "cumulativeToolTimeMs": {"$ref": "#/$defs/nullableNumber"},
+        "measurementBasis": {
+          "enum": ["served-workspace-tool-boundary", "redacted-margin-command-summary"]
+        }
+      }
+    },
+    "usage": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "calls", "promptTokens", "cachedInputTokens", "completionTokens",
+        "reasoningTokens", "reportedCostUSD"
+      ],
+      "properties": {
+        "calls": {"$ref": "#/$defs/boundedCount"},
+        "promptTokens": {"$ref": "#/$defs/boundedCount"},
+        "cachedInputTokens": {"$ref": "#/$defs/boundedCount"},
+        "completionTokens": {"$ref": "#/$defs/boundedCount"},
+        "reasoningTokens": {"$ref": "#/$defs/boundedCount"},
+        "reportedCostUSD": {"$ref": "#/$defs/nullableNumber"}
+      }
+    },
+    "observation": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "episodeID", "scenario", "repetition", "candidateID", "controlProfile",
+        "executionKind", "modelExecuted", "modelID", "logicalRoleCount",
+        "agentProcessCount", "taskOutcomePassed", "safetyPassed", "sourcePreserved",
+        "wallTimeMs", "toolRoundTrips", "modelUsage", "missingMeasurements",
+        "comparisonContract"
+      ],
+      "properties": {
+        "episodeID": {"type": "string", "minLength": 1, "maxLength": 512},
+        "scenario": {"type": "string", "minLength": 1, "maxLength": 128},
+        "repetition": {"type": "integer", "minimum": 0, "maximum": 99},
+        "candidateID": {"type": "string", "minLength": 1, "maxLength": 256},
+        "controlProfile": {"type": "string", "minLength": 1, "maxLength": 128},
+        "executionKind": {"enum": ["scripted-reference", "real-model"]},
+        "modelExecuted": {"type": "boolean"},
+        "modelID": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "logicalRoleCount": {"type": "integer", "minimum": 1, "maximum": 32},
+        "agentProcessCount": {"type": "integer", "minimum": 1, "maximum": 32},
+        "taskOutcomePassed": {"type": "boolean"},
+        "safetyPassed": {"type": "boolean"},
+        "sourcePreserved": {"type": "boolean"},
+        "wallTimeMs": {"type": "number", "minimum": 0, "maximum": 3600000},
+        "toolRoundTrips": {"$ref": "#/$defs/tool"},
+        "modelUsage": {"$ref": "#/$defs/usage"},
+        "missingMeasurements": {
+          "type": "array", "maxItems": 16, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 128}
+        },
+        "comparisonContract": {"$ref": "#/$defs/comparisonContract"}
+      }
+    },
+    "contractField": {
+      "enum": [
+        "adapter", "admission-budget-policy", "agent-process-count",
+        "benchmark-development-cases", "benchmark-implementation", "benchmark-version",
+        "billing-overhead-usd-per-call", "episode-fingerprint", "episode-repetition",
+        "episode-scenario", "input-token-ceiling-per-call",
+        "live-proxy-max-request-bytes", "live-proxy-template-token-allowance",
+        "live-proxy-timeout-seconds", "logical-actors", "max-concurrent-episodes",
+        "max-input-tokens",
+        "max-output-tokens", "max-tokens-per-call", "max-total-tokens", "max-turns",
+        "minimum-request-interval-seconds", "minimum-start-interval-seconds",
+        "model", "phase-policy",
+        "prior-infrastructure-attempts", "provider",
+        "provider-response-token-allowance", "retry-policy", "roles",
+        "rollout-timeout-seconds", "runtime", "task-set", "temperature",
+        "trace-seats", "upstream-attempts-per-turn", "wall-timeout-seconds"
+      ]
+    },
+    "fieldDigest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["field", "sha256"],
+      "properties": {
+        "field": {"$ref": "#/$defs/contractField"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "comparisonContract": {
+      "type": "object", "additionalProperties": false,
+      "required": ["version", "complete", "fieldDigests", "missingFields", "sha256"],
+      "properties": {
+        "version": {"const": 1},
+        "complete": {"type": "boolean"},
+        "fieldDigests": {
+          "type": "array", "maxItems": 37, "items": {"$ref": "#/$defs/fieldDigest"}
+        },
+        "missingFields": {
+          "type": "array", "maxItems": 37, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/contractField"}
+        },
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "group": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "candidateID", "controlProfile", "executionKind", "modelID", "episodeCount",
+        "taskOutcomePassCount", "safetyPassCount", "sourcePreservedCount",
+        "meanWallTimeMs", "totalToolRoundTrips", "totalInvalidToolRoundTrips",
+        "totalFailedToolRoundTrips", "totalRequestBytes", "totalResponseBytes",
+        "totalCumulativeToolTimeMs", "totalModelCalls",
+        "totalPromptTokens", "totalCachedInputTokens", "totalCompletionTokens",
+        "totalReasoningTokens", "totalReportedCostUSD"
+      ],
+      "properties": {
+        "candidateID": {"type": "string", "minLength": 1, "maxLength": 256},
+        "controlProfile": {"type": "string", "minLength": 1, "maxLength": 128},
+        "executionKind": {"enum": ["scripted-reference", "real-model"]},
+        "modelID": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "episodeCount": {"$ref": "#/$defs/boundedCount"},
+        "taskOutcomePassCount": {"$ref": "#/$defs/boundedCount"},
+        "safetyPassCount": {"$ref": "#/$defs/boundedCount"},
+        "sourcePreservedCount": {"$ref": "#/$defs/boundedCount"},
+        "meanWallTimeMs": {"type": "number", "minimum": 0, "maximum": 3600000},
+        "totalToolRoundTrips": {"$ref": "#/$defs/boundedCount"},
+        "totalFailedToolRoundTrips": {"$ref": "#/$defs/nullableCount"},
+        "totalInvalidToolRoundTrips": {"$ref": "#/$defs/boundedCount"},
+        "totalRequestBytes": {"$ref": "#/$defs/nullableCount"},
+        "totalResponseBytes": {"$ref": "#/$defs/nullableCount"},
+        "totalCumulativeToolTimeMs": {"$ref": "#/$defs/nullableNumber"},
+        "totalModelCalls": {"$ref": "#/$defs/boundedCount"},
+        "totalPromptTokens": {"$ref": "#/$defs/boundedCount"},
+        "totalCachedInputTokens": {"$ref": "#/$defs/boundedCount"},
+        "totalCompletionTokens": {"$ref": "#/$defs/boundedCount"},
+        "totalReasoningTokens": {"$ref": "#/$defs/boundedCount"},
+        "totalReportedCostUSD": {"$ref": "#/$defs/nullableNumber"}
+      }
+    },
+    "match": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "episodeID", "observationCount", "allOutcomePassed", "allSafetyPassed",
+        "comparisonStatus", "contractStatus", "contractDifferences",
+        "contractMissingFields", "winner"
+      ],
+      "properties": {
+        "episodeID": {"type": "string", "minLength": 1, "maxLength": 512},
+        "observationCount": {"$ref": "#/$defs/boundedCount"},
+        "allOutcomePassed": {"type": "boolean"},
+        "allSafetyPassed": {"type": "boolean"},
+        "comparisonStatus": {"enum": ["unpaired", "mixed-execution-kind", "resource-vector-only"]},
+        "contractStatus": {
+          "enum": ["not-applicable", "matched", "mismatch", "insufficient-metadata"]
+        },
+        "contractDifferences": {
+          "type": "array", "maxItems": 37, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/contractField"}
+        },
+        "contractMissingFields": {
+          "type": "array", "maxItems": 37, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/contractField"}
+        },
+        "winner": {"const": null}
+      }
+    }
+  }
+}

@@ -6,15 +6,53 @@ import json
 import math
 import secrets
 import threading
+import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlsplit
 
 import httpx
 
+from .accounting import rounded_token_cost_usd
+
 
 MAX_UPSTREAM_RESPONSE_BYTES = 16 * 1024 * 1024
+
+
+class InferenceRequestPacer:
+    """Serialize provider starts with an explicit minimum interval."""
+
+    def __init__(
+        self,
+        minimum_interval_seconds: float,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        sleeper: Callable[[float], None] = time.sleep,
+    ) -> None:
+        if (
+            not isinstance(minimum_interval_seconds, (int, float))
+            or isinstance(minimum_interval_seconds, bool)
+            or not math.isfinite(minimum_interval_seconds)
+            or not 0 <= minimum_interval_seconds <= 60
+        ):
+            raise ValueError("minimum_interval_seconds must be between 0 and 60")
+        self.minimum_interval_seconds = float(minimum_interval_seconds)
+        self._clock = clock
+        self._sleeper = sleeper
+        self._lock = threading.Lock()
+        self._next_start: float | None = None
+
+    def wait(self) -> None:
+        if self.minimum_interval_seconds <= 0:
+            return
+        with self._lock:
+            while self._next_start is not None:
+                remaining = self._next_start - self._clock()
+                if remaining <= 0:
+                    break
+                self._sleeper(remaining)
+            self._next_start = self._clock() + self.minimum_interval_seconds
 
 
 def _decode_unique_json(raw: bytes) -> object:
@@ -133,6 +171,7 @@ class InferenceBudgetPolicy:
 
 @dataclass(frozen=True)
 class InferenceReservation:
+    reservation_id: int
     cost_upper_usd: float
     input_tokens_upper: int
     output_tokens_upper: int
@@ -144,10 +183,14 @@ class InferenceBudgetGate:
         self._lock = threading.Lock()
         self._forwarded = 0
         self._rejected = 0
-        self._reserved_upper_usd = 0.0
+        self._next_reservation_id = 1
+        self._active_reservations: dict[int, float] = {}
+        self._outstanding_upper_usd = 0.0
+        self._settled_upper_usd = 0.0
+        self._gross_reserved_upper_usd = 0.0
+        self._settled_requests = 0
         self._reported_prompt_tokens = 0
         self._reported_completion_tokens = 0
-        self._reported_cost_usd = 0.0
         self._provider_bound_violations = 0
         self._latched_closed = False
 
@@ -157,15 +200,19 @@ class InferenceBudgetGate:
         with self._lock:
             if (
                 self._latched_closed
-                or self._reserved_upper_usd + upper > self.policy.max_total_cost_usd + 1e-12
+                or self._settled_upper_usd + self._outstanding_upper_usd + upper
+                > self.policy.max_total_cost_usd + 1e-12
             ):
                 self._rejected += 1
                 return None
-            # Reservations are never released, including after provider errors.
-            # This makes the cumulative cap pessimistic rather than optimistic.
-            self._reserved_upper_usd += upper
+            reservation_id = self._next_reservation_id
+            self._next_reservation_id += 1
+            self._active_reservations[reservation_id] = upper
+            self._outstanding_upper_usd += upper
+            self._gross_reserved_upper_usd += upper
             self._forwarded += 1
         return InferenceReservation(
+            reservation_id,
             upper,
             input_tokens,
             output_tokens + self.policy.response_token_allowance,
@@ -203,23 +250,53 @@ class InferenceBudgetGate:
             or cost > reservation.cost_upper_usd + 1e-12
         )
         with self._lock:
+            active_upper = self._active_reservations.get(reservation.reservation_id)
+            if active_upper is None:
+                # A response may settle a reservation exactly once. Treat an
+                # internal duplicate/mismatched callback as fail-closed.
+                self._provider_bound_violations += 1
+                self._latched_closed = True
+                return
             self._reported_prompt_tokens += prompt
             self._reported_completion_tokens += completion
-            self._reported_cost_usd += cost
             if violation:
                 self._provider_bound_violations += 1
                 self._latched_closed = True
+                return
+
+            # The request was admitted at its worst-case price. Once the
+            # provider returns bounded usage, replace that outstanding upper
+            # bound with the observed token charge plus the explicit per-call
+            # billing allowance. Malformed/error responses never reach this
+            # branch, so their full reservation remains charged.
+            settled_upper = cost + self.policy.billing_overhead_usd_per_call
+            self._active_reservations.pop(reservation.reservation_id)
+            self._outstanding_upper_usd -= active_upper
+            self._settled_upper_usd += settled_upper
+            self._settled_requests += 1
 
     def report(self) -> dict[str, Any]:
         with self._lock:
+            current_upper = self._settled_upper_usd + self._outstanding_upper_usd
             return {
                 "enabled": True,
                 "forwardedRequestCount": self._forwarded,
                 "rejectedRequestCount": self._rejected,
-                "reservedCostUpperBoundUSD": round(self._reserved_upper_usd, 6),
+                "reservedCostUpperBoundUSD": round(current_upper, 6),
+                "grossReservedCostUpperBoundUSD": round(
+                    self._gross_reserved_upper_usd,
+                    6,
+                ),
+                "settledRequestCount": self._settled_requests,
+                "outstandingReservationCount": len(self._active_reservations),
                 "reportedPromptTokens": self._reported_prompt_tokens,
                 "reportedCompletionTokens": self._reported_completion_tokens,
-                "reportedTokenCostUSD": round(self._reported_cost_usd, 6),
+                "reportedTokenCostUSD": rounded_token_cost_usd(
+                    self._reported_prompt_tokens,
+                    self._reported_completion_tokens,
+                    self.policy.input_price_per_million,
+                    self.policy.output_price_per_million,
+                ),
                 "providerBoundViolationCount": self._provider_bound_violations,
                 "latchedClosed": self._latched_closed,
                 "policy": {
@@ -248,6 +325,7 @@ class InferenceBudgetProxy:
         *,
         team_id: str | None = None,
         timeout_seconds: float = 120.0,
+        minimum_request_interval_seconds: float = 0.0,
     ) -> None:
         parsed = urlsplit(upstream_base_url)
         test_loopback = parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"}
@@ -269,6 +347,7 @@ class InferenceBudgetProxy:
         self.upstream_api_key = upstream_api_key
         self.team_id = team_id
         self.timeout_seconds = timeout_seconds
+        self.request_pacer = InferenceRequestPacer(minimum_request_interval_seconds)
         self.client_token = secrets.token_urlsafe(32)
         self.gate = InferenceBudgetGate(policy)
         self._client = httpx.Client(timeout=timeout_seconds, follow_redirects=False)
@@ -395,6 +474,7 @@ class InferenceBudgetProxy:
                 if reservation is None:
                     self._json_error(429, "BUDGET_PROXY_COST_LIMIT", "Cumulative inference cost bound exhausted.")
                     return
+                owner.request_pacer.wait()
 
                 headers = {
                     "authorization": f"Bearer {owner.upstream_api_key}",

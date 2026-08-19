@@ -172,6 +172,15 @@
         },
         "liveProxyTemplateTokenAllowance": {
           "type": "integer", "minimum": 0, "maximum": 1000000
+        },
+        "liveProxyTimeoutSeconds": {
+          "type": "number", "exclusiveMinimum": 0, "maximum": 300
+        },
+        "minimumStartIntervalSeconds": {
+          "type": "number", "minimum": 0, "maximum": 3600
+        },
+        "minimumRequestIntervalSeconds": {
+          "type": "number", "minimum": 0, "maximum": 60
         }
       }
     }

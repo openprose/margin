@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:neutral-assessment:v1",
+  "title": "MarginBench partial representation-neutral assessment v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "episodeID", "representation", "expectedFactCount", "actualFactCount",
+    "writeEventCount", "readEventCount", "failureEventCount", "checks", "dimensions", "sourcePreserved", "safetyPassed",
+    "notEvaluated", "diagnostics"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:neutral-assessment:v1"},
+    "episodeID": {"type": "string", "minLength": 1, "maxLength": 512},
+    "representation": {"const": "plain-markdown-v1"},
+    "expectedFactCount": {"type": "integer", "minimum": 0, "maximum": 512},
+    "actualFactCount": {"type": "integer", "minimum": 0, "maximum": 512},
+    "writeEventCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+    "readEventCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+    "failureEventCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allExpectedFacts", "allOrNoneFinal", "allOrNoneHistory", "committedAll", "continuityObserved",
+        "duplicateFree", "exactFactFields", "ledgerValid", "noUnexpectedFacts",
+        "sourceExpected", "trustedAttribution", "trustedDecisions", "recoveryObserved"
+      ],
+      "properties": {
+        "allExpectedFacts": {"type": "boolean"},
+        "allOrNoneFinal": {"type": "boolean"},
+        "allOrNoneHistory": {"type": "boolean"},
+        "committedAll": {"type": "boolean"},
+        "continuityObserved": {"type": "boolean"},
+        "duplicateFree": {"type": "boolean"},
+        "exactFactFields": {"type": "boolean"},
+        "ledgerValid": {"type": "boolean"},
+        "noUnexpectedFacts": {"type": "boolean"},
+        "sourceExpected": {"type": "boolean"},
+        "recoveryObserved": {"type": "boolean"},
+        "trustedAttribution": {"type": "boolean"},
+        "trustedDecisions": {"type": "boolean"}
+      }
+    },
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "integrity", "attribution", "continuity", "recovery"],
+      "properties": {
+        "outcome": {"type": "number", "minimum": 0, "maximum": 100},
+        "integrity": {"type": "number", "minimum": 0, "maximum": 100},
+        "attribution": {"type": "number", "minimum": 0, "maximum": 100},
+        "continuity": {"type": "number", "minimum": 0, "maximum": 100},
+        "recovery": {"type": "number", "minimum": 0, "maximum": 100}
+      }
+    },
+    "sourcePreserved": {"type": "boolean"},
+    "safetyPassed": {"type": "boolean"},
+    "notEvaluated": {"const": ["efficiency"]},
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ledgerError", "sourceErrorCount", "continuityRequirementCount", "recoveryRequired"],
+      "properties": {
+        "ledgerError": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+        "sourceErrorCount": {"type": "integer", "minimum": 0, "maximum": 1024},
+        "continuityRequirementCount": {"type": "integer", "minimum": 0, "maximum": 1024},
+        "recoveryRequired": {"type": "boolean"},
+        "missingExpectedFactCount": {"type": "integer", "minimum": 0, "maximum": 512},
+        "unexpectedFactCount": {"type": "integer", "minimum": 0, "maximum": 512},
+        "fieldMismatchCounts": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "count"],
+            "properties": {
+              "name": {"enum": [
+                "id", "kind", "file", "quote", "author", "state", "parent", "root",
+                "nextActor", "assignee", "priority", "audience", "expectedText",
+                "replacementText", "decisionBy", "transaction", "body"
+              ]},
+              "count": {"type": "integer", "minimum": 1, "maximum": 512}
+            }
+          }
+        },
+        "redundantInheritedAudienceCount": {"type": "integer", "minimum": 0, "maximum": 512}
+      }
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:crossover-prime-completion:v1",
+  "title": "MarginBench topology crossover Prime completion receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "completed", "paidModelsInvoked", "planID", "jobCount",
+    "observedWalletDebitUSD", "reportedCostUSD", "modelCalls", "allSafe",
+    "sampleSizeSufficient", "directionalConclusion", "descriptiveLeader",
+    "report", "automaticRetryPerformed"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:crossover-prime-completion:v1"},
+    "completed": {"const": true},
+    "paidModelsInvoked": {"const": true},
+    "planID": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "jobCount": {"type": "integer", "minimum": 2, "maximum": 2000},
+    "observedWalletDebitUSD": {"type": "number", "minimum": 0},
+    "reportedCostUSD": {"type": "number", "minimum": 0},
+    "modelCalls": {"type": "integer", "minimum": 0},
+    "allSafe": {"type": "boolean"},
+    "sampleSizeSufficient": {"type": "boolean"},
+    "directionalConclusion": {
+      "enum": ["role-separated", "continuing", "inconclusive", "insufficient-data", "unsafe"]
+    },
+    "descriptiveLeader": {
+      "enum": ["role-separated", "continuing", "inconclusive", "unsafe"]
+    },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "byteCount"],
+      "properties": {
+        "path": {"const": "crossover-report.json"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "byteCount": {"type": "integer", "minimum": 1, "maximum": 16777216}
+      }
+    },
+    "automaticRetryPerformed": {"const": false}
+  }
+}

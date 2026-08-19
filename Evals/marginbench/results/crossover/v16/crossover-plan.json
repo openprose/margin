@@ -1,0 +1,83 @@
+{
+  "agentProcessesPerProfile": {
+    "role-separated-margin-only-v1": 4,
+    "single-agent-margin-v1": 2
+  },
+  "benchmarkVersion": "0.2.0-crossover",
+  "candidateID": "margin-0.3.2-machine-readable-manual-v16",
+  "challengeCatalogSha256": "4c6b8e76e5a8cfc2c5d953814093540f2e4d8cb787b922f6792b98ba8ada1e1f",
+  "developmentCases": true,
+  "episodeCount": 2,
+  "episodes": [
+    {
+      "demand": {
+        "continuity": 1,
+        "coupling": 0,
+        "informationDistribution": 2,
+        "parallelism": 4,
+        "reviewIndependence": 2,
+        "specialization": 1,
+        "workspaceVolatility": 0
+      },
+      "family": "clean-parallelism",
+      "fingerprint": "1fe63b51c305211c00fbb9e4ab1bc1bde29f8d998ffdf1c4a2ddd1cb26e33297",
+      "hypothesis": "role-separated-favored",
+      "id": "parallel_shards:0:1fe63b51c305",
+      "profileOrder": [
+        "single-agent-margin-v1",
+        "role-separated-margin-only-v1"
+      ],
+      "repetition": 0,
+      "roles": [
+        "author",
+        "reviewer"
+      ],
+      "scenario": "parallel_shards"
+    },
+    {
+      "demand": {
+        "continuity": 2,
+        "coupling": 3,
+        "informationDistribution": 3,
+        "parallelism": 0,
+        "reviewIndependence": 4,
+        "specialization": 4,
+        "workspaceVolatility": 1
+      },
+      "family": "specialist-independent-review",
+      "fingerprint": "0585d0a6ef74e198ccc093b3b6b53fb6826ddab85dbc5d138e48c2454b08b2cc",
+      "hypothesis": "role-separated-favored",
+      "id": "specialist_audit:0:0585d0a6ef74",
+      "profileOrder": [
+        "role-separated-margin-only-v1",
+        "single-agent-margin-v1"
+      ],
+      "repetition": 0,
+      "roles": [
+        "author",
+        "reviewer"
+      ],
+      "scenario": "specialist_audit"
+    }
+  ],
+  "logicalRoleRunsPerProfile": 4,
+  "minimumPairsForDirectionalClaim": 20,
+  "profiles": [
+    "role-separated-margin-only-v1",
+    "single-agent-margin-v1"
+  ],
+  "repetitions": 1,
+  "rules": {
+    "budgetUnit": "logical-role",
+    "meaningfulSpeedRatio": 1.2,
+    "qualityTolerancePoints": 2,
+    "singleAggregateScore": false
+  },
+  "sampleSizeSufficient": false,
+  "scenarioIDs": [
+    "specialist_audit",
+    "parallel_shards"
+  ],
+  "schema": "urn:marginbench:crossover-plan:v1",
+  "taskSet": "public-development-v1"
+}

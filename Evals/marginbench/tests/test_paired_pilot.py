@@ -22,7 +22,7 @@ from marginbench.scheduling import build_execution_plan
 from marginbench.studies import build_study_plan
 from marginbench.submission import verify_submission
 from marginbench.validation import validate_artifact, validate_bytes
-from paired_pilot import execute_study
+from paired_pilot import execute_study, wait_until_paid_start_allowed
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -51,6 +51,26 @@ class PairedPrimeControllerTests(unittest.TestCase):
     @staticmethod
     def _value(command: list[str], name: str) -> str:
         return command[command.index(name) + 1]
+
+    def test_paid_start_pacer_waits_for_the_frozen_interval(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="marginbench-paired-pacer-") as temporary:
+            marker = Path(temporary) / "last-start"
+            marker.write_text("100\n", encoding="ascii")
+            now = [105.0]
+            sleeps: list[float] = []
+
+            def sleep(seconds: float) -> None:
+                sleeps.append(seconds)
+                now[0] += seconds
+
+            wait_until_paid_start_allowed(
+                marker,
+                10.0,
+                clock=lambda: now[0],
+                sleeper=sleep,
+            )
+            self.assertEqual(sleeps, [5.0])
+
 
     def _fixture(
         self,
@@ -101,6 +121,9 @@ class PairedPrimeControllerTests(unittest.TestCase):
             "maxConcurrent": 1,
             "rolloutTimeoutSeconds": 30.0,
             "wallTimeoutSeconds": 60.0,
+            "liveProxyTimeoutSeconds": 45.0,
+            "minimumStartIntervalSeconds": 0.0,
+            "minimumRequestIntervalSeconds": 0.25,
             "temperature": 0.0,
         }
         pricing = {
@@ -353,6 +376,14 @@ class PairedPrimeControllerTests(unittest.TestCase):
                         ),
                         "maxTurns": plan["limits"]["maxTurns"],
                         "rolloutTimeoutSeconds": plan["limits"]["rolloutTimeoutSeconds"],
+                        "wallTimeoutSeconds": plan["limits"]["wallTimeoutSeconds"],
+                        "liveProxyTimeoutSeconds": plan["limits"][
+                            "liveProxyTimeoutSeconds"
+                        ],
+                        "minimumStartIntervalSeconds": 0.0,
+                        "minimumRequestIntervalSeconds": plan["limits"][
+                            "minimumRequestIntervalSeconds"
+                        ],
                         "temperature": plan["limits"]["temperature"],
                         "liveProxyMaxRequestBytes": plan["limits"][
                             "liveProxyMaxRequestBytes"
@@ -448,6 +479,7 @@ class PairedPrimeControllerTests(unittest.TestCase):
             root = Path(temporary)
             arguments, plan = self._fixture(root)
             calls: list[list[str]] = []
+            claims: list[float] = []
             child = self._fake_child(plan, root)
 
             def recorded(command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
@@ -461,7 +493,9 @@ class PairedPrimeControllerTests(unittest.TestCase):
                 plan,
                 wallet_reader=wallet,
                 child_runner=recorded,
-                start_claimer=lambda *_, **__: None,
+                start_claimer=lambda *_, **values: claims.append(
+                    float(values["minimum_interval_seconds"])
+                ),
                 prime_resolver=lambda _: "/opt/fake-prime",
             )
             self.assertEqual(paused["status"], "paused")
@@ -475,12 +509,15 @@ class PairedPrimeControllerTests(unittest.TestCase):
                 plan,
                 wallet_reader=wallet,
                 child_runner=recorded,
-                start_claimer=lambda *_, **__: None,
+                start_claimer=lambda *_, **values: claims.append(
+                    float(values["minimum_interval_seconds"])
+                ),
                 prime_resolver=lambda _: "/opt/fake-prime",
             )
             self.assertTrue(completed["verified"])
             self.assertEqual(completed["jobCount"], 2)
             self.assertEqual(len(calls), 2)
+            self.assertEqual(claims, [0.0, 0.0])
             for command, job in zip(calls, plan["jobs"], strict=True):
                 self.assertEqual(
                     float(self._value(command, "--live-proxy-cost-cap-usd")),
@@ -489,6 +526,14 @@ class PairedPrimeControllerTests(unittest.TestCase):
                 self.assertEqual(
                     int(self._value(command, "--live-proxy-max-request-bytes")),
                     plan["limits"]["liveProxyMaxRequestBytes"],
+                )
+                self.assertEqual(
+                    float(self._value(command, "--minimum-request-interval-seconds")),
+                    plan["limits"]["minimumRequestIntervalSeconds"],
+                )
+                self.assertEqual(
+                    float(self._value(command, "--live-proxy-timeout-seconds")),
+                    plan["limits"]["liveProxyTimeoutSeconds"],
                 )
             self.assertTrue(validate_bytes(canonical_json(completed))["valid"])
             self.assertTrue(verify_submission(arguments.publication_dir / "submission.json")["valid"])
@@ -554,6 +599,9 @@ class PairedPrimeControllerTests(unittest.TestCase):
                 "--provider-response-token-allowance", "0",
                 "--rollout-timeout-seconds", "30",
                 "--wall-timeout-seconds", "60",
+                "--live-proxy-timeout-seconds", "45",
+                "--minimum-start-interval-seconds", "0",
+                "--minimum-request-interval-seconds", "0.25",
                 "--input-price-per-million", "0.03",
                 "--output-price-per-million", "0.13",
                 "--pricing-source", "https://example.invalid/model-pricing",

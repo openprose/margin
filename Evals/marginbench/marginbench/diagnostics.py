@@ -57,6 +57,7 @@ def _normalized_snake(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": identifier,
         "candidate": str(result["candidate_id"]),
+        "topology": str(result.get("control_profile", "unspecified")),
         "scenario": _scenario(identifier, result.get("scenario")),
         "score": float(result["score"]),
         "safety": bool(result["safety_passed"]),
@@ -97,6 +98,7 @@ def _normalized_camel(
     return {
         "id": identifier,
         "candidate": candidate,
+        "topology": str(episode.get("controlProfile", "unspecified")),
         "scenario": _scenario(identifier, episode.get("scenario")),
         "score": float(episode["score"]),
         "safety": bool(episode["safetyPassed"]),
@@ -469,9 +471,14 @@ def diagnose_artifacts(
             raise DiagnosticError(f"Diagnostics exceed the {MAX_EPISODES}-episode limit.")
     if not episodes:
         raise DiagnosticError("Diagnostic inputs contain no episodes.")
-    identities = [(item["candidate"], item["id"]) for item in episodes]
+    identities = [
+        (item["candidate"], item["id"], item["topology"])
+        for item in episodes
+    ]
     if len(identities) != len(set(identities)):
-        raise DiagnosticError("Diagnostic inputs repeat a candidate/episode pair.")
+        raise DiagnosticError(
+            "Diagnostic inputs repeat a candidate/episode pair within one topology."
+        )
 
     failed_checks = Counter(
         check

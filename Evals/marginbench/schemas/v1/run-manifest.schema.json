@@ -9,7 +9,7 @@
     "schema": {"const": "urn:marginbench:run:v1"},
     "runID": {"type": "string", "minLength": 1, "maxLength": 256},
     "status": {"type": "string", "enum": ["completed", "infrastructure-error", "invalid"]},
-    "track": {"type": "string", "enum": ["model", "interface", "team", "open-systems"]},
+    "track": {"type": "string", "enum": ["model", "interface", "team", "open-systems", "representation"]},
     "benchmark": {
       "type": "object",
       "additionalProperties": false,
@@ -186,6 +186,9 @@
         "forwardedRequestCount": {"type": "integer", "minimum": 0},
         "rejectedRequestCount": {"type": "integer", "minimum": 0},
         "reservedCostUpperBoundUSD": {"type": "number", "minimum": 0},
+        "grossReservedCostUpperBoundUSD": {"type": "number", "minimum": 0},
+        "settledRequestCount": {"type": "integer", "minimum": 0},
+        "outstandingReservationCount": {"type": "integer", "minimum": 0},
         "reportedPromptTokens": {"type": "integer", "minimum": 0},
         "reportedCompletionTokens": {"type": "integer", "minimum": 0},
         "reportedTokenCostUSD": {"type": "number", "minimum": 0},

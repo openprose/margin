@@ -1,0 +1,8 @@
+{
+  "adapter": "prime-verifiers-v1",
+  "benchmarkVersion": "0.1.0",
+  "change": "structured-progressive-manual-and-exact-revision-semantics",
+  "toolSurface": [
+    "margin"
+  ]
+}

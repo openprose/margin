@@ -38,33 +38,16 @@ _PROFILES: tuple[dict[str, Any], ...] = (
     },
     {
         "id": "role-separated-plain-markdown-v1",
-        "status": "specified-not-runnable",
+        "status": "implemented",
         "agentTopology": "role-separated",
         "transcriptSharing": "none-between-roles",
         "durableSurface": "plain-markdown-files",
-        "toolSurface": ["workspace_read", "workspace_write"],
+        "toolSurface": ["workspace"],
         "shellAccess": False,
         "isolationRequirement": "confined-file-gateway",
         "scoreComparability": "task-specific-outcome-integrity",
         "purpose": "Measure what durable coordination is lost without Margin primitives.",
-        "blockingGates": [
-            {
-                "id": "confined-file-gateway",
-                "requirement": "Provide bounded list, read, and compare-and-swap write operations without shell access.",
-            },
-            {
-                "id": "representation-neutral-oracle",
-                "requirement": "Grade equivalent task facts without requiring Margin protocol representation.",
-            },
-            {
-                "id": "file-gateway-adversarial-tests",
-                "requirement": "Prove path, symlink, size, concurrency, and partial-write safety.",
-            },
-            {
-                "id": "transcript-isolation",
-                "requirement": "Prove role processes exchange state only through the declared file surface.",
-            },
-        ],
+        "blockingGates": [],
     },
     {
         "id": "role-separated-margin-shell-v1",

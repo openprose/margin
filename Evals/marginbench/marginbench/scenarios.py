@@ -16,6 +16,9 @@ SCENARIO_IDS = (
     "suggestion_decision",
     "staged_multifile",
     "directory_handoff",
+    "parallel_shards",
+    "specialist_audit",
+    "distributed_synthesis",
 )
 
 ADJECTIVES = (
@@ -194,7 +197,7 @@ the complete thread and document validity.""",
         oracle["maxCommands"] = 20
         oracle["requiredCommandGroups"] = [
             ["comments reply"],
-            ["comments resolve"],
+            ["comments resolve", "comments reply --resolve"],
             ["comments list", "context", "review"],
         ]
         oracle["reference"] = {"rootID": root_id, "replyID": reply_id, "replyBody": reply_body}
@@ -248,7 +251,8 @@ Use mutation id {reply_id}. Resolve the root using the revision you observed and
         oracle["efficientCommandTarget"] = 10
         oracle["maxCommands"] = 24
         oracle["requiredCommandGroups"] = [
-            ["handoff add"], ["handoff list"], ["comments reply"], ["comments resolve"],
+            ["handoff add"], ["handoff list"], ["comments reply"],
+            ["comments resolve", "comments reply --resolve"],
         ]
         oracle["reference"] = {
             "handoffID": handoff_id,
@@ -286,7 +290,9 @@ both collaborators' work can coexist.""",
         ]
         oracle["minimumAnnotations"] = 2
         oracle["efficientCommandTarget"] = 6
-        oracle["requiredCommandGroups"] = [["comments add"], ["comments list", "context", "inbox"]]
+        oracle["requiredCommandGroups"] = [
+            ["comments add"], ["comments list", "comments get", "context", "inbox"],
+        ]
         oracle["allowedErrorCodes"] = ["COLLABORATION_PRECONDITION_FAILED", "REVISION_CONFLICT"]
         oracle["maxCommands"] = 18
         oracle["reference"] = {
@@ -564,7 +570,7 @@ then verify directory context and both collaboration documents.""",
             ["inbox", "handoff list"],
             ["handoff add"],
             ["comments reply"],
-            ["comments resolve"],
+            ["comments resolve", "comments reply --resolve"],
         ]
         oracle["reference"] = {
             "tradeoffPath": tradeoff_path,
@@ -578,6 +584,237 @@ then verify directory context and both collaboration documents.""",
             "acknowledgementBody": acknowledgement_body,
             "requestID": request_id,
             "nextActorID": reviewer.id,
+        }
+
+    elif scenario_id == "parallel_shards":
+        shard_paths = ("shards/alpha.md", "shards/beta.md")
+        files = {
+            shard_paths[0]: _document(random, target),
+            shard_paths[1]: _document(random, second_target),
+        }
+        assignments: dict[str, dict[str, str]] = {}
+        for index, (seat, actor, path) in enumerate((
+            ("author", author, shard_paths[0]),
+            ("reviewer", reviewer, shard_paths[1]),
+        )):
+            identifier = random.uuid()
+            body = _message(random, f"Shard finding {index + 1}")
+            assignments[actor.id] = {"path": path, "id": identifier, "body": body}
+            roles.append(RoleTask(
+                seat=seat,
+                actor=actor,
+                phase=0,
+                workflow="parallel-review",
+                prompt=f"""{SYSTEM_RULES}
+
+You own {path} in a low-coupling parallel review. Another agent independently owns a different
+file. Add exactly one document-level issue to {path} with id {identifier} and exactly this body:
+{body}
+Do not wait for or modify the other shard. Validate your file and verify your issue.""",
+            ))
+        oracle = _base_oracle(files)
+        oracle["annotations"] = [
+            _annotation(
+                assignments[actor.id]["id"],
+                assignments[actor.id]["path"],
+                assignments[actor.id]["body"],
+                actor,
+                kind="issue",
+                root_id=assignments[actor.id]["id"],
+            )
+            for actor in (author, reviewer)
+        ]
+        oracle["minimumAnnotations"] = 2
+        oracle["efficientCommandTarget"] = 6
+        oracle["maxCommands"] = 16
+        oracle["requiredCommandGroups"] = [
+            ["comments add"],
+            ["comments validate", "comments get"],
+            ["comments list", "comments get", "context"],
+        ]
+        oracle["reference"] = assignments
+
+    elif scenario_id == "specialist_audit":
+        proposal_path = "architecture/proposal.md"
+        names = [
+            f"Atlas-{random.bytes(2).hex()}",
+            f"Beacon-{random.bytes(2).hex()}",
+            f"Cinder-{random.bytes(2).hex()}",
+        ]
+        fastest_latency = 18 + random.index(7)
+        secure_latency = fastest_latency + 9 + random.index(8)
+        fallback_latency = secure_latency + 8 + random.index(8)
+        rows = random.shuffled([
+            (names[0], fastest_latency, "yes", "no"),
+            (names[1], secure_latency, "yes", "yes"),
+            (names[2], fallback_latency, "no", "yes"),
+        ])
+        files = {
+            proposal_path: "\n".join([
+                "# Deployment Proposal",
+                "",
+                "## Candidate evidence",
+                "",
+                *(f"- {name} | latency={latency} | encrypted={encrypted} | isolated={isolated}" for name, latency, encrypted, isolated in rows),
+                "",
+                "## Decision record",
+                "",
+                "The performance and security reviews must be recorded independently.",
+                "",
+            ])
+        }
+        performance_choice = names[0]
+        secure_choice = names[1]
+        decision_id, issue_id = random.uuid(), random.uuid()
+        decision_body = f"Performance choice: {performance_choice}."
+        issue_body = (
+            f"Security correction: {performance_choice} is ineligible; choose {secure_choice}."
+        )
+        roles.extend([
+            RoleTask(
+                seat="author",
+                actor=author,
+                phase=0,
+                workflow="specialist-audit",
+                prompt=f"""{SYSTEM_RULES}
+
+Act as the performance specialist for {proposal_path}. Read the candidate evidence and choose the
+unique lowest-latency candidate. Add one document-level decision with id {decision_id}. Its body
+must begin with the literal text `Performance choice: `, then the evidence-based candidate name,
+then a final period. Do not write a generic label or placeholder in place of the candidate name.
+Verify the recorded decision.""",
+            ),
+            RoleTask(
+                seat="reviewer",
+                actor=reviewer,
+                phase=1,
+                workflow="specialist-audit",
+                prompt=f"""{SYSTEM_RULES}
+
+You are an independent security specialist and receive no private reasoning from the performance
+author. Read {proposal_path} and the existing decision. A deployable candidate must have both
+`encrypted=yes` and `isolated=yes`; among deployable candidates choose the lowest latency. Add one
+document-level issue with id {issue_id}. Build its body from these pieces in order: the literal
+text `Security correction: `; the recorded performance candidate name; the literal text
+` is ineligible; choose `; your evidence-based deployable candidate name; and a final period.
+Do not write generic labels or placeholders in place of either candidate name. Validate both
+facts.""",
+            ),
+        ])
+        oracle = _base_oracle(files)
+        oracle["annotations"] = [
+            _annotation(
+                decision_id,
+                proposal_path,
+                decision_body,
+                author,
+                kind="decision",
+                root_id=decision_id,
+            ),
+            _annotation(
+                issue_id,
+                proposal_path,
+                issue_body,
+                reviewer,
+                kind="issue",
+                root_id=issue_id,
+            ),
+        ]
+        oracle["minimumAnnotations"] = 2
+        oracle["efficientCommandTarget"] = 9
+        oracle["maxCommands"] = 20
+        oracle["requiredCommandGroups"] = [
+            ["read", "context"],
+            ["comments list", "comments get", "context"],
+            ["comments add"],
+            ["comments validate", "comments get"],
+        ]
+        oracle["reference"] = {
+            "path": proposal_path,
+            "decisionID": decision_id,
+            "decisionBody": decision_body,
+            "issueID": issue_id,
+            "issueBody": issue_body,
+            "performanceChoice": performance_choice,
+            "secureChoice": secure_choice,
+        }
+
+    elif scenario_id == "distributed_synthesis":
+        synthesis_path = "synthesis.md"
+        files = {synthesis_path: _document(random, target)}
+        evidence_a = f"A-{random.bytes(4).hex()}"
+        evidence_b = f"B-{random.bytes(4).hex()}"
+        handoff_id, reply_id, request_id = random.uuid(), random.uuid(), random.uuid()
+        handoff_body = f"Evidence A: {evidence_a}."
+        synthesis_body = f"Synthesis: {evidence_a} + {evidence_b}."
+        roles.extend([
+            RoleTask(
+                seat="author",
+                actor=author,
+                phase=0,
+                workflow="distributed-synthesis",
+                prompt=f"""{SYSTEM_RULES}
+
+Your role-private evidence token is `{evidence_a}`. Create a typed handoff in {synthesis_path} for
+actor {reviewer.id}, using contribution id {handoff_id}, request id {request_id}, and the exact
+body `Evidence A: {evidence_a}.` Leave it open and verify it. Do not invent Evidence B.""",
+            ),
+            RoleTask(
+                seat="reviewer",
+                actor=reviewer,
+                phase=1,
+                workflow="distributed-synthesis",
+                prompt=f"""{SYSTEM_RULES}
+
+You receive no transcript and your role-private evidence token is `{evidence_b}`. Find the open
+handoff in {synthesis_path}, extract Evidence A from its durable body, and reply with mutation id
+{reply_id}. Build the reply body from these pieces in order: the literal text `Synthesis: `; the
+Evidence A token you actually read; the literal text ` + {evidence_b}.` Do not write a generic
+label or placeholder in place of Evidence A. Resolve the root and verify the complete tree.""",
+            ),
+        ])
+        oracle = _base_oracle(files)
+        oracle["annotations"] = [
+            _annotation(
+                handoff_id,
+                synthesis_path,
+                handoff_body,
+                author,
+                kind="handoff",
+                status="resolved",
+                root_id=handoff_id,
+                properties=[{
+                    "path": ["margin:handoff", "intendedNextActors"],
+                    "equals": [reviewer.id],
+                }],
+            ),
+            _annotation(
+                reply_id,
+                synthesis_path,
+                synthesis_body,
+                reviewer,
+                status="resolved",
+                parent_id=handoff_id,
+                root_id=handoff_id,
+            ),
+        ]
+        oracle["minimumAnnotations"] = 2
+        oracle["efficientCommandTarget"] = 10
+        oracle["maxCommands"] = 24
+        oracle["requiredCommandGroups"] = [
+            ["handoff add"], ["handoff list"], ["comments reply"],
+            ["comments resolve", "comments reply --resolve"],
+        ]
+        oracle["reference"] = {
+            "path": synthesis_path,
+            "handoffID": handoff_id,
+            "handoffBody": handoff_body,
+            "replyID": reply_id,
+            "replyBody": synthesis_body,
+            "requestID": request_id,
+            "nextActorID": reviewer.id,
+            "evidenceA": evidence_a,
+            "evidenceB": evidence_b,
         }
 
     return EpisodeDefinition(
