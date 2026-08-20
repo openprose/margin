@@ -204,6 +204,16 @@ final class WorkspaceBehaviorTests: XCTestCase {
         XCTAssertNotNil(menuItem(named: "Go to Comment…"))
     }
 
+    func testFileMenuOffersDefaultMarkdownEditorRegistration() {
+        let delegate = AppDelegate()
+        AppMenu.install(for: NSApplication.shared, delegate: delegate)
+
+        let item = menuItem(named: "Set as Default Markdown Editor")
+        XCTAssertNotNil(item)
+        XCTAssertEqual(item?.action, #selector(AppDelegate.setAsDefaultMarkdownEditor(_:)))
+        XCTAssertTrue(item?.target === delegate)
+    }
+
     func testFileWatcherNeverBlocksTheInteractionThreadWhileOpening() {
         let openerFinished = expectation(description: "Slow descriptor open finished")
         let watcher = FileSystemWatcher(
