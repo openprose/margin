@@ -95,6 +95,14 @@ enum AppMenu {
         )
         fileMenu.addItem(.separator())
         fileMenu.addItem(item("Close Tab", action: #selector(NSWindow.performClose(_:)), key: "w"))
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(
+            item(
+                "Set as Default Markdown Editor",
+                action: #selector(AppDelegate.setAsDefaultMarkdownEditor(_:)),
+                target: delegate
+            )
+        )
         mainMenu.addItem(menuItem(title: "File", submenu: fileMenu))
 
         let editMenu = NSMenu(title: "Edit")

@@ -1,5 +1,10 @@
 # Margin release notes
 
+## Unreleased
+
+- Adds a File menu entry that registers Margin as the default editor for
+  Markdown (.md) files through Launch Services.
+
 ## 0.4.0 — first public release
 
 Release date: 2026-08-19
