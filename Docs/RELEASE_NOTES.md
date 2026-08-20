@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-No changes yet.
+- Adds a File menu entry that registers Margin as the default editor for
+  Markdown (.md) files through Launch Services.
 
 ## 0.5.1 — native reading and review fixes
 

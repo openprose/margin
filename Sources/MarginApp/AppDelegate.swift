@@ -1,5 +1,6 @@
 import AppKit
 import MarginCore
+import UniformTypeIdentifiers
 
 protocol WorkspacePathRenameParticipating: AnyObject {
     var documentURLForPathRename: URL? { get }
@@ -217,6 +218,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         panel.begin { [weak self] response in
             guard response == .OK else { return }
             self?.open(panel.urls)
+        }
+    }
+
+    @objc func setAsDefaultMarkdownEditor(_ sender: Any?) {
+        guard let markdownType = UTType(filenameExtension: "md") else { return }
+        let bundleURL = Bundle.main.bundleURL
+        let workspace = NSWorkspace.shared
+        workspace.setDefaultApplication(at: bundleURL, toOpen: markdownType) { error in
+            DispatchQueue.main.async {
+                let alert = NSAlert()
+                if error == nil {
+                    alert.messageText = "Margin is now the default editor for Markdown files."
+                } else {
+                    alert.messageText = "Margin could not be set as the default Markdown editor."
+                    alert.informativeText = "You can set it manually: choose a .md file in Finder, "
+                        + "press Command-I, and select Margin as the default app."
+                }
+                alert.runModal()
+            }
         }
     }
 
