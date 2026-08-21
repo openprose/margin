@@ -318,7 +318,7 @@ recommendation, not a claim that those licenses already apply.
 
 The published product baseline is Margin 0.4.0. The current post-release
 interface candidate passes 189 native tests. Both the system and Prime Python
-runtimes pass 222 MarginBench contracts, and the real nine-scenario reference
+runtimes pass 229 MarginBench contracts, and the real nine-scenario reference
 study scores 100 with `paidModelsInvoked:false`. The isolated role server,
 neutral Markdown control, redacted publication audits, schema checks, and
 source-safety gates all pass.
@@ -363,9 +363,16 @@ no material startup movement. On one wholly fresh private pair, the candidate
 batched in both roles while the prior version batched in one, improving
 99.444→99.722, 14→13 commands, 16→15 model calls, and wall time by 4.387
 seconds. Both remained exact and safe. This confirms the intended mechanism on
-one case, not population performance or promotion; the benchmark requires 20
-matched cases and the next work should separate unnecessary pre-write
-inspection from redundant post-write review before buying a larger sample.
+one case: both candidate roles used one atomic add operation, while only one
+baseline role did. It does not satisfy the 20-pair promotion threshold.
+
+The content-free diagnostic now separates preliminary state reads, the required
+one convergence check plus literal source read, and any later state reads. On
+that sealed pair, the baseline had none of the extra reads; one candidate role
+inspected before writing and reviewed again after successful verification. This
+is now a specific measurable hypothesis rather than a generic efficiency label,
+but it is still only one observation. No receipt or help change is justified
+until the pattern repeats on matched cases.
 
 The latest CLI cycle is intentionally narrower than a release claim. Concrete
 reply, atomic reply-and-resolve, thread verification, durable handoff, and

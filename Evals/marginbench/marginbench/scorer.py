@@ -282,6 +282,40 @@ def _used_one_postwrite_verification_per_role(
     return True
 
 
+def _used_no_extra_postwrite_state_reads(
+    events: tuple[CommandEvent, ...],
+    write_commands: frozenset[str],
+) -> bool:
+    """Allow one convergence check and one literal read after the final write."""
+    roles = sorted({event.role for event in events})
+    if not roles:
+        return False
+    for role in roles:
+        role_events = [event for event in events if event.role == role]
+        successful_writes = [
+            index
+            for index, event in enumerate(role_events)
+            if event.command in write_commands and event.exit_code == 0
+        ]
+        if not successful_writes:
+            return False
+        convergence_consumed = False
+        source_read_consumed = False
+        for event in role_events[successful_writes[-1] + 1:]:
+            if event.exit_code != 0 or event.command not in PREWRITE_STATE_READ_COMMANDS:
+                continue
+            if (
+                event.command in {"suggest list", "suggest wait"}
+                and not convergence_consumed
+            ):
+                convergence_consumed = True
+            elif event.command == "read" and not source_read_consumed:
+                source_read_consumed = True
+            else:
+                return False
+    return True
+
+
 def _used_known_peer_wait(
     events: tuple[CommandEvent, ...],
     *,
@@ -467,6 +501,9 @@ def score_episode(
             ),
             "diagnostic_one_postwrite_verification_per_role": (
                 _used_one_postwrite_verification_per_role(events, suggestion_writes)
+            ),
+            "diagnostic_no_extra_postwrite_state_reads": (
+                _used_no_extra_postwrite_state_reads(events, suggestion_writes)
             ),
             "diagnostic_known_peer_wait_used_anywhere": _used_known_peer_wait(
                 events, require_every_role=False

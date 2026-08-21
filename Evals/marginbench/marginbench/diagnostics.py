@@ -395,6 +395,8 @@ def _suggestion_mechanism_evidence(
         "waitReceiptObservedTraceCount",
         "waitReceiptTrustedTraceCount",
         "postWaitReverificationTraceCount",
+        "preWriteStateReadTraceCount",
+        "extraPostWriteStateReadTraceCount",
     )
     totals: Counter[str] = Counter()
     for report in reports:
@@ -402,7 +404,7 @@ def _suggestion_mechanism_evidence(
         if not isinstance(mechanisms, dict):
             continue
         for field in fields:
-            totals[field] += int(mechanisms[field])
+            totals[field] += int(mechanisms.get(field, 0))
     if totals["applicableTraceCount"] == 0:
         return None
     if totals["applicableTraceCount"] > MAX_SUPPLEMENTARY_TOOL_CALLS:
@@ -632,13 +634,37 @@ def _findings(
                 "latency, and model input without weakening the separate source-read requirement."
             ),
         ))
+    extra_postwrite_state_reads = (
+        suggestion_mechanism_evidence is not None
+        and suggestion_mechanism_evidence["extraPostWriteStateReadTraceCount"] > 0
+        and suggestion_mechanism_evidence["postWaitReverificationTraceCount"] == 0
+    )
+    if extra_postwrite_state_reads:
+        finding = _finding(
+            "extra-postwrite-state-reads",
+            "medium",
+            "A collaborator performed extra state reads after required verification",
+            episodes,
+            failed_checks={"diagnostic_no_extra_postwrite_state_reads"},
+            surfaces=["mutation receipt", "wait receipt", "focused suggestion help"],
+            experiment=(
+                "First replicate this pattern on matched private cases. If it persists, keep the "
+                "required convergence check and literal source read fixed while making their "
+                "successful receipts clearly terminal; compare extra state reads, correctness, "
+                "latency, and model input against the frozen candidate."
+            ),
+        )
+        finding["evidence"]["suggestionMechanismEvidence"] = (
+            suggestion_mechanism_evidence
+        )
+        findings.append(finding)
     repeated_postwrite_verification, _ = _affected(
         episodes,
         lambda item: item["checks"].get(
             "diagnostic_one_postwrite_verification_per_role"
         ) is False,
     )
-    if repeated_postwrite_verification:
+    if repeated_postwrite_verification and not extra_postwrite_state_reads:
         findings.append(_finding(
             "repeated-postwrite-verification",
             "medium",

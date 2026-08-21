@@ -301,7 +301,9 @@
         "individualAddAfterTeachingTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000000},
         "waitReceiptObservedTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000000},
         "waitReceiptTrustedTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000000},
-        "postWaitReverificationTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000000}
+        "postWaitReverificationTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000000},
+        "preWriteStateReadTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000000},
+        "extraPostWriteStateReadTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000000}
       }
     }
   }

@@ -67,6 +67,7 @@ from marginbench.schema import Actor, CommandEvent, EpisodeResult, RoleTask, can
 from marginbench.scorer import (
     _id_matches,
     _used_known_peer_wait,
+    _used_no_extra_postwrite_state_reads,
     _used_no_reverification_after_successful_wait,
     _used_one_postwrite_verification_per_role,
     score_episode,
@@ -519,6 +520,7 @@ class MarginBenchCoreTests(unittest.TestCase):
                 "agent": {"name": "author"},
                 "nodes": nodes_for([
                     ["suggest", "add", f"{secret}.md", "--help"],
+                    ["inspect", f"{secret}.md"],
                     [
                         "suggest", "add", f"{secret}.md", "--quote", secret,
                         "--replacement", secret, "-m", secret,
@@ -555,6 +557,8 @@ class MarginBenchCoreTests(unittest.TestCase):
             "waitReceiptObservedTraceCount": 2,
             "waitReceiptTrustedTraceCount": 1,
             "postWaitReverificationTraceCount": 1,
+            "preWriteStateReadTraceCount": 1,
+            "extraPostWriteStateReadTraceCount": 2,
         })
         scenario_counts = {
             item["seat"]: item["suggestionMechanisms"]
@@ -566,11 +570,23 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(
             scenario_counts["reviewer"]["batchAdoptionAfterTeachingTraceCount"], 1
         )
+        self.assertEqual(
+            scenario_counts["author"]["preWriteStateReadTraceCount"], 1
+        )
         tampered = json.loads(encoded)
         tampered["suggestionMechanisms"]["waitReceiptTrustedTraceCount"] = 2
         receipt = validate_bytes(canonical_json(tampered))
         self.assertFalse(receipt["valid"])
         self.assertTrue(any("wait receipt partition" in error for error in receipt["errors"]))
+
+        backward_compatible = json.loads(encoded)
+        for mechanisms in [
+            backward_compatible["suggestionMechanisms"],
+            *(item["suggestionMechanisms"] for item in backward_compatible["scenarios"]),
+        ]:
+            mechanisms.pop("preWriteStateReadTraceCount")
+            mechanisms.pop("extraPostWriteStateReadTraceCount")
+        self.assertTrue(validate_bytes(canonical_json(backward_compatible))["valid"])
 
     @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
     def test_diagnostics_attach_suggestion_mechanisms_to_batch_finding(self) -> None:
@@ -660,6 +676,8 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(evidence["batchAdoptionAfterTeachingTraceCount"], 1)
         self.assertEqual(evidence["individualAddAfterTeachingTraceCount"], 1)
         self.assertEqual(evidence["waitReceiptTrustedTraceCount"], 2)
+        self.assertEqual(evidence["preWriteStateReadTraceCount"], 0)
+        self.assertEqual(evidence["extraPostWriteStateReadTraceCount"], 0)
         self.assertTrue(validate_bytes(canonical_json(report))["valid"])
 
         tampered = json.loads(canonical_json(report))
@@ -669,6 +687,93 @@ class MarginBenchCoreTests(unittest.TestCase):
         invalid = validate_bytes(canonical_json(tampered))
         self.assertFalse(invalid["valid"])
         self.assertTrue(any("taught batch adoption" in item for item in invalid["errors"]))
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_diagnostics_identify_extra_postwrite_state_reads(self) -> None:
+        result = EpisodeResult(
+            episode_id="suggestion_contention:0:extra-postwrite",
+            candidate_id="extra-postwrite-candidate",
+            score=99.0,
+            dimensions={
+                "outcome": 100.0,
+                "integrity": 100.0,
+                "protocol": 100.0,
+                "recovery": 100.0,
+                "efficiency": 95.0,
+            },
+            checks={
+                "source_expected": True,
+                "valid_documents": True,
+                "all_or_none": True,
+                "workspace_expected_paths": True,
+                "workspace_policy": True,
+                "valid_command_use": True,
+                "diagnostic_atomic_batch_used_by_all_roles": True,
+                "diagnostic_no_reverification_after_successful_wait": True,
+                "diagnostic_one_postwrite_verification_per_role": True,
+                "diagnostic_no_extra_postwrite_state_reads": False,
+            },
+            command_count=0,
+            invalid_command_count=0,
+            duration_ms=1.0,
+            safety_passed=True,
+            source_preserved=True,
+            margin_sha256="0" * 64,
+        )
+        arguments_list = [
+            ["suggest", "batch", "private.md", "--items-file", "-"],
+            ["suggest", "wait", "private.md", "private-id"],
+            ["read", "private.md"],
+            ["review", "private.md", "--json"],
+        ]
+        nodes: list[dict[str, Any]] = []
+        for index, arguments in enumerate(arguments_list):
+            identifier = f"extra-postwrite-{index}"
+            nodes.extend((
+                {"message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": identifier,
+                        "name": "margin",
+                        "arguments": json.dumps({"arguments": arguments}),
+                    }],
+                }},
+                {"message": {
+                    "role": "tool",
+                    "tool_call_id": identifier,
+                    "content": json.dumps({"ok": True, "exitCode": 0}),
+                }},
+            ))
+        trace = {"traces": [{
+            "task": {"data": {"scenario_id": "suggestion_contention"}},
+            "agent": {"name": "author"},
+            "nodes": nodes,
+        }]}
+        with tempfile.TemporaryDirectory(prefix="marginbench-extra-postwrite-") as temporary:
+            root = Path(temporary)
+            result_path = root / "result.json"
+            result_path.write_bytes(canonical_json(result.to_dict()))
+            trace_path = root / "traces.jsonl"
+            trace_path.write_text(json.dumps(trace) + "\n", encoding="utf-8")
+            shape_path = root / "trace-shape.json"
+            shape = summarize_trace_shapes([trace_path])
+            shape_path.write_bytes(canonical_json(shape))
+            report = diagnose_artifacts([result_path, shape_path])
+
+        self.assertEqual(shape["suggestionMechanisms"]["preWriteStateReadTraceCount"], 0)
+        self.assertEqual(
+            shape["suggestionMechanisms"]["extraPostWriteStateReadTraceCount"], 1
+        )
+        self.assertEqual(report["topOpportunity"], "extra-postwrite-state-reads")
+        evidence = report["findings"][0]["evidence"]["suggestionMechanismEvidence"]
+        self.assertEqual(evidence["extraPostWriteStateReadTraceCount"], 1)
+        self.assertTrue(validate_bytes(canonical_json(report))["valid"])
+
+        old_report = json.loads(canonical_json(report))
+        mechanisms = old_report["findings"][0]["evidence"]["suggestionMechanismEvidence"]
+        mechanisms.pop("preWriteStateReadTraceCount")
+        mechanisms.pop("extraPostWriteStateReadTraceCount")
+        self.assertTrue(validate_bytes(canonical_json(old_report))["valid"])
 
     def test_trace_shape_retains_only_static_manual_topics(self) -> None:
         secret = "private-man-topic"
@@ -3224,6 +3329,7 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertFalse(result.checks["diagnostic_known_peer_wait_used_anywhere"])
         self.assertFalse(result.checks["diagnostic_known_peer_wait_used_by_all_roles"])
         self.assertTrue(result.checks["diagnostic_one_postwrite_verification_per_role"])
+        self.assertTrue(result.checks["diagnostic_no_extra_postwrite_state_reads"])
         self.assertTrue(all(
             passed
             for name, passed in result.checks.items()
@@ -3247,6 +3353,7 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertFalse(batched.checks["diagnostic_known_peer_wait_used_anywhere"])
         self.assertFalse(batched.checks["diagnostic_known_peer_wait_used_by_all_roles"])
         self.assertTrue(batched.checks["diagnostic_one_postwrite_verification_per_role"])
+        self.assertTrue(batched.checks["diagnostic_no_extra_postwrite_state_reads"])
 
         with tempfile.TemporaryDirectory(prefix="marginbench-suggestion-wait-") as temporary:
             waited = run_episode(
@@ -3265,6 +3372,7 @@ class MarginBenchCoreTests(unittest.TestCase):
             waited.checks["diagnostic_no_reverification_after_successful_wait"]
         )
         self.assertTrue(waited.checks["diagnostic_one_postwrite_verification_per_role"])
+        self.assertTrue(waited.checks["diagnostic_no_extra_postwrite_state_reads"])
 
         synthetic_wait_events = (
             CommandEvent("author", "suggest batch", 0, 1.0, 1, 1, 0, None, False),
@@ -3280,8 +3388,19 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertTrue(_used_one_postwrite_verification_per_role(
             synthetic_wait_events, frozenset({"suggest add", "suggest batch"})
         ))
+        self.assertTrue(_used_no_extra_postwrite_state_reads(
+            synthetic_wait_events, frozenset({"suggest add", "suggest batch"})
+        ))
         self.assertTrue(_used_no_reverification_after_successful_wait(
             synthetic_wait_events
+        ))
+
+        synthetic_wait_read_then_review = synthetic_wait_events + (
+            CommandEvent("reviewer", "review", 0, 1.0, 0, 1, 0, None, False),
+        )
+        self.assertFalse(_used_no_extra_postwrite_state_reads(
+            synthetic_wait_read_then_review,
+            frozenset({"suggest add", "suggest batch"}),
         ))
 
         synthetic_wait_then_list = synthetic_wait_events + (

@@ -1826,6 +1826,15 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 )
                 if any(suggestion_mechanisms[field] > applicable for field in mechanism_fields):
                     errors.append("diagnostic suggestion mechanism exceeds applicable traces")
+                optional_mechanism_fields = (
+                    "preWriteStateReadTraceCount",
+                    "extraPostWriteStateReadTraceCount",
+                )
+                if any(
+                    suggestion_mechanisms.get(field, 0) > applicable
+                    for field in optional_mechanism_fields
+                ):
+                    errors.append("diagnostic optional suggestion mechanism exceeds applicable traces")
                 if suggestion_mechanisms["batchAdoptionAfterTeachingTraceCount"] > min(
                     suggestion_mechanisms["batchTeachingViewedBeforeWriteTraceCount"],
                     suggestion_mechanisms["batchAdoptionTraceCount"],
@@ -1895,6 +1904,13 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             "waitReceiptTrustedTraceCount",
             "postWaitReverificationTraceCount",
         )
+        optional_suggestion_mechanism_fields = (
+            "preWriteStateReadTraceCount",
+            "extraPostWriteStateReadTraceCount",
+        )
+        all_suggestion_mechanism_fields = (
+            suggestion_mechanism_fields + optional_suggestion_mechanism_fields
+        )
 
         def validate_suggestion_mechanisms(
             mechanisms: dict[str, int], expected_applicable: int, context: str
@@ -1904,6 +1920,9 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 errors.append(f"{context} applicable suggestion traces are inconsistent")
             for field in suggestion_mechanism_fields[1:]:
                 if mechanisms[field] > applicable:
+                    errors.append(f"{context} {field} exceeds applicable traces")
+            for field in optional_suggestion_mechanism_fields:
+                if mechanisms.get(field, 0) > applicable:
                     errors.append(f"{context} {field} exceeds applicable traces")
             if mechanisms["batchAdoptionAfterTeachingTraceCount"] > min(
                 mechanisms["batchTeachingViewedBeforeWriteTraceCount"],
@@ -2071,7 +2090,7 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         scenario_write_buckets: dict[str, int] = {}
         scenario_write_attempt_count = 0
         scenario_suggestion_totals = {
-            field: 0 for field in suggestion_mechanism_fields
+            field: 0 for field in all_suggestion_mechanism_fields
         }
         top_suggestion_mechanisms = payload.get("suggestionMechanisms")
         scenario_suggestion_presence = [
@@ -2119,8 +2138,8 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                     expected_applicable,
                     f"trace scenario {scenario['scenario']}:{scenario['seat']}",
                 )
-                for field in suggestion_mechanism_fields:
-                    scenario_suggestion_totals[field] += scenario_suggestion[field]
+                for field in all_suggestion_mechanism_fields:
+                    scenario_suggestion_totals[field] += scenario_suggestion.get(field, 0)
             scenario_size_presence = [field in scenario for field in size_fields]
             if any(scenario_size_presence) and not all(scenario_size_presence):
                 errors.append("trace scenario has incomplete result-size details")
@@ -2196,7 +2215,10 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             errors.append("trace scenario write-attempt count disagrees with the report")
         if (
             top_suggestion_mechanisms is not None
-            and scenario_suggestion_totals != top_suggestion_mechanisms
+            and scenario_suggestion_totals != {
+                field: top_suggestion_mechanisms.get(field, 0)
+                for field in all_suggestion_mechanism_fields
+            }
         ):
             errors.append("trace scenario suggestion mechanisms disagree with the report")
         if sum(item["count"] for item in payload["sequences"]) > payload["traceCount"]:

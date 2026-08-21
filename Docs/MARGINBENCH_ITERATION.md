@@ -873,6 +873,23 @@ copy or a larger paid run. The verified submission is `sha256:2e41eba…`; it
 retains no private document, prompt, path, identifier, raw trace, or key. Both
 private-key copies were overwritten and deleted after reproduction.
 
+v75 makes the remaining behavior measurable without reopening the private
+content boundary. Suggestion-contention results now distinguish state reads
+before the first write, the required one convergence check plus literal source
+read after the final write, and any successful state read beyond that pair.
+These are diagnostic checks and content-free counts, not new correctness credit.
+The two new fields are optional in the v1 schemas so every sealed report made
+before v75 remains valid.
+
+Reprocessing the sealed v74 traces confirms the structural observation. The v67
+roles had zero preliminary and zero extra post-write state reads. In v73, one
+role had one preliminary inspect and one extra review after its successful named
+wait and required literal source read; its peer had neither. The diagnostic now
+names `extra-postwrite-state-reads` and recommends replication before any CLI
+copy experiment. Both supported Python runtimes pass 229 tests. No private text,
+argument, path, identifier, or tool result entered the report, and no further
+model request was made.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a

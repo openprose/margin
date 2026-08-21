@@ -99,6 +99,12 @@ SUGGESTION_BATCH_TEACHING_COMMANDS = frozenset({
 })
 SUGGESTION_WRITE_COMMANDS = frozenset({"suggest add", "suggest batch"})
 SUGGESTION_REVERIFICATION_COMMANDS = frozenset({"suggest list", "suggest wait"})
+SUGGESTION_STATE_READ_COMMANDS = frozenset({
+    "collaborators", "comments export", "comments get", "comments list",
+    "comments validate", "context", "handoff list", "inbox", "inspect",
+    "outline", "read", "review", "slice", "stage list", "stage show",
+    "suggest list", "suggest wait", "workspace show",
+})
 SUGGESTION_MECHANISM_FIELDS = (
     "applicableTraceCount",
     "batchTeachingViewedBeforeWriteTraceCount",
@@ -109,6 +115,8 @@ SUGGESTION_MECHANISM_FIELDS = (
     "waitReceiptObservedTraceCount",
     "waitReceiptTrustedTraceCount",
     "postWaitReverificationTraceCount",
+    "preWriteStateReadTraceCount",
+    "extraPostWriteStateReadTraceCount",
 )
 
 
@@ -367,6 +375,39 @@ def _suggestion_mechanism_counts(successful_sequence: list[str]) -> Counter[str]
     counts["waitReceiptObservedTraceCount"] += int(wait_observed)
     counts["waitReceiptTrustedTraceCount"] += int(wait_observed and not reverified)
     counts["postWaitReverificationTraceCount"] += int(reverified)
+
+    prewrite_state_read = first_write is not None and any(
+        command in SUGGESTION_STATE_READ_COMMANDS
+        for command in successful_sequence[:first_write]
+    )
+    counts["preWriteStateReadTraceCount"] += int(prewrite_state_read)
+
+    last_write = next(
+        (
+            index
+            for index in range(len(successful_sequence) - 1, -1, -1)
+            if successful_sequence[index] in SUGGESTION_WRITE_COMMANDS
+        ),
+        None,
+    )
+    convergence_consumed = False
+    source_read_consumed = False
+    extra_postwrite_state_read = False
+    if last_write is not None:
+        for command in successful_sequence[last_write + 1:]:
+            if command not in SUGGESTION_STATE_READ_COMMANDS:
+                continue
+            if (
+                command in SUGGESTION_REVERIFICATION_COMMANDS
+                and not convergence_consumed
+            ):
+                convergence_consumed = True
+            elif command == "read" and not source_read_consumed:
+                source_read_consumed = True
+            else:
+                extra_postwrite_state_read = True
+                break
+    counts["extraPostWriteStateReadTraceCount"] += int(extra_postwrite_state_read)
     return counts
 
 
