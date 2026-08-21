@@ -188,6 +188,13 @@ catalog may change to `implemented`. Reusing the plain-control schema by merely
 renaming the profile is forbidden because its writable ledger and checks mean
 something different.
 
+The private-trace reducer in steps 1 and 2 is implemented and tested, but it is
+not yet selected by the paid controller. It retains only stable per-role checks,
+topology, stop conditions, aggregate usage/cost, action counts, and request and
+response byte counts. It discards final answers, tool arguments, tool results,
+paths, and content. Blocked writes and malformed actions remain visible as
+counts instead of disappearing with the redaction.
+
 `wide-directory-probe` invokes no model. It creates byte-identical copies of a
 deterministic 16-document, 64-item workspace; alternates baseline and candidate
 process order after warmups; checks stable JSON shape and source preservation;

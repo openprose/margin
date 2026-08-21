@@ -791,6 +791,118 @@ def _summarize_neutral_traces(output: Path) -> dict[str, Any]:
     }
 
 
+def _summarize_no_exchange_traces(output: Path) -> dict[str, Any]:
+    """Reduce private no-exchange traces to content-free per-role evidence."""
+    traces_path = output / "traces.jsonl"
+    traces: list[dict[str, Any]] = []
+    if traces_path.is_file():
+        for line in traces_path.read_text(encoding="utf-8").splitlines():
+            try:
+                envelope = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            traces.extend(item for item in envelope.get("traces", []) if isinstance(item, dict))
+    episodes: dict[str, dict[str, Any]] = {}
+    consistent = True
+    for trace in traces:
+        assessment = trace.get("info", {}).get("marginbenchNoExchangeDevelopment", {})
+        task_data = trace.get("task", {}).get("data", {})
+        episode_id = assessment.get("episodeID")
+        if not isinstance(episode_id, str) or not episode_id:
+            consistent = False
+            continue
+        task_name = task_data.get("name") if isinstance(task_data.get("name"), str) else ""
+        seat = task_name.rsplit(":", 1)[-1] if ":" in task_name else "unknown"
+        safe_fields = (
+            "aggregation", "roles", "passedRoleCount", "roleCount", "sourcePreserved",
+            "overallScore", "durationMs", "controlProfile", "controlRunnable", "component",
+            "separateAgentRolloutCount", "toolSurface", "allowedActions", "agentProcessCount",
+            "traceSeats", "phasePolicy",
+        )
+        immutable = {name: assessment.get(name) for name in safe_fields}
+        nodes = trace.get("nodes") if isinstance(trace.get("nodes"), list) else []
+        actions = {name: 0 for name in ("guide", "list", "read", "write", "invalid")}
+        request_bytes = 0
+        response_bytes = 0
+        for node in nodes:
+            message = node.get("message", {}) if isinstance(node, dict) else {}
+            if message.get("role") == "assistant":
+                for call in message.get("tool_calls") or []:
+                    if not isinstance(call, dict) or call.get("name") != "workspace":
+                        actions["invalid"] += 1
+                        continue
+                    raw = call.get("arguments")
+                    if not isinstance(raw, str):
+                        actions["invalid"] += 1
+                        continue
+                    request_bytes += len(raw.encode("utf-8"))
+                    try:
+                        arguments = json.loads(raw)
+                    except json.JSONDecodeError:
+                        arguments = None
+                    action = arguments.get("action") if isinstance(arguments, dict) else None
+                    actions[action if action in actions else "invalid"] += 1
+            elif message.get("role") == "tool":
+                content = message.get("content")
+                if isinstance(content, str):
+                    response_bytes += len(content.encode("utf-8"))
+        calls = trace.get("calls") if isinstance(trace.get("calls"), list) else []
+        usage = {
+            "modelCalls": len(calls),
+            "promptTokens": sum(int(call.get("usage", {}).get("prompt_tokens", 0)) for call in calls),
+            "completionTokens": sum(int(call.get("usage", {}).get("completion_tokens", 0)) for call in calls),
+            "cachedInputTokens": sum(int(call.get("usage", {}).get("cached_input_tokens", 0)) for call in calls),
+            "reasoningTokens": sum(int(call.get("usage", {}).get("reasoning_tokens", 0)) for call in calls),
+            "reportedCostUSD": round(sum(float(call.get("usage", {}).get("cost", 0)) for call in calls), 6),
+        }
+        if episode_id not in episodes:
+            episodes[episode_id] = {
+                "episodeID": episode_id,
+                "scenario": task_data.get("scenario_id"),
+                "repetition": task_data.get("repetition"),
+                "fingerprint": task_data.get("fingerprint"),
+                **immutable,
+                "roleRuns": [],
+                "toolRoundTrips": {
+                    "count": 0, "blockedActionCount": 0,
+                    "requestBytes": 0, "responseBytes": 0,
+                    "actionCounts": {name: 0 for name in actions},
+                },
+                "usage": {name: 0 for name in usage},
+            }
+            episodes[episode_id]["usage"]["reportedCostUSD"] = 0.0
+        episode = episodes[episode_id]
+        if any(episode.get(name) != value for name, value in immutable.items()):
+            consistent = False
+        episode["roleRuns"].append({
+            "seat": seat,
+            "stopCondition": _effective_stop_condition(trace),
+            "usage": usage,
+        })
+        episode["toolRoundTrips"]["count"] += sum(actions.values())
+        episode["toolRoundTrips"]["blockedActionCount"] += actions["write"] + actions["invalid"]
+        episode["toolRoundTrips"]["requestBytes"] += request_bytes
+        episode["toolRoundTrips"]["responseBytes"] += response_bytes
+        for name, count in actions.items():
+            episode["toolRoundTrips"]["actionCounts"][name] += count
+        for name in ("modelCalls", "promptTokens", "completionTokens", "cachedInputTokens", "reasoningTokens"):
+            episode["usage"][name] += usage[name]
+        episode["usage"]["reportedCostUSD"] = round(
+            episode["usage"]["reportedCostUSD"] + usage["reportedCostUSD"], 6,
+        )
+    summaries = []
+    for episode_id in sorted(episodes):
+        episode = episodes[episode_id]
+        episode["roleRuns"].sort(key=lambda value: (value["seat"], value["stopCondition"] or ""))
+        summaries.append(episode)
+    return {
+        "traceCount": len(traces),
+        "episodeCount": len(summaries),
+        "traceConsistencyPassed": consistent,
+        "episodes": summaries,
+    }
+
+
 def _execution_status(
     exit_code: int,
     trace_summary: dict[str, Any],
