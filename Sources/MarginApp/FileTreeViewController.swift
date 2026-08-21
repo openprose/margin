@@ -1,9 +1,63 @@
 import AppKit
 
-final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate {
-    var onOpenFile: ((URL) -> Void)?
+private final class FileTreeOutlineView: NSOutlineView, NSMenuItemValidation {
+    weak var actionHandler: FileTreeViewController?
 
-    private let outlineView = NSOutlineView()
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.capsLock, .numericPad])
+        let isReturn = event.keyCode == 36 || event.keyCode == 76
+        if isReturn, modifiers.isEmpty, actionHandler?.canRenameNavigatorItem == true {
+            actionHandler?.renameNavigatorItem(self)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    @objc func copyNavigatorPath(_ sender: Any?) {
+        actionHandler?.copyNavigatorPath(sender)
+    }
+
+    @objc func copyNavigatorFullPath(_ sender: Any?) {
+        actionHandler?.copyNavigatorFullPath(sender)
+    }
+
+    @objc func revealNavigatorItemInFinder(_ sender: Any?) {
+        actionHandler?.revealNavigatorItemInFinder(sender)
+    }
+
+    @objc func renameNavigatorItem(_ sender: Any?) {
+        actionHandler?.renameNavigatorItem(sender)
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        actionHandler?.validateMenuItem(menuItem) ?? false
+    }
+}
+
+enum NavigatorRenameError: LocalizedError, Equatable {
+    case invalidName
+    case coordinationUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidName:
+            return "A file name cannot be empty, contain a slash, or be ‘.’ or ‘..’."
+        case .coordinationUnavailable:
+            return "Margin could not coordinate this rename across the open workspace."
+        }
+    }
+}
+
+final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate,
+    NSMenuDelegate, NSMenuItemValidation, NSTextFieldDelegate
+{
+    var onOpenFile: ((URL) -> Void)?
+    var onRequestRename: ((URL, String) -> Result<URL, Error>)?
+    var onOpenExternalItem: ((URL) -> Void)?
+    var commandPasteboard: NSPasteboard = .general
+
+    private let outlineView = FileTreeOutlineView()
     private let scrollView = NSScrollView()
     private let directoryLabel = NSTextField(labelWithString: "Files")
     private let directoryIcon = NSImageView()
@@ -13,7 +67,8 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
     private var representedDirectoryURL: URL?
     private var scanGeneration = UUID()
     private var suppressSelectionCallback = false
-    private var selectedFileURL: URL?
+    private var activeDocumentURL: URL?
+    private var renamingItemURL: URL?
 
     override func loadView() {
         let background = NSVisualEffectView()
@@ -50,8 +105,14 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
         outlineView.autosaveExpandedItems = false
         outlineView.target = self
         outlineView.doubleAction = #selector(doubleClickedItem(_:))
+        outlineView.actionHandler = self
+        let contextMenu = NSMenu(title: "Navigator")
+        contextMenu.delegate = self
+        outlineView.menu = contextMenu
         outlineView.setAccessibilityLabel("Directory files")
-        outlineView.setAccessibilityHelp("Navigate files and folders in the open directory")
+        outlineView.setAccessibilityHelp(
+            "Navigate files and folders in the open directory. Press Return to rename the selected item."
+        )
 
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
@@ -95,7 +156,6 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
         let directoryURL = url.standardizedFileURL
         representedDirectoryURL = directoryURL
         rootNode = FileNode(url: directoryURL)
-        selectedFileURL = explicitSelectionURL?.standardizedFileURL
         directoryLabel.stringValue = directoryURL.lastPathComponent.isEmpty
             ? directoryURL.path
             : directoryURL.lastPathComponent
@@ -120,7 +180,7 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
 
     func reloadDirectory() {
         guard let rootNode else { return }
-        let selectedURL = selectedFileURL
+        let selectedURL = selectedNode?.url ?? activeDocumentURL
         rootNode.discardChildren()
         loadRoot { [weak self] in
             guard let self, let selectedURL else { return }
@@ -155,6 +215,209 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
     func focusNavigator() {
         _ = view
         view.window?.makeFirstResponder(outlineView)
+    }
+
+    /// Tracks only a document that the workspace has successfully opened. Row
+    /// selection and contextual actions deliberately do not change this value.
+    func trackActiveDocument(_ url: URL?) {
+        activeDocumentURL = url?.standardizedFileURL
+    }
+
+    func applyPathRename(
+        from sourceURL: URL,
+        to destinationURL: URL,
+        workspaceDirectoryURL: URL?,
+        activeDocumentURL: URL?
+    ) {
+        _ = view
+        let selectedURL = selectedNode?.url
+        trackActiveDocument(activeDocumentURL)
+        guard let workspaceDirectoryURL else { return }
+
+        let remappedSelection = selectedURL.flatMap {
+            WorkspacePathRelocation.relocatedURL($0, from: sourceURL, to: destinationURL)
+        } ?? selectedURL ?? activeDocumentURL
+        let priorDirectoryURL = representedDirectoryURL
+        let directoryMoved = priorDirectoryURL.flatMap {
+            WorkspacePathRelocation.relocatedURL($0, from: sourceURL, to: destinationURL)
+        } != nil
+
+        if directoryMoved || priorDirectoryURL != workspaceDirectoryURL.standardizedFileURL {
+            openDirectory(
+                workspaceDirectoryURL,
+                selectInitialMarkdown: false,
+                selecting: remappedSelection
+            )
+            return
+        }
+
+        guard WorkspacePathRelocation.contains(sourceURL, within: workspaceDirectoryURL),
+              let rootNode else { return }
+        rootNode.discardChildren()
+        loadRoot { [weak self] in
+            guard let self, let remappedSelection else { return }
+            self.revealAndSelect(remappedSelection, openFile: false)
+        }
+    }
+
+    var canRenameNavigatorItem: Bool {
+        selectedNode != nil
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
+        guard row >= 0, let node = outlineView.item(atRow: row) as? FileNode else { return }
+
+        if outlineView.selectedRow != row {
+            suppressSelectionCallback = true
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            suppressSelectionCallback = false
+        }
+        populateContextMenu(menu, for: node)
+    }
+
+    @objc func openNavigatorItem(_ sender: Any?) {
+        guard let node = selectedNode else { return }
+        if node.isExpandableDirectory {
+            if outlineView.isItemExpanded(node) {
+                outlineView.collapseItem(node)
+            } else {
+                loadChildren(of: node, expandWhenLoaded: true)
+            }
+        } else if shouldOpenExternally(node) {
+            openExternally(node.url)
+        } else {
+            onOpenFile?(node.url)
+        }
+    }
+
+    @objc func copyNavigatorPath(_ sender: Any?) {
+        guard let node = selectedNode else { return }
+        _ = copyPath(for: node, fullPath: false, to: commandPasteboard)
+    }
+
+    @objc func copyNavigatorFullPath(_ sender: Any?) {
+        guard let node = selectedNode else { return }
+        _ = copyPath(for: node, fullPath: true, to: commandPasteboard)
+    }
+
+    @objc func revealNavigatorItemInFinder(_ sender: Any?) {
+        guard let node = selectedNode else { return }
+        if node.isDirectory {
+            NSWorkspace.shared.open(node.url)
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([node.url])
+        }
+    }
+
+    @objc func renameNavigatorItem(_ sender: Any?) {
+        guard let node = selectedNode else { return }
+        let row = outlineView.row(forItem: node)
+        guard row >= 0,
+              let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: true)
+                as? NSTableCellView,
+              let textField = cell.textField
+        else { return }
+
+        renamingItemURL = node.url
+        configureRenameAppearance(textField, active: true)
+        textField.delegate = self
+        outlineView.editColumn(0, row: row, with: nil, select: true)
+
+        let selectionLength: Int
+        if node.isDirectory || node.url.pathExtension.isEmpty {
+            selectionLength = node.name.utf16.count
+        } else {
+            selectionLength = node.url.deletingPathExtension().lastPathComponent.utf16.count
+        }
+        textField.currentEditor()?.selectedRange = NSRange(location: 0, length: selectionLength)
+    }
+
+    func controlTextDidEndEditing(_ notification: Notification) {
+        guard let textField = notification.object as? NSTextField,
+              let originalURL = renamingItemURL
+        else { return }
+        renamingItemURL = nil
+        configureRenameAppearance(textField, active: false)
+
+        let movement = notification.userInfo?[NSText.movementUserInfoKey] as? Int
+        if movement == NSTextMovement.cancel.rawValue {
+            textField.stringValue = originalURL.lastPathComponent
+            return
+        }
+
+        let proposedName = textField.stringValue
+        guard proposedName != originalURL.lastPathComponent else { return }
+
+        let result = onRequestRename?(originalURL, proposedName)
+            ?? .failure(NavigatorRenameError.coordinationUnavailable)
+        switch result {
+        case .success:
+            break
+        case .failure(let error):
+            textField.stringValue = originalURL.lastPathComponent
+            NSApp.presentError(error)
+        }
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard let node = selectedNode else { return false }
+        switch menuItem.action {
+        case #selector(openNavigatorItem(_:)), #selector(renameNavigatorItem(_:)),
+             #selector(copyNavigatorFullPath(_:)), #selector(revealNavigatorItemInFinder(_:)):
+            return true
+        case #selector(copyNavigatorPath(_:)):
+            return Self.relativePath(for: node.url, within: representedDirectoryURL) != nil
+        default:
+            return false
+        }
+    }
+
+    static func relativePath(for itemURL: URL, within directoryURL: URL?) -> String? {
+        guard let directoryURL else { return nil }
+        let rootComponents = directoryURL.standardizedFileURL.pathComponents
+        let itemComponents = itemURL.standardizedFileURL.pathComponents
+        guard itemComponents.starts(with: rootComponents), itemComponents.count > rootComponents.count else {
+            return nil
+        }
+        return itemComponents.dropFirst(rootComponents.count).joined(separator: "/")
+    }
+
+    @discardableResult
+    static func renameItem(
+        at originalURL: URL,
+        toName proposedName: String,
+        fileManager: FileManager = .default
+    ) throws -> URL {
+        let destinationURL = try WorkspacePathRelocation.destinationURL(
+            for: originalURL,
+            proposedName: proposedName
+        )
+        guard destinationURL != originalURL.standardizedFileURL else { return originalURL }
+        try fileManager.moveItem(at: originalURL, to: destinationURL)
+        return destinationURL
+    }
+
+    func contextMenuForTesting(itemURL: URL) -> NSMenu {
+        _ = view
+        let menu = NSMenu(title: "Navigator")
+        populateContextMenu(menu, for: FileNode(url: itemURL))
+        return menu
+    }
+
+    var outlineViewForTesting: NSOutlineView {
+        _ = view
+        return outlineView
+    }
+
+    @discardableResult
+    func copyPathForTesting(
+        itemURL: URL,
+        fullPath: Bool,
+        to pasteboard: NSPasteboard
+    ) -> Bool {
+        copyPath(for: FileNode(url: itemURL), fullPath: fullPath, to: pasteboard)
     }
 
     /// Moves through the files currently revealed in the navigator. Collapsed
@@ -230,12 +493,18 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
 
         cell.textField?.stringValue = node.name
         cell.textField?.toolTip = node.url.path
+        let isRenamingThisItem = renamingItemURL == node.url
+        if let textField = cell.textField {
+            configureRenameAppearance(textField, active: isRenamingThisItem)
+        }
         cell.imageView?.image = icon(for: node)
         cell.imageView?.contentTintColor = node.isDirectory
             ? .secondaryLabelColor
             : (node.isMarkdown ? NSColor.controlAccentColor.withAlphaComponent(0.82) : .tertiaryLabelColor)
         cell.setAccessibilityLabel(node.name)
-        cell.setAccessibilityHelp(node.isDirectory ? "Folder" : "File")
+        cell.setAccessibilityHelp(
+            node.isDirectory ? "Folder. Press Return to rename." : "File. Press Return to rename."
+        )
         return cell
     }
 
@@ -243,7 +512,6 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
         guard !suppressSelectionCallback else { return }
         let row = outlineView.selectedRow
         guard row >= 0, let node = outlineView.item(atRow: row) as? FileNode else { return }
-        selectedFileURL = node.isDirectory ? selectedFileURL : node.url
         if !node.isDirectory {
             onOpenFile?(node.url)
         }
@@ -258,8 +526,9 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
             } else {
                 loadChildren(of: node, expandWhenLoaded: true)
             }
+        } else if shouldOpenExternally(node) {
+            openExternally(node.url)
         } else {
-            selectedFileURL = node.url
             onOpenFile?(node.url)
         }
     }
@@ -326,7 +595,6 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
             self.outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             self.suppressSelectionCallback = false
             self.outlineView.scrollRowToVisible(row)
-            self.selectedFileURL = child.url
             if openFile, !child.isDirectory {
                 self.onOpenFile?(child.url)
             }
@@ -343,9 +611,16 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.setAccessibilityElement(false)
 
-        let textField = NSTextField(labelWithString: "")
+        let textField = NSTextField()
+        textField.isBordered = false
+        textField.drawsBackground = false
+        textField.isEditable = false
+        textField.isSelectable = false
+        textField.focusRingType = .none
         textField.font = .systemFont(ofSize: 12.5, weight: .regular)
         textField.lineBreakMode = .byTruncatingMiddle
+        textField.maximumNumberOfLines = 1
+        textField.delegate = self
         textField.translatesAutoresizingMaskIntoConstraints = false
 
         cell.imageView = imageView
@@ -362,6 +637,126 @@ final class FileTreeViewController: NSViewController, NSOutlineViewDataSource, N
             textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
         ])
         return cell
+    }
+
+    private var selectedNode: FileNode? {
+        let row = outlineView.selectedRow
+        guard row >= 0 else { return nil }
+        return outlineView.item(atRow: row) as? FileNode
+    }
+
+    private func populateContextMenu(_ menu: NSMenu, for node: FileNode) {
+        menu.addItem(
+            contextItem(
+                "Open",
+                action: #selector(openNavigatorItem(_:))
+            )
+        )
+        menu.addItem(
+            contextItem(
+                "Rename…",
+                action: #selector(renameNavigatorItem(_:)),
+                key: "\r",
+                modifiers: []
+            )
+        )
+        menu.addItem(.separator())
+        menu.addItem(
+            contextItem(
+                "Copy Path",
+                action: #selector(copyNavigatorPath(_:)),
+                key: "c",
+                modifiers: [.command, .option, .shift]
+            )
+        )
+        menu.addItem(
+            contextItem(
+                "Copy Full Path",
+                action: #selector(copyNavigatorFullPath(_:)),
+                key: "c",
+                modifiers: [.command, .option]
+            )
+        )
+        menu.addItem(.separator())
+        menu.addItem(
+            contextItem(
+                node.isDirectory ? "Open in Finder" : "Reveal in Finder",
+                action: #selector(revealNavigatorItemInFinder(_:)),
+                key: "r",
+                modifiers: [.command, .option]
+            )
+        )
+    }
+
+    private func contextItem(
+        _ title: String,
+        action: Selector,
+        key: String = "",
+        modifiers: NSEvent.ModifierFlags = []
+    ) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        item.keyEquivalentModifierMask = modifiers
+        item.target = self
+        return item
+    }
+
+    @discardableResult
+    private func copyPath(
+        for node: FileNode,
+        fullPath: Bool,
+        to pasteboard: NSPasteboard
+    ) -> Bool {
+        let value: String?
+        if fullPath {
+            value = node.url.path
+        } else {
+            value = Self.relativePath(for: node.url, within: representedDirectoryURL)
+        }
+        guard let value else {
+            NSSound.beep()
+            return false
+        }
+        pasteboard.clearContents()
+        return pasteboard.setString(value, forType: .string)
+    }
+
+    private func openExternally(_ url: URL) {
+        if let onOpenExternalItem {
+            onOpenExternalItem(url)
+        } else {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func shouldOpenExternally(_ node: FileNode) -> Bool {
+        if node.isDirectory { return true }
+        guard node.isSymbolicLink else { return false }
+        var targetIsDirectory = ObjCBool(false)
+        return FileManager.default.fileExists(atPath: node.url.path, isDirectory: &targetIsDirectory)
+            && targetIsDirectory.boolValue
+    }
+
+    private func configureRenameAppearance(_ textField: NSTextField, active: Bool) {
+        textField.isEditable = active
+        textField.isSelectable = active
+        textField.isBordered = active
+        textField.drawsBackground = active
+        textField.backgroundColor = active ? .controlBackgroundColor : .clear
+        textField.focusRingType = active ? .default : .none
+    }
+
+    var activeDocumentURLForTesting: URL? { activeDocumentURL }
+
+    func openItemForTesting(_ url: URL) {
+        _ = view
+        let node = FileNode(url: url)
+        if node.isExpandableDirectory {
+            loadChildren(of: node, expandWhenLoaded: true)
+        } else if shouldOpenExternally(node) {
+            openExternally(node.url)
+        } else {
+            onOpenFile?(node.url)
+        }
     }
 
     private func icon(for node: FileNode) -> NSImage? {

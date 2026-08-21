@@ -1,5 +1,100 @@
 import AppKit
 
+protocol WorkspacePathRenameParticipating: AnyObject {
+    var documentURLForPathRename: URL? { get }
+    func prepareForPathRename(from sourceURL: URL) -> Bool
+    func applyPathRename(from sourceURL: URL, to destinationURL: URL)
+}
+
+enum WorkspacePathRenameCoordinatorError: LocalizedError, Equatable {
+    case documentVeto([String])
+
+    var errorDescription: String? {
+        switch self {
+        case .documentVeto(let paths):
+            let names = paths.map { URL(fileURLWithPath: $0).lastPathComponent }
+                .joined(separator: ", ")
+            return "Rename cancelled because Margin could not safely save \(names). Nothing was moved."
+        }
+    }
+}
+
+enum WorkspacePathRelocation {
+    static func destinationURL(for sourceURL: URL, proposedName: String) throws -> URL {
+        let nameIsEmpty = proposedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard !nameIsEmpty,
+              proposedName != ".",
+              proposedName != "..",
+              !proposedName.contains("/")
+        else {
+            throw NavigatorRenameError.invalidName
+        }
+        var sourceIsDirectory = ObjCBool(false)
+        FileManager.default.fileExists(atPath: sourceURL.path, isDirectory: &sourceIsDirectory)
+        return sourceURL.deletingLastPathComponent()
+            .appendingPathComponent(
+                proposedName,
+                isDirectory: sourceURL.hasDirectoryPath || sourceIsDirectory.boolValue
+            )
+            .standardizedFileURL
+    }
+
+    static func relocatedURL(_ candidateURL: URL, from sourceURL: URL, to destinationURL: URL) -> URL? {
+        let sourceComponents = sourceURL.standardizedFileURL.pathComponents
+        let candidateComponents = candidateURL.standardizedFileURL.pathComponents
+        guard candidateComponents.starts(with: sourceComponents) else { return nil }
+        return candidateComponents.dropFirst(sourceComponents.count).reduce(destinationURL) {
+            $0.appendingPathComponent($1)
+        }.standardizedFileURL
+    }
+
+    static func contains(_ candidateURL: URL, within directoryURL: URL) -> Bool {
+        candidateURL.standardizedFileURL.pathComponents.starts(
+            with: directoryURL.standardizedFileURL.pathComponents
+        )
+    }
+}
+
+struct WorkspacePathRenameCoordinator {
+    var fileManager: FileManager = .default
+
+    func rename(
+        sourceURL: URL,
+        proposedName: String,
+        participants: [WorkspacePathRenameParticipating]
+    ) throws -> URL {
+        let sourceURL = sourceURL.standardizedFileURL
+        let destinationURL = try WorkspacePathRelocation.destinationURL(
+            for: sourceURL,
+            proposedName: proposedName
+        )
+        guard destinationURL != sourceURL else { return sourceURL }
+
+        let affected = participants.filter { participant in
+            guard let documentURL = participant.documentURLForPathRename else { return false }
+            return WorkspacePathRelocation.relocatedURL(
+                documentURL,
+                from: sourceURL,
+                to: destinationURL
+            ) != nil
+        }
+        let vetoedPaths = affected.compactMap { participant -> String? in
+            participant.prepareForPathRename(from: sourceURL)
+                ? nil
+                : participant.documentURLForPathRename?.path
+        }
+        guard vetoedPaths.isEmpty else {
+            throw WorkspacePathRenameCoordinatorError.documentVeto(vetoedPaths)
+        }
+
+        try fileManager.moveItem(at: sourceURL, to: destinationURL)
+        participants.forEach {
+            $0.applyPathRename(from: sourceURL, to: destinationURL)
+        }
+        return destinationURL
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var workspaceWindows: [WorkspaceWindowController] = []
     private var pendingURLs: [URL] = []
@@ -268,6 +363,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             self.persistSession()
         }
         controller.onSessionStateChange = { [weak self] in self?.schedulePersistSession() }
+        controller.onRequestPathRename = { [weak self] sourceURL, proposedName in
+            guard let self else {
+                return .failure(NavigatorRenameError.coordinationUnavailable)
+            }
+            do {
+                let destinationURL = try WorkspacePathRenameCoordinator().rename(
+                    sourceURL: sourceURL,
+                    proposedName: proposedName,
+                    participants: self.workspaceWindows
+                )
+                self.schedulePersistSession()
+                return .success(destinationURL)
+            } catch {
+                return .failure(error)
+            }
+        }
         workspaceWindows.append(controller)
         if let parentWindow, let window = controller.window, parentWindow !== window {
             let parentController = parentWindow.windowController as? WorkspaceWindowController

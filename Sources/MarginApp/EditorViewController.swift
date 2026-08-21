@@ -5,6 +5,7 @@ final class EditorViewController: NSViewController,
     WorkspaceDocumentPresenting,
     WorkspaceReaderModeToggling,
     WorkspaceDocumentSaving,
+    WorkspaceDocumentPathRelocating,
     WorkspaceContinuityProviding,
     NSMenuItemValidation,
     NSTextViewDelegate
@@ -401,6 +402,43 @@ final class EditorViewController: NSViewController,
         saveWorkItem = nil
         if isDirty { saveDocument(nil) }
         return !isDirty
+    }
+
+    func prepareForPathRename() -> Bool {
+        guard documentURL == nil || isDocumentLoaded else { return false }
+        return prepareToClose()
+    }
+
+    func applyDocumentPathRename(from sourceURL: URL, to destinationURL: URL) {
+        guard let documentURL,
+              let relocatedURL = WorkspacePathRelocation.relocatedURL(
+                  documentURL,
+                  from: sourceURL,
+                  to: destinationURL
+              )
+        else { return }
+
+        saveWorkItem?.cancel()
+        saveWorkItem = nil
+        fileWatcher?.stop()
+        fileWatcher = nil
+        self.documentURL = relocatedURL
+        watchDocument(relocatedURL)
+        textView.setAccessibilityHelp(
+            "Editing \(relocatedURL.lastPathComponent) as literal Markdown. Formatting marks remain visible."
+        )
+
+        if isReaderMode, let reader = readerViewController {
+            let selection = reader.selectedSourceRange
+            reader.renderAsync(
+                markdown: textView.string,
+                baseURL: relocatedURL.deletingLastPathComponent(),
+                preferredSourceSelection: selection
+            ) { [weak self] applied in
+                guard let self, applied, self.isReaderMode else { return }
+                self.updateReaderHighlights()
+            }
+        }
     }
 
     func focusEditor() {

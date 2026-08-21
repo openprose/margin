@@ -91,6 +91,37 @@ enum AppMenu {
         )
         fileMenu.addItem(.separator())
         fileMenu.addItem(
+            item(
+                "Rename Navigator Item…",
+                action: Selector(("renameNavigatorItem:"))
+            )
+        )
+        fileMenu.addItem(
+            item(
+                "Copy Path",
+                action: Selector(("copyNavigatorPath:")),
+                key: "c",
+                modifiers: [.command, .option, .shift]
+            )
+        )
+        fileMenu.addItem(
+            item(
+                "Copy Full Path",
+                action: Selector(("copyNavigatorFullPath:")),
+                key: "c",
+                modifiers: [.command, .option]
+            )
+        )
+        fileMenu.addItem(
+            item(
+                "Reveal in Finder",
+                action: Selector(("revealNavigatorItemInFinder:")),
+                key: "r",
+                modifiers: [.command, .option]
+            )
+        )
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(
             item("Save", action: #selector(WorkspaceDocumentSaving.saveDocument(_:)), key: "s")
         )
         fileMenu.addItem(.separator())

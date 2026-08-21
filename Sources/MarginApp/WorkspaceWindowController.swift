@@ -23,6 +23,11 @@ protocol WorkspaceReaderModeToggling: AnyObject {
     func saveDocument(_ sender: Any?)
 }
 
+protocol WorkspaceDocumentPathRelocating: AnyObject {
+    func prepareForPathRename() -> Bool
+    func applyDocumentPathRename(from sourceURL: URL, to destinationURL: URL)
+}
+
 /// Integration seam for the full editor and comment implementations. Their
 /// view controllers can conform to the protocols above and replace these
 /// factories without changing the window or file-tree shell.
@@ -31,7 +36,9 @@ enum WorkspacePaneFactory {
     static var makeComments: () -> NSViewController = { CommentsPlaceholderViewController() }
 }
 
-final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate, NSToolbarItemValidation {
+final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate,
+    NSToolbarItemValidation, WorkspacePathRenameParticipating
+{
     private static let recentWorkspaceValidationQueue = DispatchQueue(
         label: "ink.margin.recent-workspace-validation",
         qos: .utility,
@@ -51,6 +58,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
     var onClose: (() -> Void)?
     var onSessionStateChange: (() -> Void)?
+    var onRequestPathRename: ((URL, String) -> Result<URL, Error>)?
 
     private(set) var workspaceURL: URL?
     private(set) var workspaceKind: WorkspaceKind = .empty
@@ -128,6 +136,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     }
 
     var hasUnreadComments: Bool { unreadCommentCount > 0 }
+    var navigatorActiveDocumentURLForTesting: URL? {
+        fileTreeViewController.activeDocumentURLForTesting
+    }
 
     var sessionState: WorkspaceTabSession? {
         guard let workspaceURL else { return nil }
@@ -246,6 +257,83 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
             isDirectory: exists && isDirectory.boolValue
         )
         recentWorkspaceStore.recordAfterLaunch(recentDirectoryURL)
+    }
+
+    var documentURLForPathRename: URL? { documentURL }
+
+    func prepareForPathRename(from sourceURL: URL) -> Bool {
+        guard let documentURL,
+              WorkspacePathRelocation.contains(documentURL, within: sourceURL)
+        else { return true }
+        guard let editor = editorViewController as? WorkspaceDocumentPathRelocating else {
+            return false
+        }
+        return editor.prepareForPathRename()
+    }
+
+    func applyPathRename(from sourceURL: URL, to destinationURL: URL) {
+        let priorWorkspaceURL = workspaceURL
+        let priorDocumentURL = documentURL
+        let relocatedWorkspaceURL = priorWorkspaceURL.flatMap {
+            WorkspacePathRelocation.relocatedURL($0, from: sourceURL, to: destinationURL)
+        }
+        let relocatedDocumentURL = priorDocumentURL.flatMap {
+            WorkspacePathRelocation.relocatedURL($0, from: sourceURL, to: destinationURL)
+        }
+
+        if let relocatedWorkspaceURL { workspaceURL = relocatedWorkspaceURL }
+        if let relocatedDocumentURL { documentURL = relocatedDocumentURL }
+        switch workspaceKind {
+        case .empty:
+            break
+        case .file(let url):
+            workspaceKind = .file(
+                WorkspacePathRelocation.relocatedURL(url, from: sourceURL, to: destinationURL) ?? url
+            )
+        case .directory(let url):
+            workspaceKind = .directory(
+                WorkspacePathRelocation.relocatedURL(url, from: sourceURL, to: destinationURL) ?? url
+            )
+        }
+
+        indexedFileURLs = indexedFileURLs.map {
+            WorkspacePathRelocation.relocatedURL($0, from: sourceURL, to: destinationURL) ?? $0
+        }
+        fileScanGeneration = UUID()
+        collaborationLoadGeneration = UUID()
+        navigationPaletteController?.close()
+
+        if relocatedDocumentURL != nil {
+            (editorViewController as? WorkspaceDocumentPathRelocating)?
+                .applyDocumentPathRename(from: sourceURL, to: destinationURL)
+            (commentsViewController as? WorkspaceCommentsPresenting)?
+                .presentComments(for: documentURL)
+        }
+
+        let directoryURL: URL?
+        if case .directory(let url) = workspaceKind {
+            directoryURL = url
+        } else {
+            directoryURL = nil
+        }
+        fileTreeViewController.applyPathRename(
+            from: sourceURL,
+            to: destinationURL,
+            workspaceDirectoryURL: directoryURL,
+            activeDocumentURL: documentURL
+        )
+        updateWindowTitle(documentURL: documentURL, workspaceURL: workspaceURL)
+        window?.toolbar?.validateVisibleItems()
+        if relocatedWorkspaceURL != nil, let workspaceURL {
+            let recentURL: URL
+            if case .directory = workspaceKind {
+                recentURL = workspaceURL
+            } else {
+                recentURL = workspaceURL.deletingLastPathComponent()
+            }
+            recentWorkspaceStore.recordAfterLaunch(recentURL)
+        }
+        onSessionStateChange?()
     }
 
     @objc func toggleNavigator(_ sender: Any?) {
@@ -924,6 +1012,10 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         fileTreeViewController.onOpenFile = { [weak self] url in
             self?.openFileFromDirectory(url)
         }
+        fileTreeViewController.onRequestRename = { [weak self] sourceURL, proposedName in
+            self?.onRequestPathRename?(sourceURL, proposedName)
+                ?? .failure(NavigatorRenameError.coordinationUnavailable)
+        }
         if let editor = editorViewController as? EditorViewController {
             editor.onCommentsChanged = { [weak self] change in
                 self?.handleCommentsChange(change)
@@ -1075,6 +1167,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         workspaceKind = .empty
         workspaceURL = nil
         documentURL = nil
+        fileTreeViewController.trackActiveDocument(nil)
         commentsVisibilityChoice = .automatic
         resetUnreadComments()
         navigatorItem.isCollapsed = true
@@ -1104,6 +1197,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         dismissRecentWorkspaceStartScreen()
         workspaceKind = .directory(directoryURL)
         documentURL = nil
+        fileTreeViewController.trackActiveDocument(nil)
         commentsVisibilityChoice = .automatic
         resetUnreadComments()
         indexedFileURLs.removeAll()
@@ -1564,6 +1658,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         resetUnreadComments()
         commentsItem.isCollapsed = true
         (editorViewController as? WorkspaceDocumentPresenting)?.presentDocument(at: fileURL)
+        if case .directory = workspaceKind {
+            fileTreeViewController.trackActiveDocument(fileURL)
+        }
         (commentsViewController as? WorkspaceCommentsPresenting)?.presentComments(for: fileURL)
         updateWindowTitle(documentURL: fileURL, workspaceURL: workspaceURL)
         window?.toolbar?.validateVisibleItems()
@@ -1618,7 +1715,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     }
 }
 
-private final class EditorPlaceholderViewController: NSViewController, WorkspaceDocumentPresenting, WorkspaceDocumentSaving {
+private final class EditorPlaceholderViewController: NSViewController, WorkspaceDocumentPresenting,
+    WorkspaceDocumentSaving, WorkspaceDocumentPathRelocating
+{
     private let textView: NSTextView
     private let scrollView = NSScrollView()
     private var highlighter: MarkdownHighlighter?
@@ -1716,11 +1815,33 @@ private final class EditorPlaceholderViewController: NSViewController, Workspace
     }
 
     @objc func saveDocument(_ sender: Any?) {
-        guard let representedURL else { return }
+        _ = saveRepresentedDocument()
+    }
+
+    func prepareForPathRename() -> Bool {
+        saveRepresentedDocument()
+    }
+
+    func applyDocumentPathRename(from sourceURL: URL, to destinationURL: URL) {
+        guard let representedURL,
+              let relocatedURL = WorkspacePathRelocation.relocatedURL(
+                  representedURL,
+                  from: sourceURL,
+                  to: destinationURL
+              )
+        else { return }
+        self.representedURL = relocatedURL
+    }
+
+    @discardableResult
+    private func saveRepresentedDocument() -> Bool {
+        guard let representedURL else { return true }
         do {
             try textView.string.write(to: representedURL, atomically: true, encoding: .utf8)
+            return true
         } catch {
             NSApplication.shared.presentError(error)
+            return false
         }
     }
 }
