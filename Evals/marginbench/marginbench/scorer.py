@@ -177,14 +177,14 @@ INITIAL_DISCOVERY_COMMANDS = frozenset({
     "capabilities", "collaborators", "comments get", "comments list",
     "comments validate", "context", "handoff list", "help", "inbox",
     "inspect", "man", "outline", "read", "review", "slice", "stage list",
-    "stage show", "suggest list", "version", "workspace show",
+    "stage show", "suggest list", "suggest wait", "version", "workspace show",
 })
 
 PREWRITE_STATE_READ_COMMANDS = frozenset({
     "collaborators", "comments export", "comments get", "comments list",
     "comments validate", "context", "handoff list", "inbox", "inspect",
     "outline", "read", "review", "slice", "stage list", "stage show",
-    "suggest list", "workspace show",
+    "suggest list", "suggest wait", "workspace show",
 })
 
 
@@ -269,17 +269,38 @@ def _used_one_postwrite_verification_per_role(
         if not successful_writes:
             return False
         after = role_events[successful_writes[-1] + 1:]
-        successful_lists = sum(
-            event.command == "suggest list" and event.exit_code == 0
+        successful_convergence_checks = sum(
+            event.command in {"suggest list", "suggest wait"} and event.exit_code == 0
             for event in after
         )
         successful_reads = sum(
             event.command == "read" and event.exit_code == 0
             for event in after
         )
-        if successful_lists != 1 or successful_reads != 1:
+        if successful_convergence_checks != 1 or successful_reads != 1:
             return False
     return True
+
+
+def _used_known_peer_wait(
+    events: tuple[CommandEvent, ...],
+    *,
+    require_every_role: bool,
+) -> bool:
+    """Measure exact durable-id waiting without treating it as correctness."""
+    roles = sorted({event.role for event in events})
+    if not roles:
+        return False
+    adopted = [
+        any(
+            event.role == role
+            and event.command == "suggest wait"
+            and event.exit_code == 0
+            for event in events
+        )
+        for role in roles
+    ]
+    return all(adopted) if require_every_role else any(adopted)
 
 
 def _used_expected_context_then_inbox(events: tuple[CommandEvent, ...]) -> bool:
@@ -418,6 +439,12 @@ def score_episode(
             ),
             "diagnostic_one_postwrite_verification_per_role": (
                 _used_one_postwrite_verification_per_role(events, suggestion_writes)
+            ),
+            "diagnostic_known_peer_wait_used_anywhere": _used_known_peer_wait(
+                events, require_every_role=False
+            ),
+            "diagnostic_known_peer_wait_used_by_all_roles": _used_known_peer_wait(
+                events, require_every_role=True
             ),
         }
     elif isinstance(reference, dict) and episode.scenario_id == "specialist_audit":

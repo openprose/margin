@@ -527,6 +527,22 @@ candidate trace yields exactly one `suggest batch`, four `suggest add`, and the
 corresponding role-separated sequences without retaining stdin, paths, ids, or
 document content.
 
+v58 specifies the next experiment before changing the product. The contention
+task already discloses the complete eight-id contribution set to both roles, so
+an agent can wait for an exact durable predicate without hidden benchmark
+knowledge. The task now permits one `suggest wait` call only when focused help
+advertises it, retains `suggest list` as the old-binary fallback, and still
+requires one literal-source read. Scoring accepts either convergence check;
+non-scoring diagnostics separately report any-role and all-role wait adoption.
+
+This contract is intentionally narrower than presence. A matching result means
+only that the named suggestions are durably embedded in the selected Markdown
+file. It does not claim that another collaborator is online, idle, finished, or
+has no other work. Trace summaries retain the static `suggest wait` command but
+discard every expected id and timeout value. The next product candidate should
+therefore be a bounded on-demand process, with no daemon, startup polling, or
+background initialization.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a

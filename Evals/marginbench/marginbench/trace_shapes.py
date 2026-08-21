@@ -36,7 +36,7 @@ SAFE_SUBCOMMANDS = {
     }),
     "handoff": frozenset({"add", "list"}),
     "stage": frozenset({"create", "discard", "list", "refresh", "show", "submit"}),
-    "suggest": frozenset({"accept", "add", "batch", "list", "reject"}),
+    "suggest": frozenset({"accept", "add", "batch", "list", "reject", "wait"}),
     "workspace": frozenset({"init", "show"}),
 }
 SAFE_MAN_TOPICS = {

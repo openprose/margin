@@ -59,7 +59,7 @@ VALUE_OPTIONS = frozenset({
     "--next-actor", "--occurrence", "--operations-file", "--output", "--parent", "--path",
     "--policy", "--prefix", "--priority", "--quote", "--range", "--replacement",
     "--mutation-id", "--request-id", "--resolve", "--root", "--since-revision", "--stage-id",
-    "--starting-cursor", "--status", "--suffix", "--thread", "--to", "--touched",
+    "--starting-cursor", "--status", "--suffix", "--thread", "--timeout", "--to", "--touched",
     "--unresolved",
 })
 BOOLEAN_OPTIONS = frozenset({

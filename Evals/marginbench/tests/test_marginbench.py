@@ -63,7 +63,12 @@ from marginbench.scenarios import (
     generate_episode,
 )
 from marginbench.schema import Actor, CommandEvent, EpisodeResult, RoleTask, canonical_json
-from marginbench.scorer import _id_matches, score_episode
+from marginbench.scorer import (
+    _id_matches,
+    _used_known_peer_wait,
+    _used_one_postwrite_verification_per_role,
+    score_episode,
+)
 from marginbench.scheduling import build_execution_plan
 from marginbench.studies import build_study_plan
 from marginbench.submission import SubmissionError, build_submission, verify_submission
@@ -399,6 +404,41 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertTrue(validate_bytes(canonical_json(report))["valid"])
         self.assertEqual(report["commands"][0]["name"], "suggest batch")
         self.assertEqual(report["writeLatency"]["writeAttemptCount"], 1)
+
+    def test_trace_shape_retains_wait_semantics_without_expected_ids(self) -> None:
+        expected_id = "00000000-0000-4000-8000-00000000feed"
+        trace = {
+            "traces": [{
+                "task": {"data": {"scenario_id": "suggestion_contention"}},
+                "agent": {"name": "author"},
+                "nodes": [
+                    {"message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "wait-call",
+                            "name": "margin",
+                            "arguments": json.dumps({"arguments": [
+                                "suggest", "wait", "review.md", expected_id,
+                                "--timeout", "20",
+                            ]}),
+                        }],
+                    }},
+                    {"message": {
+                        "role": "tool",
+                        "tool_call_id": "wait-call",
+                        "content": json.dumps({"ok": True, "exitCode": 0}),
+                    }},
+                ],
+            }],
+        }
+        with tempfile.TemporaryDirectory(prefix="marginbench-wait-trace-") as temporary:
+            path = Path(temporary) / "traces.jsonl"
+            path.write_text(json.dumps(trace) + "\n", encoding="utf-8")
+            report = summarize_trace_shapes([path])
+        encoded = canonical_json(report)
+        self.assertTrue(validate_bytes(encoded)["valid"])
+        self.assertEqual(report["commands"][0]["name"], "suggest wait")
+        self.assertNotIn(expected_id.encode(), encoded)
 
     def test_trace_shape_retains_only_static_manual_topics(self) -> None:
         secret = "private-man-topic"
@@ -2581,6 +2621,10 @@ class MarginBenchCoreTests(unittest.TestCase):
             ["suggest add", "suggest batch"],
             episode.oracle["requiredCommandGroups"],
         )
+        self.assertIn(
+            ["suggest list", "suggest wait"],
+            episode.oracle["requiredCommandGroups"],
+        )
         self.assertEqual(
             episode.oracle["commandRendezvous"]["alternateCommands"],
             ["suggest batch"],
@@ -2598,7 +2642,8 @@ class MarginBenchCoreTests(unittest.TestCase):
                     "exitCode": 0,
                     "stdout": (
                         "send {\"schema\":\"urn:margin:suggestion-batch:v1\"} "
-                        "to margin suggest add FILE --items-file -"
+                        "to margin suggest add FILE --items-file -; "
+                        "margin suggest wait FILE ID..."
                     ),
                 }),
             })
@@ -2620,7 +2665,11 @@ class MarginBenchCoreTests(unittest.TestCase):
             })
             self.assertEqual(
                 scripted_response(messages)["arguments"],
-                ["suggest", "list", "review.md", "--json"],
+                [
+                    "suggest", "wait", "review.md",
+                    *episode.oracle["reference"]["allIDs"],
+                    "--timeout", "20",
+                ],
             )
             messages.append({
                 "role": "tool",
@@ -2653,6 +2702,10 @@ class MarginBenchCoreTests(unittest.TestCase):
                 "role": "tool",
                 "content": json.dumps({"exitCode": 0, "stdout": "{}"}),
             })
+        self.assertEqual(
+            scripted_response(fallback_messages)["arguments"],
+            ["suggest", "list", "review.md", "--json"],
+        )
 
         with tempfile.TemporaryDirectory(prefix="marginbench-suggestion-contention-") as temporary:
             result = run_episode(
@@ -2667,11 +2720,13 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertTrue(result.checks["diagnostic_no_prewrite_state_reads"])
         self.assertFalse(result.checks["diagnostic_atomic_batch_used_anywhere"])
         self.assertFalse(result.checks["diagnostic_atomic_batch_used_by_all_roles"])
+        self.assertFalse(result.checks["diagnostic_known_peer_wait_used_anywhere"])
+        self.assertFalse(result.checks["diagnostic_known_peer_wait_used_by_all_roles"])
         self.assertTrue(result.checks["diagnostic_one_postwrite_verification_per_role"])
         self.assertTrue(all(
             passed
             for name, passed in result.checks.items()
-            if not name.startswith("diagnostic_atomic_batch_used")
+            if not name.startswith("diagnostic_")
         ))
         self.assertEqual(result.command_count, 12)
         self.assertEqual(result.invalid_command_count, 0)
@@ -2688,7 +2743,24 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertTrue(batched.checks["diagnostic_no_prewrite_state_reads"])
         self.assertTrue(batched.checks["diagnostic_atomic_batch_used_anywhere"])
         self.assertTrue(batched.checks["diagnostic_atomic_batch_used_by_all_roles"])
+        self.assertFalse(batched.checks["diagnostic_known_peer_wait_used_anywhere"])
+        self.assertFalse(batched.checks["diagnostic_known_peer_wait_used_by_all_roles"])
         self.assertTrue(batched.checks["diagnostic_one_postwrite_verification_per_role"])
+
+        synthetic_wait_events = (
+            CommandEvent("author", "suggest batch", 0, 1.0, 1, 1, 0, None, False),
+            CommandEvent("author", "suggest wait", 0, 1.0, 0, 1, 0, None, False),
+            CommandEvent("author", "read", 0, 1.0, 0, 1, 0, None, False),
+            CommandEvent("reviewer", "suggest batch", 0, 1.0, 1, 1, 0, None, False),
+            CommandEvent("reviewer", "suggest wait", 0, 1.0, 0, 1, 0, None, False),
+            CommandEvent("reviewer", "read", 0, 1.0, 0, 1, 0, None, False),
+        )
+        self.assertTrue(_used_known_peer_wait(
+            synthetic_wait_events, require_every_role=True
+        ))
+        self.assertTrue(_used_one_postwrite_verification_per_role(
+            synthetic_wait_events, frozenset({"suggest add", "suggest batch"})
+        ))
 
         with tempfile.TemporaryDirectory(prefix="marginbench-suggestion-repeat-") as temporary:
             repeated_verification = run_episode(
@@ -2739,12 +2811,15 @@ class MarginBenchCoreTests(unittest.TestCase):
         episode = generate_episode("suggestion_contention", KEY, 0)
         for role in episode.roles:
             task = role.prompt.removeprefix(SYSTEM_RULES + "\n\n")
+            normalized_task = " ".join(task.split())
             assignment_end = task.index("After your four writes")
             assignment_instructions = task[:assignment_end]
             self.assertNotIn("read review.md", assignment_instructions.lower())
             self.assertNotIn("inspect the revision", assignment_instructions.lower())
+            self.assertIn("suggest wait", task)
+            self.assertIn("durable-id check", task)
             self.assertIn("inspect the durable suggestion list", task)
-            self.assertIn("reread review.md", task)
+            self.assertIn("reread review.md", normalized_task)
 
     def test_redundant_initial_directory_reads_are_diagnosed_without_changing_outcomes(self) -> None:
         episode = generate_episode("directory_handoff", KEY, 41)

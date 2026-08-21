@@ -226,6 +226,20 @@ def scripted_suggestion_contention(prompt: str, tools: list[dict]) -> dict | Non
     assignments = json.loads(match.group(1))
     if not isinstance(assignments, list) or len(assignments) != 4:
         raise ValueError("Suggestion-contention assignment must contain four items.")
+    ids_match = re.search(
+        r"Together, both collaborators must leave exactly these eight suggestion ids:\n(\[.*?\])\n\nAfter",
+        prompt,
+        re.DOTALL,
+    )
+    if ids_match is None:
+        raise ValueError("Fake preflight could not parse the public suggestion-id set.")
+    all_ids = json.loads(ids_match.group(1))
+    if (
+        not isinstance(all_ids, list)
+        or len(all_ids) != 8
+        or not all(isinstance(value, str) and value for value in all_ids)
+    ):
+        raise ValueError("Suggestion-contention public id set must contain eight ids.")
     if not tools:
         return _invocation(["suggest", "add", "--help"])
     first_help = _stdout_text(tools[0])
@@ -233,6 +247,10 @@ def scripted_suggestion_contention(prompt: str, tools: list[dict]) -> dict | Non
         _tool_payload(tools[0]).get("exitCode") == 0
         and "urn:margin:suggestion-batch:v1" in first_help
         and "margin suggest add FILE --items-file -" in first_help
+    )
+    wait_available = (
+        _tool_payload(tools[0]).get("exitCode") == 0
+        and "margin suggest wait FILE ID..." in first_help
     )
     if batch_available:
         if len(tools) == 1:
@@ -246,6 +264,10 @@ def scripted_suggestion_contention(prompt: str, tools: list[dict]) -> dict | Non
                 json.dumps(plan, sort_keys=True, separators=(",", ":")),
             )
         if len(tools) == 2:
+            if wait_available:
+                return _invocation([
+                    "suggest", "wait", "review.md", *all_ids, "--timeout", "20",
+                ])
             return _invocation(["suggest", "list", "review.md", "--json"])
         if len(tools) == 3:
             return _invocation(["read", "review.md", "--json"])
@@ -260,6 +282,10 @@ def scripted_suggestion_contention(prompt: str, tools: list[dict]) -> dict | Non
             "-m", item["body"], "--id", item["id"],
         ])
     if add_index == len(assignments):
+        if wait_available:
+            return _invocation([
+                "suggest", "wait", "review.md", *all_ids, "--timeout", "20",
+            ])
         return _invocation(["suggest", "list", "review.md", "--json"])
     if add_index == len(assignments) + 1:
         return _invocation(["read", "review.md", "--json"])

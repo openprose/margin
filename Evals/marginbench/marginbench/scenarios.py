@@ -438,8 +438,11 @@ Your exact assignment JSON:
 Together, both collaborators must leave exactly these eight suggestion ids:
 {ids_json}
 
-After your four writes, inspect the durable suggestion list and reread review.md. Verify that all
-eight proposals coexist while the literal Markdown source remains unchanged.""",
+After your four writes, use `suggest wait` once when the installed focused help advertises it,
+passing all eight public ids above so the command can block for the exact durable set. Otherwise,
+inspect the durable suggestion list and repeat only if it is still incomplete. Then reread
+review.md once. Verify that all eight proposals coexist while the literal Markdown source remains
+unchanged. This is a durable-id check, not a claim that a collaborator is online or otherwise done.""",
             ))
         oracle["annotations"] = [
             _annotation(
@@ -463,7 +466,7 @@ eight proposals coexist while the literal Markdown source remains unchanged.""",
         oracle["efficientCommandTarget"] = 12
         oracle["maxCommands"] = 48
         oracle["requiredCommandGroups"] = [
-            ["suggest add", "suggest batch"], ["suggest list"], ["read", "inspect"],
+            ["suggest add", "suggest batch"], ["suggest list", "suggest wait"], ["read", "inspect"],
         ]
         oracle["allowedErrorCodes"] = [
             "COLLABORATION_PRECONDITION_FAILED", "REVISION_CONFLICT",
