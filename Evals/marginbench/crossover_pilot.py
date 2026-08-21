@@ -47,6 +47,7 @@ from prime_pilot import (  # noqa: E402
     BENCHMARK_VERSION,
     CONFIRMATION as CHILD_CONFIRMATION,
     DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE,
+    resolve_provider_reasoning_contract,
     claim_paid_start,
     estimate_maximum_cost,
     wallet,
@@ -193,6 +194,28 @@ def build_crossover_prime_plan(
         or not 0 <= allowance <= 4096
     ):
         raise PrimeStudyError("providerResponseTokenAllowance must be between 0 and 4096.")
+    reasoning_ceiling = limits.get("providerReasoningTokenCeiling")
+    reasoning_source = limits.get("providerReasoningTokenCeilingSource")
+    if reasoning_ceiling is not None and (
+        not isinstance(reasoning_ceiling, int)
+        or isinstance(reasoning_ceiling, bool)
+        or not 0 <= reasoning_ceiling <= 262_144
+    ):
+        raise PrimeStudyError(
+            "providerReasoningTokenCeiling must be between 0 and 262144."
+        )
+    if reasoning_ceiling is not None and (
+        not isinstance(reasoning_source, str)
+        or not reasoning_source.startswith("https://")
+        or len(reasoning_source.encode("utf-8")) > 2_048
+    ):
+        raise PrimeStudyError(
+            "providerReasoningTokenCeilingSource must be a bounded HTTPS evidence URL."
+        )
+    if reasoning_ceiling is None and reasoning_source is not None:
+        raise PrimeStudyError(
+            "providerReasoningTokenCeilingSource requires providerReasoningTokenCeiling."
+        )
     template_allowance = limits.get("liveProxyTemplateTokenAllowance")
     if (
         not isinstance(template_allowance, int)
@@ -255,7 +278,9 @@ def build_crossover_prime_plan(
                 limits["maxTurns"],
                 limits["upstreamAttemptsPerTurn"],
                 limits["inputTokenCeilingPerCall"],
-                limits["maxTokensPerCall"] + allowance,
+                limits["maxTokensPerCall"]
+                + (limits.get("providerReasoningTokenCeiling") or 0)
+                + allowance,
                 pricing["inputPricePerMillion"],
                 pricing["outputPricePerMillion"],
                 pricing["billingOverheadUSDPerCall"],
@@ -378,6 +403,16 @@ def _expected_execution_limits(plan: dict[str, Any]) -> dict[str, Any]:
         "billingOverheadUSDPerCall": plan["pricing"]["billingOverheadUSDPerCall"],
         "maxTokensPerCall": limits["maxTokensPerCall"],
         "providerResponseTokenAllowance": limits["providerResponseTokenAllowance"],
+        **(
+            {
+                "providerReasoningTokenCeiling": limits["providerReasoningTokenCeiling"],
+                "providerReasoningTokenCeilingSource": limits[
+                    "providerReasoningTokenCeilingSource"
+                ],
+            }
+            if "providerReasoningTokenCeiling" in limits
+            else {}
+        ),
         "maxTurns": limits["maxTurns"],
         "rolloutTimeoutSeconds": limits["rolloutTimeoutSeconds"],
         "wallTimeoutSeconds": limits["wallTimeoutSeconds"],
@@ -396,7 +431,9 @@ def _expected_bound_basis(plan: dict[str, Any], job: dict[str, Any]) -> dict[str
     return {
         "inputTokenCeilingPerCall": limits["inputTokenCeilingPerCall"],
         "outputTokenCeilingPerCall": (
-            limits["maxTokensPerCall"] + limits["providerResponseTokenAllowance"]
+            limits["maxTokensPerCall"]
+            + (limits.get("providerReasoningTokenCeiling") or 0)
+            + limits["providerResponseTokenAllowance"]
         ),
         "modelCallsPerAgentAtMost": (
             limits["maxTurns"]
@@ -421,6 +458,11 @@ def _expected_live_budget_policy(
         "templateTokenAllowance": limits["liveProxyTemplateTokenAllowance"],
         "inputTokenCeiling": limits["inputTokenCeilingPerCall"],
         "maxOutputTokens": limits["maxTokensPerCall"],
+        **(
+            {"reasoningTokenCeiling": limits["providerReasoningTokenCeiling"]}
+            if "providerReasoningTokenCeiling" in limits
+            else {}
+        ),
         "responseTokenAllowance": limits["providerResponseTokenAllowance"],
         "inputPricePerMillion": pricing["inputPricePerMillion"],
         "outputPricePerMillion": pricing["outputPricePerMillion"],
@@ -724,6 +766,13 @@ def _child_command(
         "--execute",
         "--confirm-paid", CHILD_CONFIRMATION,
     ]
+    if "providerReasoningTokenCeiling" in limits:
+        command += [
+            "--provider-reasoning-token-ceiling",
+            str(limits["providerReasoningTokenCeiling"]),
+            "--provider-reasoning-token-ceiling-source",
+            limits["providerReasoningTokenCeilingSource"],
+        ]
     if frozen["holdoutKey"] is not None:
         command += ["--holdout-key-file", str(frozen["holdoutKey"])]
     return command
@@ -1024,9 +1073,19 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--upstream-attempts-per-turn", type=int, default=3)
     parser.add_argument("--max-tokens-per-call", type=int, default=1_800)
     parser.add_argument(
+        "--provider-reasoning-token-ceiling",
+        type=int,
+        help="priced per-call ceiling for separately reported hidden reasoning",
+    )
+    parser.add_argument(
+        "--provider-reasoning-token-ceiling-source",
+        help="HTTPS provider contract supporting the reasoning-limit parameter",
+    )
+    parser.add_argument(
         "--provider-response-token-allowance",
         type=int,
         default=DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE,
+        help="small priced allowance for provider wrapper or accounting tokens",
     )
     parser.add_argument("--rollout-timeout-seconds", type=float, default=180.0)
     parser.add_argument("--wall-timeout-seconds", type=float, default=300.0)
@@ -1053,6 +1112,17 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
+    try:
+        (
+            arguments.provider_reasoning_token_ceiling,
+            arguments.provider_reasoning_token_ceiling_source,
+        ) = resolve_provider_reasoning_contract(
+            arguments.model,
+            arguments.provider_reasoning_token_ceiling,
+            arguments.provider_reasoning_token_ceiling_source,
+        )
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     if not 1 <= arguments.max_new_jobs <= 1000:
         raise SystemExit("max-new-jobs must be between 1 and 1000")
     if not 0 <= arguments.minimum_start_interval_seconds <= 3600:
@@ -1075,6 +1145,16 @@ def main(argv: list[str] | None = None) -> int:
         "upstreamAttemptsPerTurn": arguments.upstream_attempts_per_turn,
         "maxTokensPerCall": arguments.max_tokens_per_call,
         "providerResponseTokenAllowance": arguments.provider_response_token_allowance,
+        **(
+            {
+                "providerReasoningTokenCeiling": arguments.provider_reasoning_token_ceiling,
+                "providerReasoningTokenCeilingSource": (
+                    arguments.provider_reasoning_token_ceiling_source
+                ),
+            }
+            if arguments.provider_reasoning_token_ceiling is not None
+            else {}
+        ),
         "maxConcurrent": 1,
         "rolloutTimeoutSeconds": arguments.rollout_timeout_seconds,
         "wallTimeoutSeconds": arguments.wall_timeout_seconds,

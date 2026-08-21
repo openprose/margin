@@ -85,6 +85,7 @@ class InferenceBudgetPolicy:
     output_price_per_million: float
     billing_overhead_usd_per_call: float
     max_total_cost_usd: float
+    reasoning_token_ceiling: int | None = None
     response_token_allowance: int = 0
 
     def __post_init__(self) -> None:
@@ -122,6 +123,15 @@ class InferenceBudgetPolicy:
         ):
             raise ValueError("max_output_tokens must be between 1 and 1000000")
         if (
+            self.reasoning_token_ceiling is not None
+            and (
+                not isinstance(self.reasoning_token_ceiling, int)
+                or isinstance(self.reasoning_token_ceiling, bool)
+                or not 0 <= self.reasoning_token_ceiling <= 262_144
+            )
+        ):
+            raise ValueError("reasoning_token_ceiling must be null or between 0 and 262144")
+        if (
             not isinstance(self.response_token_allowance, int)
             or isinstance(self.response_token_allowance, bool)
             or not 0 <= self.response_token_allowance <= 4096
@@ -158,11 +168,12 @@ class InferenceBudgetPolicy:
         )
 
     def request_cost_upper_bound(self, request_bytes: int, output_tokens: int) -> float:
+        reasoning_tokens = self.reasoning_token_ceiling or 0
         return (
             self.input_token_upper_bound(request_bytes)
             * self.input_price_per_million
             / 1_000_000
-            + (output_tokens + self.response_token_allowance)
+            + (output_tokens + reasoning_tokens + self.response_token_allowance)
             * self.output_price_per_million
             / 1_000_000
             + self.billing_overhead_usd_per_call
@@ -215,7 +226,9 @@ class InferenceBudgetGate:
             reservation_id,
             upper,
             input_tokens,
-            output_tokens + self.policy.response_token_allowance,
+            output_tokens
+            + (self.policy.reasoning_token_ceiling or 0)
+            + self.policy.response_token_allowance,
         )
 
     def reject(self) -> None:
@@ -305,6 +318,11 @@ class InferenceBudgetGate:
                     "templateTokenAllowance": self.policy.template_token_allowance,
                     "inputTokenCeiling": self.policy.input_token_ceiling,
                     "maxOutputTokens": self.policy.max_output_tokens,
+                    **(
+                        {"reasoningTokenCeiling": self.policy.reasoning_token_ceiling}
+                        if self.policy.reasoning_token_ceiling is not None
+                        else {}
+                    ),
                     "responseTokenAllowance": self.policy.response_token_allowance,
                     "inputPricePerMillion": self.policy.input_price_per_million,
                     "outputPricePerMillion": self.policy.output_price_per_million,
@@ -440,6 +458,28 @@ class InferenceBudgetProxy:
                     owner.gate.reject()
                     self._json_error(400, "BUDGET_PROXY_MODEL", "Inference model differs from the priced model.")
                     return
+                reasoning_ceiling = owner.gate.policy.reasoning_token_ceiling
+                if reasoning_ceiling is not None:
+                    supplied_reasoning_ceiling = payload.get("thinking_budget")
+                    if supplied_reasoning_ceiling is None:
+                        # Qwen's visible generation limit does not bound its
+                        # separately reported hidden thinking. Freeze the
+                        # source-backed thinking ceiling into the exact request
+                        # that reaches the provider so the cost reservation and
+                        # generation contract describe the same upper bound.
+                        payload["thinking_budget"] = reasoning_ceiling
+                    elif (
+                        not isinstance(supplied_reasoning_ceiling, int)
+                        or isinstance(supplied_reasoning_ceiling, bool)
+                        or not 0 <= supplied_reasoning_ceiling <= reasoning_ceiling
+                    ):
+                        owner.gate.reject()
+                        self._json_error(
+                            400,
+                            "BUDGET_PROXY_REASONING_LIMIT",
+                            "Inference thinking budget exceeds its priced ceiling.",
+                        )
+                        return
                 output_limits = [
                     payload[name]
                     for name in ("max_completion_tokens", "max_tokens")

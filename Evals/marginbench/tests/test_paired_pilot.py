@@ -127,6 +127,7 @@ class PairedPrimeControllerTests(unittest.TestCase):
         control_profile: str = DEFAULT_CONTROL_PROFILE,
         scenario: str = "human_agent_relay",
         response_token_allowance: int = 0,
+        reasoning_token_ceiling: int | None = None,
         inter_job_cooldown_seconds: float = 0.0,
     ) -> tuple[argparse.Namespace, dict]:
         root.mkdir(parents=True, exist_ok=True)
@@ -167,6 +168,16 @@ class PairedPrimeControllerTests(unittest.TestCase):
             "upstreamAttemptsPerTurn": 1,
             "maxTokensPerCall": 250,
             "providerResponseTokenAllowance": response_token_allowance,
+            **(
+                {
+                    "providerReasoningTokenCeiling": reasoning_token_ceiling,
+                    "providerReasoningTokenCeilingSource": (
+                        "https://example.invalid/reasoning-contract"
+                    ),
+                }
+                if reasoning_token_ceiling is not None
+                else {}
+            ),
             "maxConcurrent": 1,
             "rolloutTimeoutSeconds": 30.0,
             "wallTimeoutSeconds": 60.0,
@@ -211,6 +222,34 @@ class PairedPrimeControllerTests(unittest.TestCase):
             clock=lambda: 1_000.0,
         )
         return arguments, plan
+
+    def test_reasoning_ceiling_is_frozen_and_priced_separately_from_wrapper_tokens(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="marginbench-paired-reasoning-") as temporary:
+            _, plan = self._fixture(
+                Path(temporary),
+                response_token_allowance=8,
+                reasoning_token_ceiling=4_096,
+            )
+        limits = plan["limits"]
+        self.assertEqual(limits["providerReasoningTokenCeiling"], 4_096)
+        self.assertEqual(limits["providerResponseTokenAllowance"], 8)
+        attempts = (
+            plan["jobs"][0]["agentProcessCount"]
+            * limits["maxTurns"]
+            * limits["upstreamAttemptsPerTurn"]
+        )
+        pricing = plan["pricing"]
+        expected = round(attempts * (
+            limits["inputTokenCeilingPerCall"]
+            * pricing["inputPricePerMillion"]
+            / 1_000_000
+            + (limits["maxTokensPerCall"] + 4_096 + 8)
+            * pricing["outputPricePerMillion"]
+            / 1_000_000
+            + pricing["billingOverheadUSDPerCall"]
+        ), 6)
+        self.assertEqual(plan["jobs"][0]["contractMaximumCostUSD"], expected)
+        self.assertTrue(validate_bytes(canonical_json(plan))["valid"])
 
     def test_controller_applies_the_frozen_cooldown_before_the_second_job(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-paired-cooldown-run-") as temporary:

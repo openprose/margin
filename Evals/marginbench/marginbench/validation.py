@@ -303,7 +303,9 @@ def _live_budget_semantics(
         policy["maxRequestBytes"] * 2 + policy["templateTokenAllowance"],
     )
     maximum_completion_tokens = forwarded * (
-        policy["maxOutputTokens"] + policy.get("responseTokenAllowance", 0)
+        policy["maxOutputTokens"]
+        + (policy.get("reasoningTokenCeiling") or 0)
+        + policy.get("responseTokenAllowance", 0)
     )
     if report["reportedPromptTokens"] > maximum_prompt_tokens:
         errors.append(f"{prefix}: reported prompt tokens exceed the request-byte bound")
@@ -2597,6 +2599,7 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 / 1_000_000
                 + (
                     limits["maxTokensPerCall"]
+                    + (limits.get("providerReasoningTokenCeiling") or 0)
                     + limits["providerResponseTokenAllowance"]
                 )
                 * pricing["outputPricePerMillion"]
@@ -2693,6 +2696,7 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 / 1_000_000
                 + (
                     limits["maxTokensPerCall"]
+                    + (limits.get("providerReasoningTokenCeiling") or 0)
                     + limits.get("providerResponseTokenAllowance", 0)
                 )
                 * pricing["outputPricePerMillion"]

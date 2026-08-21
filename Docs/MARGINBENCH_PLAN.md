@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-20 21:30 ET
+Last updated: 2026-08-21 02:00 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -27,14 +27,16 @@ gate is crossed.
 ## Credit ledger and spending gates
 
 Opening Prime Intellect credit: **$199.9861**. Latest observed balance:
-**$199.3243**. Total debit so far: **$0.6618**.
+**$196.8268**. The **$3.1593** difference is an account-wide wallet movement,
+not an attribution claim for this benchmark; redacted run receipts remain the
+authority for experiment-specific reported cost.
 
 | Gate | Maximum cumulative spend | Purpose | Status |
 | --- | ---: | --- | --- |
 | 0 | $0 | Install, login, local tests, container builds, dry runs | Complete |
 | 1 | $2 | One tiny end-to-end hosted smoke test | Complete; $0.0017 first valid smoke |
 | 2 | $15 | Cheap-model calibration on a small public-development slice | Complete; cumulative debit $0.0394 |
-| 3 | $50 | Paired comparisons of promising CLI/manual variants | In progress; multiple valid public pairs, cumulative debit $0.6618 |
+| 3 | $50 | Paired comparisons of promising CLI/manual variants | In progress; multiple valid pairs plus one $0.0014 censored provider-accounting incident |
 | 4 | $120 | Broader model/team matrix only after stable signal | Not started |
 | Reserve | $80 | Held for follow-up, failures, and a meaningful final run | Untouched |
 
@@ -1342,6 +1344,7 @@ changes:
 | v60 | Distinguish missing convergence support from mistrusting a successful wait receipt | A new non-scoring check treats roles without wait as not applicable, allows the required source read, and fails only when a role makes another successful wait/list after its first successful named wait. Diagnostics now recommend making that receipt terminal instead of proposing a wait that already exists | Keep as benchmark correctness. Reprocess future real traces through the refined check, then use a model-free delayed-peer probe before changing CLI wording from one model case |
 | v61 | Isolate polling versus a blocking durable predicate without model variance | Twelve paired trials delayed the second known suggestion by 200, 500, or 1,000 ms. The frozen pre-wait arm made 115 measured list calls; the candidate made 12 waits, exactly one per trial. Both arms preserved source, retained exactly both suggestions, and validated their graphs. The schema independently binds the case set and recomputes every call histogram, aggregate, comparison, and pass flag | Keep as causal mechanism evidence, not model-performance evidence. The wait removes polling work; receipt trust remains a separate behavioral question, so refine that contract without claiming presence or broader task completion |
 | v62 | Make a successful named-wait receipt explicitly terminal for its observed condition | Success now reports `receiptConclusiveForNamedIDs:true` and `immediateRecheckRequired:false`, says not to list/wait again unless a later file mutation is known, and labels the optional source read as separate from id rechecking. The real add→wait output contract, help/manual copy, bounded projections, both fake Prime paths, and nine-scenario reference all pass. The signed CLI remains 2,842,784 bytes; 500-launch median deltas versus v59 are -0.054 to -0.036 ms | Keep as a protocol-clarity candidate. Do not claim the wording changes model behavior from the earlier one-case trace; test receipt trust on fresh cases only after freezing a matched study |
+| v63 | Separate visible generation, hidden reasoning, and provider-wrapper budgets | The first fresh v62 study arm was exact but non-adoptable because Prime reported 2,094 completion tokens, including 1,615 reasoning tokens, against a plan that reserved only 1,800 + 8. The proxy stopped after $0.0014 account-wide movement and the candidate never ran. Alibaba documents `thinking_budget` for Qwen 3.7 but not a 4,000-token Flash default, so controllers freeze 4,000 as the study's conservative reasoning ceiling, inject it, price the complete bound, reject larger caller budgets, and no longer confuse a local budget 429 with provider throttling. Native is 189/189, both Python suites are 217/217, and publication audit is green | Keep as harness safety, not product or model evidence. Start no automatic retry. A new run identity must first prove Prime accepts the frozen Qwen extension; only then may the receipt-trust pair resume |
 
 The v41 retry path is never initialized for help or ordinary reads. In a
 counterbalanced 100-process final sample, global help measured 5.704 ms median /

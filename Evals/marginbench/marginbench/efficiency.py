@@ -139,6 +139,12 @@ def _comparison_contract(
             execution, "priorInfrastructureAttempts"
         ),
         "provider": _value(execution, "provider"),
+        "provider-reasoning-token-ceiling": _value(
+            limits, "providerReasoningTokenCeiling"
+        ),
+        "provider-reasoning-token-ceiling-source": _value(
+            limits, "providerReasoningTokenCeilingSource"
+        ),
         "provider-response-token-allowance": _value(
             limits, "providerResponseTokenAllowance"
         ),

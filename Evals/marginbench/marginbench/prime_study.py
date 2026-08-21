@@ -123,6 +123,7 @@ def _job_cost(
         / 1_000_000
         + (
             _positive_integer(limits, "maxTokensPerCall")
+            + (limits.get("providerReasoningTokenCeiling") or 0)
             + limits.get("providerResponseTokenAllowance", 0)
         )
         * _nonnegative_number(pricing, "outputPricePerMillion")
@@ -238,6 +239,28 @@ def build_prime_study_plan(
         or not 0 <= response_allowance <= 4096
     ):
         raise PrimeStudyError("providerResponseTokenAllowance must be between 0 and 4096.")
+    reasoning_ceiling = limits.get("providerReasoningTokenCeiling")
+    reasoning_source = limits.get("providerReasoningTokenCeilingSource")
+    if reasoning_ceiling is not None and (
+        not isinstance(reasoning_ceiling, int)
+        or isinstance(reasoning_ceiling, bool)
+        or not 0 <= reasoning_ceiling <= 262_144
+    ):
+        raise PrimeStudyError(
+            "providerReasoningTokenCeiling must be between 0 and 262144."
+        )
+    if reasoning_ceiling is not None and (
+        not isinstance(reasoning_source, str)
+        or not reasoning_source.startswith("https://")
+        or len(reasoning_source.encode("utf-8")) > 2_048
+    ):
+        raise PrimeStudyError(
+            "providerReasoningTokenCeilingSource must be a bounded HTTPS evidence URL."
+        )
+    if reasoning_ceiling is None and reasoning_source is not None:
+        raise PrimeStudyError(
+            "providerReasoningTokenCeilingSource requires providerReasoningTokenCeiling."
+        )
     ceiling_source = limits.get("inputTokenCeilingSource")
     if (
         not isinstance(ceiling_source, str)
@@ -464,6 +487,18 @@ def validate_prime_job_outputs(
             "providerResponseTokenAllowance",
             0,
         ),
+        **(
+            {
+                "providerReasoningTokenCeiling": plan["limits"][
+                    "providerReasoningTokenCeiling"
+                ],
+                "providerReasoningTokenCeilingSource": plan["limits"][
+                    "providerReasoningTokenCeilingSource"
+                ],
+            }
+            if "providerReasoningTokenCeiling" in plan["limits"]
+            else {}
+        ),
         "maxTurns": plan["limits"]["maxTurns"],
         "rolloutTimeoutSeconds": plan["limits"]["rolloutTimeoutSeconds"],
         "wallTimeoutSeconds": plan["limits"]["wallTimeoutSeconds"],
@@ -575,6 +610,7 @@ def validate_prime_job_outputs(
         "inputTokenCeilingPerCall": plan["limits"]["inputTokenCeilingPerCall"],
         "outputTokenCeilingPerCall": (
             plan["limits"]["maxTokensPerCall"]
+            + (plan["limits"].get("providerReasoningTokenCeiling") or 0)
             + plan["limits"].get("providerResponseTokenAllowance", 0)
         ),
         "modelCallsPerAgentAtMost": (
@@ -594,6 +630,15 @@ def validate_prime_job_outputs(
         "templateTokenAllowance": plan["limits"]["liveProxyTemplateTokenAllowance"],
         "inputTokenCeiling": plan["limits"]["inputTokenCeilingPerCall"],
         "maxOutputTokens": plan["limits"]["maxTokensPerCall"],
+        **(
+            {
+                "reasoningTokenCeiling": plan["limits"][
+                    "providerReasoningTokenCeiling"
+                ]
+            }
+            if "providerReasoningTokenCeiling" in plan["limits"]
+            else {}
+        ),
         "responseTokenAllowance": plan["limits"].get(
             "providerResponseTokenAllowance",
             0,

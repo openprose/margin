@@ -92,6 +92,7 @@ from prime_pilot import (
     load_prime_inference_credentials,
     load_candidate_manifest,
     load_holdout_key,
+    resolve_provider_reasoning_contract,
     wallet,
 )
 from preflight import _expected_trace_count, _find_scores, _subprocess_environment
@@ -2076,6 +2077,81 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertFalse(report["latchedClosed"])
         self.assertLessEqual(report["reservedCostUpperBoundUSD"], 0.00023)
 
+    def test_inference_budget_proxy_freezes_reasoning_ceiling_into_upstream_request(self) -> None:
+        observed_bodies: list[dict[str, object]] = []
+
+        class UpstreamHandler(BaseHTTPRequestHandler):
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+            def do_POST(self) -> None:  # noqa: N802
+                length = int(self.headers.get("content-length", "0"))
+                observed_bodies.append(json.loads(self.rfile.read(length)))
+                response = json.dumps({
+                    "id": "reasoning-completion",
+                    "choices": [{"message": {"role": "assistant", "content": "done"}}],
+                    "usage": {"prompt_tokens": 20, "completion_tokens": 2_863},
+                }).encode("utf-8")
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(response)))
+                self.end_headers()
+                self.wfile.write(response)
+
+        upstream = ThreadingHTTPServer(("127.0.0.1", 0), UpstreamHandler)
+        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+        upstream_thread.start()
+        try:
+            host, port = upstream.server_address[:2]
+            policy = InferenceBudgetPolicy(
+                allowed_model="test/reasoning-model",
+                max_request_bytes=2_048,
+                template_token_allowance=32,
+                input_token_ceiling=4_096,
+                max_output_tokens=1_800,
+                input_price_per_million=1.0,
+                output_price_per_million=1.0,
+                billing_overhead_usd_per_call=0.0,
+                max_total_cost_usd=0.02,
+                reasoning_token_ceiling=4_096,
+                response_token_allowance=8,
+            )
+            with InferenceBudgetProxy(
+                f"http://{host}:{port}/api/v1",
+                "upstream-secret",
+                policy,
+            ) as proxy, httpx.Client(timeout=5) as client:
+                endpoint = proxy.base_url + "/chat/completions"
+                headers = {"authorization": f"Bearer {proxy.client_token}"}
+                response = client.post(endpoint, headers=headers, json={
+                    "model": "test/reasoning-model",
+                    "messages": [{"role": "user", "content": "bounded"}],
+                    "max_tokens": 1_800,
+                })
+                self.assertEqual(response.status_code, 200)
+                excessive = client.post(endpoint, headers=headers, json={
+                    "model": "test/reasoning-model",
+                    "messages": [],
+                    "max_tokens": 1,
+                    "thinking_budget": 4_097,
+                })
+                self.assertEqual(excessive.status_code, 400)
+                self.assertEqual(
+                    excessive.json()["error"]["code"],
+                    "BUDGET_PROXY_REASONING_LIMIT",
+                )
+                report = proxy.gate.report()
+        finally:
+            upstream.shutdown()
+            upstream.server_close()
+            upstream_thread.join(timeout=5)
+
+        self.assertEqual(len(observed_bodies), 1)
+        self.assertEqual(observed_bodies[0]["thinking_budget"], 4_096)
+        self.assertEqual(report["reportedCompletionTokens"], 2_863)
+        self.assertEqual(report["providerBoundViolationCount"], 0)
+        self.assertEqual(report["policy"]["reasoningTokenCeiling"], 4_096)
+
     def test_inference_request_pacer_spaces_provider_starts_without_wall_clock_delay(self) -> None:
         now = [100.0]
         sleeps: list[float] = []
@@ -2305,7 +2381,7 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(report["providerBoundViolationCount"], 0)
         self.assertFalse(report["latchedClosed"])
 
-    def test_default_provider_allowance_covers_priced_hidden_reasoning_tokens(self) -> None:
+    def test_explicit_reasoning_ceiling_prices_hidden_tokens_separately(self) -> None:
         gate = InferenceBudgetGate(InferenceBudgetPolicy(
             allowed_model="test/reasoning-model",
             max_request_bytes=64,
@@ -2316,11 +2392,12 @@ class MarginBenchCoreTests(unittest.TestCase):
             output_price_per_million=1.0,
             billing_overhead_usd_per_call=0.0,
             max_total_cost_usd=0.01,
+            reasoning_token_ceiling=4096,
             response_token_allowance=DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE,
         ))
         reservation = gate.reserve(10, 1800)
         self.assertIsNotNone(reservation)
-        self.assertEqual(reservation.output_tokens_upper, 5896)
+        self.assertEqual(reservation.output_tokens_upper, 5906)
         gate.record_response(
             {"usage": {"prompt_tokens": 20, "completion_tokens": 2863}},
             reservation,
@@ -2328,6 +2405,32 @@ class MarginBenchCoreTests(unittest.TestCase):
         report = gate.report()
         self.assertEqual(report["providerBoundViolationCount"], 0)
         self.assertFalse(report["latchedClosed"])
+        self.assertEqual(report["policy"]["reasoningTokenCeiling"], 4096)
+        self.assertEqual(report["policy"]["responseTokenAllowance"], 10)
+
+    def test_qwen_reasoning_contract_is_automatic_but_other_models_are_not_guessed(self) -> None:
+        ceiling, source = resolve_provider_reasoning_contract(
+            "qwen/qwen3.7-flash",
+            None,
+            None,
+        )
+        self.assertEqual(ceiling, 4_000)
+        self.assertEqual(
+            source,
+            "https://help.aliyun.com/en/model-studio/qwen-api-via-openai-chat-completions",
+        )
+        self.assertEqual(
+            resolve_provider_reasoning_contract("test/unknown-model", None, None),
+            (None, None),
+        )
+        with self.assertRaisesRegex(ValueError, "source"):
+            resolve_provider_reasoning_contract("test/custom", 2_048, None)
+        with self.assertRaisesRegex(ValueError, "between"):
+            resolve_provider_reasoning_contract(
+                "test/custom",
+                2_048.5,  # type: ignore[arg-type]
+                "https://example.invalid/reasoning-contract",
+            )
 
     def test_paid_start_gate_serializes_and_enforces_cooldown(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-paid-gate-") as temporary:
@@ -2391,6 +2494,30 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(
             codes,
             ["PROVIDER_RATE_LIMIT", "LIVE_BUDGET_EXHAUSTED"],
+        )
+
+    def test_local_budget_stop_is_not_mislabeled_as_provider_throttling(self) -> None:
+        codes = _infrastructure_codes(
+            (
+                "openai.RateLimitError: Error code: 429\n"
+                "ProviderError: BUDGET_PROXY_COST_LIMIT\n"
+            ),
+            {"providerBoundViolationCount": 1},
+            timed_out=False,
+        )
+        self.assertEqual(
+            codes,
+            ["PROVIDER_USAGE_BOUND_VIOLATION", "LIVE_BUDGET_EXHAUSTED"],
+        )
+
+    def test_local_reasoning_limit_has_an_explicit_infrastructure_code(self) -> None:
+        self.assertEqual(
+            _infrastructure_codes(
+                "ProviderError: BUDGET_PROXY_REASONING_LIMIT",
+                {"providerBoundViolationCount": 0},
+                timed_out=False,
+            ),
+            ["LIVE_REASONING_LIMIT"],
         )
 
     def test_gateway_blocks_escape_gui_and_identity_override_without_raw_log(self) -> None:

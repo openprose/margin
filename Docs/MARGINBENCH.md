@@ -317,8 +317,8 @@ recommendation, not a claim that those licenses already apply.
 ## Current evidence
 
 The published product baseline is Margin 0.4.0. The current post-release
-interface candidate passes 177 native tests. Both the system and Prime Python
-runtimes pass 198 MarginBench contracts, and the real nine-scenario reference
+interface candidate passes 189 native tests. Both the system and Prime Python
+runtimes pass 217 MarginBench contracts, and the real nine-scenario reference
 study scores 100 with `paidModelsInvoked:false`. The isolated role server,
 neutral Markdown control, redacted publication audits, schema checks, and
 source-safety gates all pass.

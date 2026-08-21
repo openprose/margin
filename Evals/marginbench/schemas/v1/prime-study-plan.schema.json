@@ -162,6 +162,13 @@
         },
         "upstreamAttemptsPerTurn": {"type": "integer", "minimum": 1},
         "maxTokensPerCall": {"type": "integer", "minimum": 1},
+        "providerReasoningTokenCeiling": {
+          "type": "integer", "minimum": 0, "maximum": 262144
+        },
+        "providerReasoningTokenCeilingSource": {
+          "type": "string", "minLength": 9, "maxLength": 2048,
+          "pattern": "^https://"
+        },
         "providerResponseTokenAllowance": {"type": "integer", "minimum": 0, "maximum": 4096},
         "maxConcurrent": {"type": "integer", "minimum": 1},
         "rolloutTimeoutSeconds": {"type": "number", "exclusiveMinimum": 0},
@@ -185,6 +192,10 @@
         "minimumRequestIntervalSeconds": {
           "type": "number", "minimum": 0, "maximum": 60
         }
+      },
+      "dependentRequired": {
+        "providerReasoningTokenCeiling": ["providerReasoningTokenCeilingSource"],
+        "providerReasoningTokenCeilingSource": ["providerReasoningTokenCeiling"]
       }
     }
   }

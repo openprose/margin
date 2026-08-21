@@ -111,6 +111,12 @@
             "templateTokenAllowance": {"type": "integer", "minimum": 0, "maximum": 1000000},
             "inputTokenCeiling": {"type": "integer", "minimum": 1, "maximum": 4000000},
             "maxOutputTokens": {"type": "integer", "minimum": 1, "maximum": 1000000},
+            "reasoningTokenCeiling": {
+              "oneOf": [
+                {"type": "integer", "minimum": 0, "maximum": 262144},
+                {"type": "null"}
+              ]
+            },
             "responseTokenAllowance": {"type": "integer", "minimum": 0, "maximum": 4096},
             "inputPricePerMillion": {"type": "number", "minimum": 0},
             "outputPricePerMillion": {"type": "number", "minimum": 0},

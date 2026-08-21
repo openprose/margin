@@ -511,6 +511,27 @@ the example model at one million tokens:
 https://help.aliyun.com/zh/model-studio/text-generation-model/ . Replace that
 number only with a provider-published bound for the chosen model.
 
+Thinking models require a second, separate contract. `max_tokens` bounds the
+visible answer for Qwen 3.7, while the provider can report hidden thinking in
+the same billable completion total. `--provider-reasoning-token-ceiling` names
+that hidden ceiling, and `--provider-reasoning-token-ceiling-source` records the
+HTTPS model contract supporting it. The spend gate inserts the corresponding
+`thinking_budget` into the exact upstream request and reserves visible output,
+hidden reasoning, and the small wrapper allowance before forwarding. For
+`qwen/qwen3.7-flash`, the controllers freeze 4,000 tokens as a conservative
+MarginBench study ceiling. That value is harness policy, not a claimed provider
+default; Alibaba documents that the non-standard `thinking_budget` parameter
+applies to the Qwen 3.7 series in its
+[OpenAI-compatible API contract](https://help.aliyun.com/en/model-studio/qwen-api-via-openai-chat-completions).
+No ceiling is guessed for unknown models. `--provider-response-token-allowance`
+is only for a few provider accounting or wrapper tokens; it is not a hidden
+reasoning budget.
+
+Prime documents `max_tokens` as the maximum generated response and returns
+completion usage through its OpenAI-compatible endpoint. A provider response
+outside the complete reserved bound is therefore an infrastructure incident,
+not a model score. See [Prime's chat-completion contract](https://docs.primeintellect.ai/api-reference/inference-chat-completions).
+
 The printed plan must be reviewed before adding the separately documented paid
 execution flags. Raw traces remain under ignored `runs/`; only redacted summaries
 and run manifests are publication artifacts.

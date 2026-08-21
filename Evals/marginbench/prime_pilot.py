@@ -54,17 +54,69 @@ PROXY_API_KEY_ENV = "MARGINBENCH_PROXY_TOKEN"
 WALLET_OBSERVATION_SCOPE = "account-wide"
 WALLET_DEBIT_ATTRIBUTION = "unattributed"
 MAX_PRIME_CONFIG_BYTES = 1024 * 1024
-# Prime/Qwen reports hidden reasoning tokens inside ``completion_tokens`` even
-# when the requested visible generation stays below ``max_tokens``. Keep this
-# separately priced accounting allowance at the proxy's validated maximum; it
-# never increases the model's requested generation limit or the run's dollar
-# cap. A provider response above this additional bound still fails closed.
-DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE = 4096
+# Some providers include a few chat-template or accounting tokens beyond the
+# model's requested generation. This allowance is deliberately small. Hidden
+# reasoning is a different budget and must never be smuggled into this field.
+DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE = 10
+QWEN_REASONING_CEILING_SOURCE = (
+    "https://help.aliyun.com/en/model-studio/qwen-api-via-openai-chat-completions"
+)
+KNOWN_REASONING_TOKEN_CEILINGS: dict[str, tuple[int, str]] = {
+    # Alibaba documents that ``thinking_budget`` separately caps hidden
+    # reasoning for Qwen 3.7. 4,000 is MarginBench's conservative study
+    # ceiling, not a claimed provider default.
+    "qwen/qwen3.7-flash": (4000, QWEN_REASONING_CEILING_SOURCE),
+}
 PLAIN_CONTROL_PROFILE = "role-separated-plain-markdown-v1"
 
 
 def canonical(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def _reasoning_token_ceiling(arguments: argparse.Namespace) -> int:
+    return int(getattr(arguments, "provider_reasoning_token_ceiling", None) or 0)
+
+
+def _reasoning_limit_fields(arguments: argparse.Namespace) -> dict[str, Any]:
+    ceiling = getattr(arguments, "provider_reasoning_token_ceiling", None)
+    if ceiling is None:
+        return {}
+    return {
+        "providerReasoningTokenCeiling": ceiling,
+        "providerReasoningTokenCeilingSource": arguments.provider_reasoning_token_ceiling_source,
+    }
+
+
+def resolve_provider_reasoning_contract(
+    model: str,
+    ceiling: int | None,
+    source: str | None,
+) -> tuple[int | None, str | None]:
+    if ceiling is None:
+        known_reasoning = KNOWN_REASONING_TOKEN_CEILINGS.get(model)
+        if known_reasoning is not None:
+            ceiling, default_source = known_reasoning
+            source = source or default_source
+    if ceiling is not None and (
+        not isinstance(ceiling, int)
+        or isinstance(ceiling, bool)
+        or not 0 <= ceiling <= 262_144
+    ):
+        raise ValueError("provider-reasoning-token-ceiling must be between 0 and 262144")
+    if ceiling is not None and (
+        not isinstance(source, str)
+        or not source.startswith("https://")
+        or len(source.encode("utf-8")) > 2_048
+    ):
+        raise ValueError(
+            "provider-reasoning-token-ceiling-source must be a bounded HTTPS evidence URL"
+        )
+    if ceiling is None and source is not None:
+        raise ValueError(
+            "provider-reasoning-token-ceiling-source requires provider-reasoning-token-ceiling"
+        )
+    return ceiling, source
 
 
 def sha256(path: Path) -> str:
@@ -721,13 +773,19 @@ def _infrastructure_codes(
     codes: list[str] = []
     if live_budget_report.get("providerBoundViolationCount", 0):
         codes.append("PROVIDER_USAGE_BOUND_VIOLATION")
-    if "upstream 429" in log_text or "rate_limit" in log_text:
+    # The OpenAI client represents every HTTP 429 as a RateLimitError,
+    # including the loopback proxy's intentional cost stop. Only retain a
+    # provider-throttling diagnosis when the log contains an upstream marker or
+    # the provider's documented error code; a local BUDGET_PROXY_COST_LIMIT is
+    # not evidence that Prime throttled the request.
+    if "upstream 429" in log_text or "rate_limit_exceeded" in log_text:
         codes.append("PROVIDER_RATE_LIMIT")
     if "BUDGET_PROXY_COST_LIMIT" in log_text:
         codes.append("LIVE_BUDGET_EXHAUSTED")
     for proxy_code, infrastructure_code in (
         ("BUDGET_PROXY_REQUEST_LIMIT", "LIVE_REQUEST_SIZE_LIMIT"),
         ("BUDGET_PROXY_OUTPUT_LIMIT", "LIVE_OUTPUT_LIMIT"),
+        ("BUDGET_PROXY_REASONING_LIMIT", "LIVE_REASONING_LIMIT"),
         ("BUDGET_PROXY_UPSTREAM", "LIVE_PROXY_UPSTREAM_ERROR"),
     ):
         if proxy_code in log_text:
@@ -815,6 +873,7 @@ def _run_manifest(
         arguments.upstream_attempts_per_turn,
         arguments.input_token_ceiling_per_call,
         arguments.max_tokens_per_call
+        + _reasoning_token_ceiling(arguments)
         + getattr(arguments, "provider_response_token_allowance", 0),
         arguments.input_price_per_million,
         arguments.output_price_per_million,
@@ -894,6 +953,7 @@ def _run_manifest(
                     "provider_response_token_allowance",
                     0,
                 ),
+                **_reasoning_limit_fields(arguments),
                 "maxTurns": arguments.max_turns,
                 "rolloutTimeoutSeconds": arguments.rollout_timeout_seconds,
                 "wallTimeoutSeconds": arguments.wall_timeout_seconds,
@@ -939,6 +999,7 @@ def _run_manifest(
                 "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
                 "outputTokenCeilingPerCall": (
                     arguments.max_tokens_per_call
+                    + _reasoning_token_ceiling(arguments)
                     + getattr(arguments, "provider_response_token_allowance", 0)
                 ),
                 "modelCallsPerAgentAtMost": arguments.max_turns * compute_multiplier,
@@ -1043,6 +1104,7 @@ def _neutral_run_manifest(
         arguments.upstream_attempts_per_turn,
         arguments.input_token_ceiling_per_call,
         arguments.max_tokens_per_call
+        + _reasoning_token_ceiling(arguments)
         + getattr(arguments, "provider_response_token_allowance", 0),
         arguments.input_price_per_million,
         arguments.output_price_per_million,
@@ -1127,6 +1189,7 @@ def _neutral_run_manifest(
                     "provider_response_token_allowance",
                     0,
                 ),
+                **_reasoning_limit_fields(arguments),
                 "maxTurns": arguments.max_turns,
                 "rolloutTimeoutSeconds": arguments.rollout_timeout_seconds,
                 "wallTimeoutSeconds": arguments.wall_timeout_seconds,
@@ -1171,6 +1234,7 @@ def _neutral_run_manifest(
                 "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
                 "outputTokenCeilingPerCall": (
                     arguments.max_tokens_per_call
+                    + _reasoning_token_ceiling(arguments)
                     + getattr(arguments, "provider_response_token_allowance", 0)
                 ),
                 "modelCallsPerAgentAtMost": arguments.max_turns * compute_multiplier,
@@ -1246,6 +1310,7 @@ def _neutral_execution_summary(
             "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
             "outputTokenCeilingPerCall": (
                 arguments.max_tokens_per_call
+                + _reasoning_token_ceiling(arguments)
                 + getattr(arguments, "provider_response_token_allowance", 0)
             ),
             "billingOverheadUSDPerCall": arguments.billing_overhead_usd_per_call,
@@ -1281,12 +1346,24 @@ def main() -> int:
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--max-tokens-per-call", type=int, default=1200)
     parser.add_argument(
+        "--provider-reasoning-token-ceiling",
+        type=int,
+        help=(
+            "source-backed per-call ceiling for separately reported hidden reasoning; "
+            "known Qwen models receive a conservative MarginBench ceiling when omitted"
+        ),
+    )
+    parser.add_argument(
+        "--provider-reasoning-token-ceiling-source",
+        help="HTTPS provider/model contract for the hidden-reasoning ceiling",
+    )
+    parser.add_argument(
         "--provider-response-token-allowance",
         type=int,
         default=DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE,
         help=(
-            "priced accounting allowance for provider-reported hidden reasoning or "
-            "wrapper tokens beyond the requested visible generation limit"
+            "small priced accounting allowance for provider wrapper tokens beyond "
+            "the visible and hidden-reasoning limits"
         ),
     )
     parser.add_argument("--max-turns", type=int, default=12)
@@ -1423,6 +1500,17 @@ def main() -> int:
         raise SystemExit("max-tokens-per-call cannot exceed max-output-tokens")
     if not math.isfinite(arguments.temperature) or not 0 <= arguments.temperature <= 2:
         raise SystemExit("temperature must be between zero and two")
+    try:
+        (
+            arguments.provider_reasoning_token_ceiling,
+            arguments.provider_reasoning_token_ceiling_source,
+        ) = resolve_provider_reasoning_contract(
+            arguments.model,
+            arguments.provider_reasoning_token_ceiling,
+            arguments.provider_reasoning_token_ceiling_source,
+        )
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     if not 0 <= arguments.provider_response_token_allowance <= 4096:
         raise SystemExit("provider-response-token-allowance must be between 0 and 4096")
     if arguments.input_price_per_million < 0 or arguments.output_price_per_million < 0:
@@ -1460,6 +1548,7 @@ def main() -> int:
             output_price_per_million=arguments.output_price_per_million,
             billing_overhead_usd_per_call=arguments.billing_overhead_usd_per_call,
             max_total_cost_usd=live_proxy_cost_cap,
+            reasoning_token_ceiling=arguments.provider_reasoning_token_ceiling,
             response_token_allowance=arguments.provider_response_token_allowance,
         )
     except ValueError as error:
@@ -1506,7 +1595,9 @@ def main() -> int:
         arguments.max_turns,
         arguments.upstream_attempts_per_turn,
         arguments.input_token_ceiling_per_call,
-        arguments.max_tokens_per_call + arguments.provider_response_token_allowance,
+        arguments.max_tokens_per_call
+        + _reasoning_token_ceiling(arguments)
+        + arguments.provider_response_token_allowance,
         arguments.input_price_per_million,
         arguments.output_price_per_million,
         arguments.billing_overhead_usd_per_call,
@@ -1568,6 +1659,7 @@ def main() -> int:
             "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,
             "outputTokenCeilingPerCall": (
                 arguments.max_tokens_per_call
+                + _reasoning_token_ceiling(arguments)
                 + arguments.provider_response_token_allowance
             ),
             "billingOverheadUSDPerCall": arguments.billing_overhead_usd_per_call,
@@ -1589,6 +1681,11 @@ def main() -> int:
                 "templateTokenAllowance": live_budget_policy.template_token_allowance,
                 "inputTokenCeiling": live_budget_policy.input_token_ceiling,
                 "maxOutputTokens": live_budget_policy.max_output_tokens,
+                **(
+                    {"reasoningTokenCeiling": live_budget_policy.reasoning_token_ceiling}
+                    if live_budget_policy.reasoning_token_ceiling is not None
+                    else {}
+                ),
                 "responseTokenAllowance": live_budget_policy.response_token_allowance,
                 "inputPricePerMillion": live_budget_policy.input_price_per_million,
                 "outputPricePerMillion": live_budget_policy.output_price_per_million,
@@ -1610,6 +1707,7 @@ def main() -> int:
             "maxInputTokens": arguments.max_input_tokens,
             "maxOutputTokens": arguments.max_output_tokens,
             "maxTokensPerCall": arguments.max_tokens_per_call,
+            **_reasoning_limit_fields(arguments),
             "providerResponseTokenAllowance": arguments.provider_response_token_allowance,
             "maxTotalTokens": arguments.max_total_tokens,
             "inputTokenCeilingPerCall": arguments.input_token_ceiling_per_call,

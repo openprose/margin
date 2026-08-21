@@ -636,6 +636,43 @@ suggestion help, and -0.050 ms for wait help. P95 deltas ranged from -0.081 to
 -0.001 ms. These are flat scheduling-scale results, not speedup evidence. No
 additional paid run is warranted until a fresh receipt-trust study is planned.
 
+v63 hardens that planned study before interpreting another model result. The
+first fresh private arm stopped safely after Prime reported 2,094 completion
+tokens for a request whose visible generation limit was 1,800. Of those, 1,615
+were hidden reasoning tokens. The episode's document outcome happened to be
+exact, but the run is censored infrastructure evidence: the old plan had frozen
+only eight extra provider tokens, the spend proxy latched closed, the candidate
+arm never started, and no retry occurred. The account-wide wallet moved by
+$0.0014. Both temporary holdout-key copies were overwritten and removed.
+
+The failure exposed an ambiguous budget field rather than a Margin product
+failure. The harness now separates visible answer tokens, a source-backed
+hidden-reasoning ceiling, and a small provider-wrapper allowance. Alibaba
+documents `thinking_budget` for the Qwen 3.7 series but does not document 4,000
+as Qwen 3.7 Flash's default. MarginBench therefore freezes 4,000 as its own
+conservative study ceiling, inserts that ceiling into the upstream request, and
+prices the complete 1,800 + 4,000 + 10 token bound before forwarding. Unknown
+models receive no guessed reasoning contract. Any supplied larger thinking
+budget is rejected locally, and any provider usage above the combined bound
+still latches the run closed.
+
+Model-free adversarial coverage reproduces the observed 2,863-token completion
+shape under a 1,800-token visible limit, verifies the injected thinking budget,
+and rejects an over-ceiling request. Infrastructure classification now
+distinguishes the local proxy's intentional HTTP 429 from Prime's documented `rate_limit_exceeded`
+response, so a budget stop is no longer mislabeled as provider throttling. The
+native suite passes 189 tests, both supported Python suites pass 217 tests, and
+the existing publication audit remains green. No second paid run has been
+started; Prime acceptance of the vendor extension remains the first explicit
+capability check in a new run identity.
+
+A public deterministic dry run then exercised the same two-job controller
+without a holdout key or model call. Its frozen plan shows 1,800 visible tokens,
+4,000 reasoning tokens, ten wrapper tokens, and a $0.05 hard study cap; dry-run
+mode created neither a work directory nor a publication directory. Release
+smoke passed, and the unchanged CLI remains 2,842,784 bytes with SHA-256
+`7c2df67830f9a99de5f764b2092f3876ae69198f7b64943e4370537e69a6c358`.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a
