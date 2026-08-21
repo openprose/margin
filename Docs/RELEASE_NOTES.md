@@ -6,6 +6,9 @@
   bounded JSON operation validates every passage before one atomic metadata
   commit, preserves literal Markdown, rejects partial writes, supports exact
   replay, and absorbs safe annotation-only contention internally.
+- Added the same atomic operation as `margin suggest add --items-file`, placed
+  first in add help and parent suggestion help, while retaining `suggest batch`
+  as a compatible alias.
 - Taught focused help, the progressive manual, machine-readable capabilities,
   and MarginBench about the batch path without adding background work or a new
   dependency. The ordinary `suggest add --help` page includes the complete

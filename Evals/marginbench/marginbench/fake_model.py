@@ -232,7 +232,7 @@ def scripted_suggestion_contention(prompt: str, tools: list[dict]) -> dict | Non
     batch_available = (
         _tool_payload(tools[0]).get("exitCode") == 0
         and "urn:margin:suggestion-batch:v1" in first_help
-        and "--items-file -" in first_help
+        and "margin suggest add FILE --items-file -" in first_help
     )
     if batch_available:
         if len(tools) == 1:
@@ -242,7 +242,7 @@ def scripted_suggestion_contention(prompt: str, tools: list[dict]) -> dict | Non
                 "items": assignments,
             }
             return _invocation(
-                ["suggest", "batch", "review.md", "--items-file", "-"],
+                ["suggest", "add", "review.md", "--items-file", "-"],
                 json.dumps(plan, sort_keys=True, separators=(",", ":")),
             )
         if len(tools) == 2:

@@ -791,7 +791,12 @@ enum CollaborationCLI {
     private static func runSuggest(_ cursor: inout ArgumentCursor) throws {
         let subcommand = try cursor.require("suggest subcommand")
         switch subcommand {
-        case "add": try suggestAdd(&cursor)
+        case "add":
+            if cursor.values.contains("--items-file") {
+                try suggestBatch(&cursor)
+            } else {
+                try suggestAdd(&cursor)
+            }
         case "batch": try suggestBatch(&cursor)
         case "list": try suggestList(&cursor)
         case "accept": try suggestDisposition(&cursor, disposition: .accept)

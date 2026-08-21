@@ -476,6 +476,31 @@ stdin JSON. A unified multi-item add form can put the efficient path in the
 primary usage block while preserving the existing single-add command and
 atomic batch engine.
 
+v56 implements that unified form without another mutation subsystem.
+`margin suggest add FILE --items-file ...` dispatches to the existing bounded,
+atomic batch engine; `margin suggest batch` remains an exact replay-compatible
+alias. The multi-item form is the first add usage, parent suggestion help gives
+the complete bounded schema, and the global example and manual use the same
+verb. Benchmark telemetry normalizes both spellings to `suggest batch`, so an
+interface rename cannot receive different protocol credit.
+
+The deterministic reference remains at 100. Both in-process and environment-
+server Prime rehearsals give full reward to both collaborators through the
+unified spelling with no paid call. All 182 Swift tests and both 207-test Python
+suites pass, including first application through `suggest add`, exact replay
+through legacy `suggest batch`, changed-payload rejection, concurrent whole-
+batch convergence, and old-binary fallback. Release, signed-bundle smoke, and
+both distribution packages pass. Detailed suggestion capabilities are 30,007
+bytes, below the 32 KiB bound; the brief form is 5,292 bytes.
+
+A counterbalanced 3,000-process debug sample compared v56 with frozen v54.
+Median differences were 0.171 ms for global help, 0.173 ms for parent suggestion
+help, and 0.187 ms for add help. Absolute candidate medians were 5.583, 6.042,
+and 6.119 ms respectively. Both binaries are exactly 8,015,488 bytes with equal
+Mach-O segment sizes, so this is a recorded sub-millisecond process-layout or
+scheduling effect, not evidence of a new startup path. The optimized CLI remains
+2.7 MiB. No paid model was invoked for v56 yet.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a

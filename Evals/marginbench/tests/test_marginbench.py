@@ -233,6 +233,10 @@ class MarginBenchCoreTests(unittest.TestCase):
             event_command_path(["suggest", "add", "--help"]),
             "help suggest add",
         )
+        self.assertEqual(
+            event_command_path(["suggest", "add", "review.md", "--items-file", "-"]),
+            "suggest batch",
+        )
 
     def test_command_rendezvous_releases_participants_together_and_only_once(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-rendezvous-") as temporary:
@@ -2562,14 +2566,14 @@ class MarginBenchCoreTests(unittest.TestCase):
                     "exitCode": 0,
                     "stdout": (
                         "send {\"schema\":\"urn:margin:suggestion-batch:v1\"} "
-                        "to margin suggest batch FILE --items-file -"
+                        "to margin suggest add FILE --items-file -"
                     ),
                 }),
             })
             invocation = scripted_response(messages)
             self.assertEqual(
                 invocation["arguments"],
-                ["suggest", "batch", "review.md", "--items-file", "-"],
+                ["suggest", "add", "review.md", "--items-file", "-"],
             )
             batch = json.loads(invocation["stdin"])
             self.assertEqual(batch["schema"], "urn:margin:suggestion-batch:v1")

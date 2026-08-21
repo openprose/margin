@@ -456,6 +456,10 @@ def event_command_path(arguments: list[str]) -> str:
             if "--resolve" in _option_names(arguments)
             else "comments reply"
         )
+    if path == "suggest add" and "--items-file" in _option_names(arguments):
+        # Multi-item add is the ergonomic spelling of the same atomic batch
+        # operation. Telemetry scores semantics rather than public aliases.
+        return "suggest batch"
     return path
 
 

@@ -98,12 +98,12 @@ final class CLICommandContractTests: XCTestCase {
         )
         let suggestionGuidance = try XCTUnwrap(suggestionAdd.guidance)
         XCTAssertEqual(suggestionGuidance.count, 5)
-        XCTAssertTrue(suggestionGuidance[0].contains("add directly"))
-        XCTAssertTrue(suggestionGuidance[0].contains("validate the source atomically"))
-        XCTAssertTrue(suggestionGuidance[1].contains("suggest batch"))
-        XCTAssertTrue(suggestionGuidance[1].contains("urn:margin:suggestion-batch:v1"))
-        XCTAssertTrue(suggestionGuidance[1].contains("--items-file -"))
-        XCTAssertTrue(suggestionGuidance[1].contains("\"exact\":\"current text\""))
+        XCTAssertTrue(suggestionGuidance[0].contains("choose the first usage"))
+        XCTAssertTrue(suggestionGuidance[0].contains("urn:margin:suggestion-batch:v1"))
+        XCTAssertTrue(suggestionGuidance[0].contains("margin suggest add FILE --items-file -"))
+        XCTAssertTrue(suggestionGuidance[0].contains("\"exact\":\"current text\""))
+        XCTAssertTrue(suggestionGuidance[1].contains("add directly"))
+        XCTAssertTrue(suggestionGuidance[1].contains("validate the source atomically"))
         XCTAssertTrue(suggestionGuidance[3].contains("suggest list FILE once"))
         XCTAssertTrue(suggestionGuidance[3].contains("once after the batch"))
         let suggestionBatch = try XCTUnwrap(
@@ -1319,7 +1319,7 @@ final class CLICommandContractTests: XCTestCase {
         ]
         let plan = try writePlan("batch.json", items: items)
         let arguments = [
-            "suggest", "batch", file.path, "--items-file", plan.path,
+            "suggest", "add", file.path, "--items-file", plan.path,
             "--batch-id", "00000000-0000-4000-8000-000000095099",
             "--actor-id", "urn:test:agent:batch", "--actor-type", "software",
         ]
@@ -1345,7 +1345,9 @@ final class CLICommandContractTests: XCTestCase {
             Set(items.compactMap { $0["id"] as? String }.map(MarginID.annotation))
         )
 
-        let replay = runCapturing(arguments)
+        var legacyArguments = arguments
+        legacyArguments[1] = "batch"
+        let replay = runCapturing(legacyArguments)
         XCTAssertEqual(replay.exit, CLIExit.success.rawValue)
         let replayResult = try XCTUnwrap(try jsonObject(replay.output)["result"] as? [String: Any])
         let replayTransaction = try XCTUnwrap(replayResult["transaction"] as? [String: Any])
@@ -1437,17 +1439,26 @@ final class CLICommandContractTests: XCTestCase {
     }
 
     func testSuggestionAndHandoffHelpExplainContentionSafety() throws {
+        let parent = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest"]))
+        XCTAssertTrue(parent.contains("Several exact assignments"))
+        XCTAssertTrue(parent.contains("urn:margin:suggestion-batch:v1"))
+        XCTAssertTrue(parent.contains("margin suggest add FILE --items-file -"))
+
         let add = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "add"]))
         XCTAssertTrue(add.contains("metadata races retry internally"))
         XCTAssertTrue(add.contains("source drift fails closed"))
         XCTAssertTrue(add.contains("matching success or already-applied is conclusive"))
         XCTAssertTrue(add.contains("--quote \"current text\" --expect \"current text\""))
         XCTAssertTrue(add.contains("EXACT-ASSIGNMENT FAST PATH"))
+        let batchUsage = try XCTUnwrap(add.range(of: "margin suggest add FILE --items-file"))
+        let singleUsage = try XCTUnwrap(add.range(of: "margin suggest add TARGET (--quote"))
+        XCTAssertLessThan(batchUsage.lowerBound, singleUsage.lowerBound)
+        XCTAssertTrue(add.contains("choose the first usage"))
+        XCTAssertTrue(add.contains("urn:margin:suggestion-batch:v1"))
+        XCTAssertTrue(add.contains("margin suggest add FILE --items-file -"))
+        XCTAssertTrue(add.contains("\"replacement\":\"proposed text\""))
         XCTAssertTrue(add.contains("add directly"))
         XCTAssertTrue(add.contains("validate the source atomically"))
-        XCTAssertTrue(add.contains("urn:margin:suggestion-batch:v1"))
-        XCTAssertTrue(add.contains("margin suggest batch FILE --items-file -"))
-        XCTAssertTrue(add.contains("\"replacement\":\"proposed text\""))
         XCTAssertTrue(add.contains("suggest list FILE once"))
         XCTAssertTrue(add.contains("once after the batch"))
         XCTAssertTrue(add.contains("Skip preliminary context, inspect, review, list, and read"))
