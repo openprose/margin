@@ -12,6 +12,7 @@ public enum CollaborationError: Error, LocalizedError, Sendable, Equatable {
     case invalidActivity(String)
     case invalidContribution(String)
     case invalidChangeSet(String)
+    case stageNotFound(String)
     case duplicateTarget(String)
     case preconditionFailed(path: String, reason: String)
     case lockTimeout(String)
@@ -33,6 +34,7 @@ public enum CollaborationError: Error, LocalizedError, Sendable, Equatable {
         case .invalidActivity: return "INVALID_COLLABORATION_ACTIVITY"
         case .invalidContribution: return "INVALID_COLLABORATION_CONTRIBUTION"
         case .invalidChangeSet: return "INVALID_COLLABORATION_CHANGE_SET"
+        case .stageNotFound: return "STAGE_NOT_FOUND"
         case .duplicateTarget: return "DUPLICATE_COLLABORATION_TARGET"
         case .preconditionFailed: return "COLLABORATION_PRECONDITION_FAILED"
         case .lockTimeout: return "COLLABORATION_LOCK_TIMEOUT"
@@ -67,6 +69,8 @@ public enum CollaborationError: Error, LocalizedError, Sendable, Equatable {
             return "The collaboration contribution is invalid: \(reason)"
         case .invalidChangeSet(let reason):
             return "The collaboration change set is invalid: \(reason)"
+        case .stageNotFound(let stageID):
+            return "No immutable stage with id '\(stageID)' exists in this collaboration root. Run 'margin stage list ROOT' to discover pending stages."
         case .duplicateTarget(let path):
             return "The change set addresses '\(path)' more than once."
         case .preconditionFailed(let path, let reason):

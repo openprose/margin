@@ -77,46 +77,21 @@ class MarginGatewayToolset(vf.Toolset[MarginGatewayConfig]):
     ) -> str:
         """Run one confined Margin CLI command.
 
-        Pass argv after `margin`, for example `["context", ".", "--json"]`.
-        A leading literal `"margin"` is also accepted, so copying a command from
-        help does not turn an otherwise valid action into a blocked command.
+        Pass argv after `margin`. A leading literal `"margin"` is also accepted,
+        so a command copied from help remains valid. Start with `["--help"]` or
+        `["man", "agents"]` when the candidate's interface is unfamiliar, then
+        follow that candidate's own focused help, returned guidance, and receipts.
         The collaborator identity is already bound. Absolute paths, parent traversal,
         GUI routes, identity overrides, oversized inputs, and non-Margin commands are
         rejected. Path fields in returned JSON use workspace-relative spelling whenever
         possible, so they can be passed back directly. The returned JSON always includes
         exitCode, stdout, stderr, and an errorCode when available. A nonzero expected
-        concurrency/CAS result is data:
-        inspect it and recover explicitly. For an existing thread, `context` or
-        `inbox` already supplies its reusable actionPath, rootID, body preview, status,
-        revision, and bounded workflowGuidance; follow the matching argv or argvTemplate
-        rather than deriving a source range or guessing a command. When the reply
-        is also authorized to close the concern, add `--resolve` so the reply and root
-        resolution succeed or fail together. Otherwise the root remains open and can
-        be resolved separately.
-        Never guess a multiword command. Choose exactly one initial directory read:
-        use `context . --json --max-files 16` when the brief asks for broad context,
-        or `inbox . --status open --max-contributions 64` when finding open work.
-        They overlap; calling both before acting wastes the agent budget.
-        Use a concrete topic such as `man staging` (topics: review, comments,
-        suggestions, staging, handoff, merge, safety), a concrete command such as
-        `stage --help`, or a small projection such as `capabilities --json --for
-        staging`. Never request the full `capabilities --json` catalog during a task:
-        it is intentionally comprehensive and can exhaust a small agent budget.
-        New typed work starts with `comments
-        add`; proposals use `suggest add|list|accept|reject`; transfers use `handoff
-        add|list`, and `--next-actor` names the recipient (`--actor-id` never does);
-        coherent cross-file work uses `stage create|show|refresh|submit`.
-        Read-only verification arguments differ from mutation arguments, so follow a
-        successful receipt's `nextActions` rather than carrying mutation flags forward.
-        When a workflow hint or next action contains `argv`, pass that complete array
-        back verbatim; `arguments` alone deliberately omits the command words.
-        A context hint with `executable: false` has no `argv`: it returns an
-        `argvTemplate` and `requiredReplacements`. Replace every listed placeholder
-        from the brief, source, or a receipt before calling the tool; never submit the
-        template itself.
+        concurrency result is data: inspect it and use the candidate's documented
+        recovery path. Never guess a multiword command or submit an unfilled template.
+        When output contains executable `argv`, pass that complete array back verbatim;
+        replace every declared placeholder in an `argvTemplate` before using it.
         JSON integer arguments are normalized to their CLI spelling, so bounded numeric
         options may be supplied as either `16` or `"16"`.
-        In context output, prefer the first workflowGuidance entry that matches the task.
         """
         if self.config.identity_binding_file is not None:
             binding = read_phase_identity(Path(self.config.identity_binding_file))

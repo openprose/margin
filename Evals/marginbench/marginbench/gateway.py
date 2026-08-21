@@ -62,8 +62,8 @@ VALUE_OPTIONS = frozenset({
     "--unresolved",
 })
 BOOLEAN_OPTIONS = frozenset({
-    "-h", "-v", "--apply", "--document", "--force", "--help", "--json",
-    "--jsonl", "--list", "--pretty", "--reopen", "--stdin", "--subtree",
+    "-h", "-v", "--apply", "--brief", "--document", "--force", "--help", "--json",
+    "--jsonl", "--list", "--pretty", "--reopen", "--stdin", "--submit", "--subtree",
     "--version", "--wait", "--with-comments",
 })
 PATH_VALUE_OPTIONS = frozenset({
@@ -250,7 +250,7 @@ def _option_names(arguments: list[str]) -> set[str]:
     return names
 
 
-def _error_code(stdout: str, stderr: str) -> str | None:
+def _error_code(stdout: str, stderr: str, *, exit_code: int | None = None) -> str | None:
     for value in (stderr, stdout):
         try:
             payload = json.loads(value)
@@ -263,6 +263,10 @@ def _error_code(stdout: str, stderr: str) -> str | None:
             return error["code"]
         if isinstance(payload.get("errorCode"), str):
             return payload["errorCode"]
+    if exit_code == 64:
+        # Human-readable local help/manual errors intentionally are not JSON,
+        # but sysexits EX_USAGE is still a stable, content-free classification.
+        return "USAGE"
     return None
 
 
@@ -285,13 +289,21 @@ def _is_boolean_option(option: str, arguments: list[str]) -> bool:
 
 def event_command_path(arguments: list[str]) -> str:
     path = command_path(arguments)
+    if path == "stage refresh" and "--submit" in _option_names(arguments):
+        # The documented shortcut performs the same atomic submission as a
+        # separate `stage submit` after deriving the immutable refreshed stage.
+        return "stage refresh --submit"
     if path == "comments reply" and "--resolve" in _option_names(arguments):
         return "comments reply --resolve"
     if path == "comments add" and "--parent" in _option_names(arguments):
         # `comments add --parent` is the documented reply shorthand. Telemetry
         # records semantic actions so equivalent public spellings receive the
         # same protocol credit without retaining argument values.
-        return "comments reply"
+        return (
+            "comments reply --resolve"
+            if "--resolve" in _option_names(arguments)
+            else "comments reply"
+        )
     return path
 
 
@@ -342,10 +354,7 @@ class MarginGateway:
         first = arguments[0]
         if first not in ALLOWED_COMMANDS and first not in {"-h", "--help", "--version"}:
             directory_hint = (
-                " Use 'context . --json --max-files 16' to inspect a directory or "
-                "'inbox . --status open --max-contributions 64' to find open work."
-                if first in {"ls", "find", "pwd", "tree"}
-                else " Run 'man agents' or focused command help to choose a Margin command."
+                " Run 'man agents' or focused command help to choose a Margin command."
             )
             return self._blocked(
                 "MARGINBENCH_COMMAND_BLOCKED",
@@ -408,7 +417,7 @@ class MarginGateway:
             truncated = len(completed.stdout) > len(stdout_bytes) or len(completed.stderr) > len(stderr_bytes)
             stdout = stdout_bytes.decode("utf-8", errors="replace")
             stderr = stderr_bytes.decode("utf-8", errors="replace")
-            code = _error_code(stdout, stderr)
+            code = _error_code(stdout, stderr, exit_code=completed.returncode)
             if truncated:
                 code = code or "MARGINBENCH_OUTPUT_LIMIT"
                 suffix = "\n[MarginBench output truncated]"

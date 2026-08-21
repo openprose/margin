@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:schema:concurrency-probe:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "version", "paidModelsInvoked", "passed", "fixture", "method", "arms", "comparison"],
+  "properties": {
+    "schema": {"const": "urn:marginbench:concurrency-probe:v1"},
+    "version": {"const": 1},
+    "paidModelsInvoked": {"const": false},
+    "passed": {"type": "boolean"},
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caseSetSha256", "caseCount", "firstRepetition"],
+      "properties": {
+        "caseSetSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "caseCount": {"type": "integer", "minimum": 4, "maximum": 1000},
+        "firstRepetition": {"const": 0}
+      }
+    },
+    "method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenario", "controlProfile", "repetitionsPerArm", "rolesPerEpisode",
+        "expectedAgentVisibleCallsPerEpisode", "pairedSimultaneousStart",
+        "counterbalancedSubmissionOrder", "baselineCollisionRequired",
+        "gatewayTimeoutSeconds"
+      ],
+      "properties": {
+        "scenario": {"const": "concurrent_review"},
+        "controlProfile": {"const": "role-separated-margin-only-v1"},
+        "repetitionsPerArm": {"type": "integer", "minimum": 4, "maximum": 1000},
+        "rolesPerEpisode": {"const": 2},
+        "expectedAgentVisibleCallsPerEpisode": {"const": 4},
+        "gatewayTimeoutSeconds": {"const": 30.0},
+        "pairedSimultaneousStart": {"const": true},
+        "counterbalancedSubmissionOrder": {"const": true},
+        "baselineCollisionRequired": {"const": false}
+      }
+    },
+    "arms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "candidate"],
+      "properties": {
+        "baseline": {"$ref": "#/$defs/arm"},
+        "candidate": {"$ref": "#/$defs/arm"}
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidateMinusBaselineVisibleConflicts", "candidateMinusBaselineCommandCount"],
+      "properties": {
+        "candidateMinusBaselineVisibleConflicts": {"type": "integer"},
+        "candidateMinusBaselineCommandCount": {"type": "integer"}
+      }
+    }
+  },
+  "$defs": {
+    "arm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binarySha256", "episodeCount", "minimumScore", "meanScore",
+        "safetyPassed", "sourcePreserved", "invalidCommandCount", "commandCount",
+        "commandCountHistogram", "visibleConflictCount", "visibleConflictEpisodeCount",
+        "durationMs"
+      ],
+      "properties": {
+        "binarySha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "episodeCount": {"type": "integer", "minimum": 4, "maximum": 1000},
+        "minimumScore": {"type": "number", "minimum": 0, "maximum": 100},
+        "meanScore": {"type": "number", "minimum": 0, "maximum": 100},
+        "safetyPassed": {"type": "boolean"},
+        "sourcePreserved": {"type": "boolean"},
+        "invalidCommandCount": {"type": "integer", "minimum": 0},
+        "commandCount": {"type": "integer", "minimum": 0},
+        "commandCountHistogram": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 32,
+          "propertyNames": {"pattern": "^[0-9]+$"},
+          "additionalProperties": {"type": "integer", "minimum": 1}
+        },
+        "visibleConflictCount": {"type": "integer", "minimum": 0},
+        "visibleConflictEpisodeCount": {"type": "integer", "minimum": 0},
+        "durationMs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["median", "p95"],
+          "properties": {
+            "median": {"type": "number", "exclusiveMinimum": 0},
+            "p95": {"type": "number", "exclusiveMinimum": 0}
+          }
+        }
+      }
+    }
+  }
+}

@@ -107,7 +107,12 @@ class CrossoverPilotTests(unittest.TestCase):
     def _value(command: list[str], name: str) -> str:
         return command[command.index(name) + 1]
 
-    def _fake_child(self, plan: dict):
+    def _fake_child(
+        self,
+        plan: dict,
+        *,
+        observed_wallet_debit: float = 0.0005,
+    ):
         def run(command: list[str], **_: object) -> subprocess.CompletedProcess:
             scenario = self._value(command, "--scenario")
             repetition = int(self._value(command, "--repetition-id"))
@@ -196,7 +201,7 @@ class CrossoverPilotTests(unittest.TestCase):
                 "reservedCostUpperBoundUSD": 0.0,
                 "settledRequestCount": 0,
             }
-            observed = 0.0005
+            observed = observed_wallet_debit
             role_runs = [
                 {"seat": seat, "stopCondition": "fake-reference", "usage": usage}
                 for seat in job["traceSeats"]
@@ -233,8 +238,10 @@ class CrossoverPilotTests(unittest.TestCase):
                 "exitCode": 0,
                 "wallet": {
                     "before": {"balanceUSD": 200.0, "totalBillings": 0},
-                    "after": {"balanceUSD": 199.9995, "totalBillings": 1},
+                    "after": {"balanceUSD": 200.0 - observed, "totalBillings": 1},
                     "observedDebitUSD": observed,
+                    "observationScope": "account-wide",
+                    "debitAttribution": "unattributed",
                 },
                 "estimatedMaximumCostUSD": job["liveProxyCapUSD"],
                 "contractMaximumCostUSD": job["contractMaximumCostUSD"],
@@ -309,6 +316,8 @@ class CrossoverPilotTests(unittest.TestCase):
                     "currency": "USD",
                     "traceReported": 0.0,
                     "observedWalletDebit": observed,
+                    "observedWalletDebitScope": "account-wide",
+                    "observedWalletDebitAttribution": "unattributed",
                     "unreconciled": observed,
                     "admissionBound": job["liveProxyCapUSD"],
                     "contractBound": job["contractMaximumCostUSD"],
@@ -591,6 +600,42 @@ class CrossoverPilotTests(unittest.TestCase):
             )
             self.assertEqual(replay["report"]["sha256"], completed["report"]["sha256"])
             self.assertEqual(len(calls), 4)
+
+    def test_crossover_ignores_unattributed_shared_wallet_spend_for_its_cap(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="marginbench-crossover-wallet-") as temporary:
+            root = Path(temporary)
+            plan, candidate_path, crossover_path = self._plan(root)
+            arguments = argparse.Namespace(
+                crossover_plan=crossover_path,
+                candidate_manifest=candidate_path,
+                candidate_bin=BINARY,
+                holdout_key_file=None,
+                work_dir=root / "work",
+                minimum_start_interval_seconds=0.0,
+                max_new_jobs=1000,
+            )
+            completed = execute_study(
+                arguments,
+                plan,
+                wallet_reader=lambda _: {"balanceUSD": 200.0, "totalBillings": 0},
+                child_runner=self._fake_child(
+                    plan,
+                    observed_wallet_debit=0.05,
+                ),
+                start_claimer=lambda *_, **__: None,
+                start_pacer=lambda *_: None,
+                prime_resolver=lambda _: "/opt/fake-prime",
+            )
+
+        self.assertEqual(completed["observedWalletDebitUSD"], 0.2)
+        self.assertEqual(completed["proxyAccountedCostUpperBoundUSD"], 0.0)
+        self.assertEqual(completed["walletObservationScope"], "account-wide")
+        self.assertEqual(completed["walletDebitAttribution"], "unattributed")
+        self.assertGreater(
+            completed["observedWalletDebitUSD"],
+            plan["budget"]["hardStudyCapUSD"],
+        )
+        self.assertTrue(validate_bytes(canonical_json(completed))["valid"])
 
     def test_inter_cell_pacer_waits_for_the_remaining_interval(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-crossover-pacer-") as temporary:

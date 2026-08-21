@@ -1,0 +1,98 @@
+{
+  "arms": {
+    "baseline": {
+      "binarySha256": "3a2847e929bb0a3fc2a141fed4a22dadacf0194ecbfe0054a158b510b026edba",
+      "durationMs": {
+        "median": 57.423,
+        "p95": 60.5
+      },
+      "responseDeterministic": true,
+      "responseShape": {
+        "fileCounts": [
+          16
+        ],
+        "omittedFileCountLowerBoundValues": [
+          false
+        ],
+        "omittedFileCounts": [
+          0
+        ],
+        "truncatedValues": [
+          true
+        ],
+        "workCounts": [
+          64
+        ],
+        "workflowGuidanceCounts": [
+          5
+        ]
+      },
+      "responseUsable": true,
+      "sampleCount": 20,
+      "sourcePreserved": true,
+      "stdoutBytes": {
+        "max": 52383,
+        "median": 52383,
+        "min": 52383
+      }
+    },
+    "candidate": {
+      "binarySha256": "2a6509168d53be247ee80dab9e311baafdb21d07f1689b5662759738c07c0d7e",
+      "durationMs": {
+        "median": 22.015,
+        "p95": 22.786
+      },
+      "responseDeterministic": true,
+      "responseShape": {
+        "fileCounts": [
+          4
+        ],
+        "omittedFileCountLowerBoundValues": [
+          true
+        ],
+        "omittedFileCounts": [
+          1
+        ],
+        "truncatedValues": [
+          true
+        ],
+        "workCounts": [
+          4
+        ],
+        "workflowGuidanceCounts": [
+          5
+        ]
+      },
+      "responseUsable": true,
+      "sampleCount": 20,
+      "sourcePreserved": true,
+      "stdoutBytes": {
+        "max": 7377,
+        "median": 7377,
+        "min": 7377
+      }
+    }
+  },
+  "comparison": {
+    "candidateMinusBaselineBytes": -45006,
+    "candidateToBaselineByteRatio": 0.140828,
+    "candidateToBaselineMedianDurationRatio": 0.383383
+  },
+  "fixture": {
+    "contributionsPerFile": 4,
+    "fileCount": 16,
+    "sha256": "491338047c8f2511438ca1f9ed829275dd949ad4228c63f3dc8c6d8f342142f9",
+    "totalContributionCount": 64
+  },
+  "method": {
+    "command": "context --json --brief",
+    "counterbalanced": true,
+    "roundCountPerArm": 20,
+    "timeoutSeconds": 30,
+    "warmupCountPerArm": 3
+  },
+  "paidModelsInvoked": false,
+  "passed": true,
+  "schema": "urn:marginbench:wide-directory-probe:v1",
+  "version": 1
+}

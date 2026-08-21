@@ -21,6 +21,14 @@ SCENARIO_IDS = (
     "distributed_synthesis",
 )
 
+# Candidate mechanisms graduate into the frozen public suite only after their
+# fixtures, reference path, and paid evidence are stable. Keeping them opt-in
+# preserves the historical nine-scenario default and its published scores.
+EXPERIMENTAL_SCENARIO_IDS = (
+    "wide_directory_triage",
+)
+AVAILABLE_SCENARIO_IDS = SCENARIO_IDS + EXPERIMENTAL_SCENARIO_IDS
+
 ADJECTIVES = (
     "amber",
     "bounded",
@@ -140,7 +148,7 @@ def _base_oracle(files: dict[str, str]) -> dict[str, Any]:
 
 
 def generate_episode(scenario_id: str, key: bytes, repetition: int) -> EpisodeDefinition:
-    if scenario_id not in SCENARIO_IDS:
+    if scenario_id not in AVAILABLE_SCENARIO_IDS:
         raise ValueError(f"Unknown MarginBench scenario: {scenario_id}")
     if repetition < 0:
         raise ValueError("Repetition cannot be negative.")
@@ -289,6 +297,10 @@ both collaborators' work can coexist.""",
             _annotation(second_id, "review.md", second_body, reviewer, kind="issue", root_id=second_id),
         ]
         oracle["minimumAnnotations"] = 2
+        # The ideal path is four calls (two adds and two verification reads),
+        # but a real collision adds one failed write plus the prescribed reread
+        # before retrying. That six-call recovery path is successful concurrent
+        # work, not inefficiency.
         oracle["efficientCommandTarget"] = 6
         oracle["requiredCommandGroups"] = [
             ["comments add"], ["comments list", "comments get", "context", "inbox"],
@@ -424,8 +436,10 @@ Verify the stage and leave it for the next collaborator.""",
 
 You receive no transcript. A prior agent left an immutable multi-file stage, and a human then
 made annotation-only drift. Inspect the stage, try the retained stage once so stale state is
-observed without a partial write, refresh it against current files as {refreshed_id}, submit the
-refreshed stage atomically, validate both Markdown documents, and leave the old stage immutable.""",
+observed without a partial write, refresh it against current files using the exact new stage id
+{refreshed_id}, submit the refreshed stage atomically, validate both Markdown documents, and leave
+the old stage immutable. If the installed contract supports `stage refresh --submit`, use it to
+perform the refresh and atomic submit in one retry.""",
             ),
         ])
         events.append(HarnessEvent(0, "after", "comment_add", {
@@ -452,7 +466,8 @@ refreshed stage atomically, validate both Markdown documents, and leave the old 
         oracle["maxCommands"] = 28
         oracle["requiredCommandGroups"] = [
             ["workspace init"], ["stage create"], ["stage show"],
-            ["stage submit"], ["stage refresh"], ["comments validate", "context"],
+            ["stage submit", "stage refresh --submit"], ["stage refresh"],
+            ["comments validate", "context"],
         ]
         oracle["requiredErrorCodes"] = ["COLLABORATION_PRECONDITION_FAILED"]
         oracle["allOrNoneAnnotationIDs"] = [issue_ids[path] for path in sorted(files)]
@@ -462,6 +477,115 @@ refreshed stage atomically, validate both Markdown documents, and leave the old 
             "refreshedStageID": refreshed_id,
             "requestID": request_id,
             "plan": plan,
+        }
+
+    elif scenario_id == "wide_directory_triage":
+        relevant_file_index = 14
+        relevant_contribution_index = 3
+        relevant_path = f"documents/note-{relevant_file_index:02d}.md"
+        files = {
+            f"documents/note-{index:02d}.md": _document(
+                random,
+                _phrase(random),
+                second=_phrase(random),
+            )
+            for index in range(1, 17)
+        }
+        root_ids: dict[tuple[int, int], str] = {}
+        root_bodies: dict[tuple[int, int], str] = {}
+        for file_index in range(1, 17):
+            for contribution_index in range(1, 5):
+                key = (file_index, contribution_index)
+                root_ids[key] = random.uuid()
+                label = (
+                    "Human wide-directory question"
+                    if key == (relevant_file_index, relevant_contribution_index)
+                    else "Distractor review item"
+                )
+                root_bodies[key] = _message(random, label)
+                events.append(HarnessEvent(0, "before", "comment_add", {
+                    "path": f"documents/note-{file_index:02d}.md",
+                    "body": root_bodies[key],
+                    "id": root_ids[key],
+                    "kind": "question" if key == (
+                        relevant_file_index,
+                        relevant_contribution_index,
+                    ) else "comment",
+                    "actor": human.__dict__,
+                }))
+        relevant_id = root_ids[(relevant_file_index, relevant_contribution_index)]
+        reply_id = random.uuid()
+        reply_body = _message(random, "Wide-directory answer")
+        roles.append(RoleTask(
+            seat="reviewer",
+            actor=reviewer,
+            phase=0,
+            workflow="wide-directory-triage",
+            prompt=f"""{SYSTEM_RULES}
+
+Start with bounded brief context rooted at `.`. The workspace contains many Markdown documents
+and the compact view is expected to be truncated. Do not guess a path and do not raise discovery
+limits. Use a filtered directory inbox for the only open `question`, reply to that root with
+exactly this Markdown body:
+{reply_body}
+Use mutation id {reply_id}. Resolve the question using the revision you actually observed, then
+verify the complete thread and validate the discovered document.""",
+        ))
+        oracle = _base_oracle(files)
+        oracle["annotations"] = [
+            _annotation(
+                root_ids[(file_index, contribution_index)],
+                f"documents/note-{file_index:02d}.md",
+                root_bodies[(file_index, contribution_index)],
+                human,
+                kind=(
+                    "question"
+                    if (file_index, contribution_index) == (
+                        relevant_file_index,
+                        relevant_contribution_index,
+                    )
+                    else "comment"
+                ),
+                status=(
+                    "resolved"
+                    if (file_index, contribution_index) == (
+                        relevant_file_index,
+                        relevant_contribution_index,
+                    )
+                    else "open"
+                ),
+                root_id=root_ids[(file_index, contribution_index)],
+            )
+            for file_index in range(1, 17)
+            for contribution_index in range(1, 5)
+        ] + [
+            _annotation(
+                reply_id,
+                relevant_path,
+                reply_body,
+                reviewer,
+                status="resolved",
+                parent_id=relevant_id,
+                root_id=relevant_id,
+            )
+        ]
+        oracle["minimumAnnotations"] = 65
+        oracle["efficientCommandTarget"] = 6
+        oracle["maxCommands"] = 16
+        oracle["requiredCommandGroups"] = [
+            ["context"],
+            ["inbox"],
+            ["comments reply"],
+            ["comments resolve", "comments reply --resolve"],
+            ["comments list"],
+            ["comments validate"],
+        ]
+        oracle["contextThenInboxIsExpected"] = True
+        oracle["reference"] = {
+            "path": relevant_path,
+            "rootID": relevant_id,
+            "replyID": reply_id,
+            "replyBody": reply_body,
         }
 
     elif scenario_id == "directory_handoff":

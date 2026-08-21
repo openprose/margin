@@ -4,6 +4,7 @@ set -euo pipefail
 PROJECT_DIR="${0:A:h:h}"
 SWIFT_IMAGE="${MARGIN_LINUX_SWIFT_IMAGE:-swift:5.10-jammy}"
 TEST_TIMEOUT="${MARGIN_LINUX_TEST_TIMEOUT:-45}"
+XCTEST_TIMEOUT_RETRIES="${MARGIN_LINUX_XCTEST_TIMEOUT_RETRIES:-2}"
 BUILD_VOLUME="margin-linux-tests-${$}-${RANDOM}"
 
 case "$(uname -m)" in
@@ -34,6 +35,16 @@ docker volume create "$BUILD_VOLUME" >/dev/null
 
 run_linux() {
     docker run --platform "$LINUX_PLATFORM" --rm \
+        -v "$PROJECT_DIR:/workspace:ro" \
+        -v "$BUILD_VOLUME:/build" \
+        -w /workspace \
+        "$SWIFT_IMAGE" "$@"
+}
+
+run_linux_tests() {
+    docker run --platform "$LINUX_PLATFORM" --rm \
+        --cap-add SYS_PTRACE \
+        --network none \
         -v "$PROJECT_DIR:/workspace:ro" \
         -v "$BUILD_VOLUME:/build" \
         -w /workspace \
@@ -77,31 +88,53 @@ for suite in "${SUITES[@]}"; do
     QUALIFIED_SUITES+=("$test_module.$suite")
 done
 
-# Reuse one container but launch a new XCTest process for each test. Swift 5.10
-# corelibs XCTest wraps even synchronous discovered tests in an async task. On
-# Linux that runner can intermittently stop scheduling the next test in a
-# multi-test process, while the selected test itself has already returned and
-# no file descriptor or lock remains open. Selecting one test per process keeps
-# the product gate deterministic without repeating SwiftPM planning or hiding a
-# test timeout. Repeated Docker Desktop container creation is also avoided.
-run_linux sh -c '
+# Swift 5.10 corelibs XCTest wraps even synchronous discovered tests in an
+# async teardown task. Its open Linux deadlock can leave that task waiting in
+# ppoll before XCTest emits the pass line (swift-corelibs-xctest #504). Run one
+# selected test per process. On timeout, the diagnostic runner freezes the
+# process and retries only when LLDB proves the exact framework-only teardown
+# stack. Product stacks, assertion failures, crashes, ordinary timeouts, and
+# debugger failures remain fatal. SYS_PTRACE is confined to this disposable,
+# networkless container and cannot observe host processes.
+run_linux_tests sh -c '
     set -eu
     per_test_timeout=$1
-    shift
+    timeout_retries=$2
+    shift 2
     test_binary=$(find /build -type f -name MarginPackageTests.xctest -print -quit)
     test -n "$test_binary"
     listed_tests=$("$test_binary" --list-tests)
     executed=0
+    recovered_timeouts=0
     for qualified_suite do
         echo "Linux suite: ${qualified_suite##*.}"
         matching_tests=$(printf "%s\n" "$listed_tests" | grep -F "$qualified_suite/")
         test -n "$matching_tests"
         for qualified_test in $matching_tests; do
-            timeout "${per_test_timeout}s" "$test_binary" "$qualified_test"
+            attempt_log=$(mktemp)
+            set +e
+            python3 /workspace/Scripts/run-linux-xctest.py \
+                --test-binary "$test_binary" \
+                --selector "$qualified_test" \
+                --timeout "$per_test_timeout" \
+                --framework-retries "$timeout_retries" \
+                >"$attempt_log" 2>&1
+            status=$?
+            set -e
+            cat "$attempt_log"
+            recovered=$(grep -F "MARGIN_XCTEST_FRAMEWORK_TEARDOWN_DEADLOCK_RECOVERED=" "$attempt_log" | tail -1 | cut -d= -f2 || true)
+            recovered=${recovered:-0}
+            if test "$recovered" -gt 0; then
+                recovered_timeouts=$((recovered_timeouts + recovered))
+            fi
+            /bin/unlink "$attempt_log"
+            if test "$status" -ne 0; then
+                exit "$status"
+            fi
             executed=$((executed + 1))
         done
     done
-    echo "Linux XCTest processes passed: $executed"
-' sh "$TEST_TIMEOUT" "${QUALIFIED_SUITES[@]}"
+    echo "Linux XCTest processes passed: $executed (recovered teardown timeouts: $recovered_timeouts)"
+' sh "$TEST_TIMEOUT" "$XCTEST_TIMEOUT_RETRIES" "${QUALIFIED_SUITES[@]}"
 
-print "Linux gate passed: ${#SUITES[@]} isolated suites (112 tests)."
+print "Linux gate passed: ${#SUITES[@]} isolated suites."

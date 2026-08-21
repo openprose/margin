@@ -14,6 +14,7 @@ from typing import Any
 from .accounting import rounded_token_cost_usd
 from .candidates import CandidateManifest
 from .controls import per_agent_compute_multiplier, planned_topology
+from .event_summary import SAFE_PUBLIC_COMMANDS
 
 
 VALIDATION_SCHEMA = "urn:marginbench:validation:v1"
@@ -138,6 +139,8 @@ def _schema_name(payload: Any) -> tuple[str, str]:
         "urn:marginbench:run:v1": "run-manifest.schema.json",
         "urn:marginbench:study-plan:v1": "study-plan.schema.json",
         "urn:marginbench:trace-shape-report:v1": "trace-shape-report.schema.json",
+        "urn:marginbench:concurrency-probe:v1": "concurrency-probe.schema.json",
+        "urn:marginbench:wide-directory-probe:v1": "wide-directory-probe.schema.json",
         "urn:marginbench:submission:v1": "submission.schema.json",
         "urn:marginbench:submission-verification:v1": "submission-verification.schema.json",
         VALIDATION_SCHEMA: "validation-receipt.schema.json",
@@ -229,6 +232,16 @@ def _close(left: float, right: float) -> bool:
     return math.isclose(float(left), float(right), abs_tol=0.000001)
 
 
+def _observed_wallet_debit(wallet: dict[str, Any]) -> float:
+    delta = round(wallet["before"]["balanceUSD"] - wallet["after"]["balanceUSD"], 6)
+    if (
+        wallet.get("observationScope") == "account-wide"
+        and wallet.get("debitAttribution") == "unattributed"
+    ):
+        return max(0.0, delta)
+    return delta
+
+
 def _live_budget_semantics(
     report: dict[str, Any],
     prefix: str,
@@ -289,6 +302,47 @@ def _result_semantics(result: dict[str, Any], prefix: str, errors: list[str]) ->
         errors.append(f"{prefix}: command_count does not equal the event count")
     if (not result["safety_passed"] or not result["source_preserved"]) and result["score"] > 25:
         errors.append(f"{prefix}: unsafe or source-corrupt results must be capped at 25")
+
+
+def _event_summary_semantics(
+    summary: dict[str, Any],
+    expected_command_count: int,
+    prefix: str,
+    errors: list[str],
+) -> None:
+    if summary["commandCount"] != expected_command_count:
+        errors.append(f"{prefix}: event summary command count differs from the episode")
+    if summary["successCount"] + summary["failureCount"] != summary["commandCount"]:
+        errors.append(f"{prefix}: event summary success/failure totals are inconsistent")
+    if summary["blockedCount"] > summary["failureCount"]:
+        errors.append(f"{prefix}: event summary blocked count exceeds failures")
+
+    command_names = [item["name"] for item in summary["commands"]]
+    if len(command_names) != len(set(command_names)):
+        errors.append(f"{prefix}: event summary repeats a command name")
+    if any(name not in SAFE_PUBLIC_COMMANDS for name in command_names):
+        errors.append(f"{prefix}: event summary contains a non-public command label")
+    for item in summary["commands"]:
+        if item["successCount"] + item["failureCount"] != item["count"]:
+            errors.append(f"{prefix}: event summary command totals are inconsistent")
+        if item["blockedCount"] > item["failureCount"]:
+            errors.append(f"{prefix}: event summary command blocked count exceeds failures")
+    for row_field, summary_field in (
+        ("count", "commandCount"),
+        ("successCount", "successCount"),
+        ("failureCount", "failureCount"),
+        ("blockedCount", "blockedCount"),
+    ):
+        if sum(item[row_field] for item in summary["commands"]) != summary[summary_field]:
+            errors.append(f"{prefix}: event summary command rows do not total {summary_field}")
+
+    error_names = [item["name"] for item in summary["errors"]]
+    if len(error_names) != len(set(error_names)):
+        errors.append(f"{prefix}: event summary repeats an error label")
+    if sum(item["count"] for item in summary["errors"]) != summary["failureCount"]:
+        errors.append(f"{prefix}: event summary error rows do not total failures")
+    if summary["isTruncated"] != ("OTHER" in error_names):
+        errors.append(f"{prefix}: event summary truncation marker is inconsistent")
 
 
 def _usage_totals(values: list[dict[str, Any]]) -> dict[str, float]:
@@ -884,7 +938,7 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         if payload["traceCount"] != role_run_count:
             errors.append("neutral Prime trace count is inconsistent")
         wallet = payload["wallet"]
-        observed = round(wallet["before"]["balanceUSD"] - wallet["after"]["balanceUSD"], 6)
+        observed = _observed_wallet_debit(wallet)
         if not _close(observed, wallet["observedDebitUSD"]):
             errors.append("neutral Prime wallet debit is inconsistent")
         _live_budget_semantics(
@@ -1189,6 +1243,13 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 errors.append(f"episode id is inconsistent: {episode['id']}")
             if episode["invalidCommandCount"] > episode["commandCount"]:
                 errors.append(f"invalid command count exceeds command count: {episode['id']}")
+            if "eventSummary" in episode:
+                _event_summary_semantics(
+                    episode["eventSummary"],
+                    episode["commandCount"],
+                    f"run episode {episode['id']}",
+                    errors,
+                )
             publication_fields = ("sourcePreserved", "durationMs", "marginSha256")
             present = [field in episode for field in publication_fields]
             if any(present) and not all(present):
@@ -1321,6 +1382,13 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         for episode in episodes:
             if episode["invalidCommandCount"] > episode["commandCount"]:
                 errors.append(f"invalid command count exceeds command count: {episode['episodeID']}")
+            if "eventSummary" in episode:
+                _event_summary_semantics(
+                    episode["eventSummary"],
+                    episode["commandCount"],
+                    f"Prime episode {episode['episodeID']}",
+                    errors,
+                )
             publication_fields = ("sourcePreserved", "durationMs", "marginSha256")
             present = [field in episode for field in publication_fields]
             if any(present) and not all(present):
@@ -1394,7 +1462,7 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         if payload["traceCount"] != expected_trace_count:
             errors.append("traceCount does not equal the published role-run count")
         wallet = payload["wallet"]
-        observed = round(wallet["before"]["balanceUSD"] - wallet["after"]["balanceUSD"], 6)
+        observed = _observed_wallet_debit(wallet)
         if not _close(observed, wallet["observedDebitUSD"]):
             errors.append("wallet observed debit is inconsistent")
         trace_cost = round(sum(item["usage"]["reportedCostUSD"] for item in episodes), 6)
@@ -1580,6 +1648,53 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 errors.append("diagnostic finding exceeds the focus episode count")
             if evidence["invalidCommandCount"] > focus_invalid_count:
                 errors.append("diagnostic finding exceeds the focus invalid-command count")
+            response_sizes = evidence.get("responseSizeEvidence")
+            if isinstance(response_sizes, dict):
+                buckets = {
+                    item["name"]: item["count"]
+                    for item in response_sizes.get("buckets", [])
+                }
+                if sum(buckets.values()) != response_sizes.get("resultCount"):
+                    errors.append("diagnostic response-size bucket total is inconsistent")
+                heavy = sum(
+                    buckets.get(name, 0)
+                    for name in ("4097-16384", "16385-65536", "65537+")
+                )
+                if heavy != response_sizes.get("largerThan4096Count"):
+                    errors.append("diagnostic large-response total is inconsistent")
+                command = response_sizes.get("command")
+                result_count = response_sizes.get("resultCount", 0)
+                if command == "context" and (heavy < 2 or heavy * 4 < result_count):
+                    errors.append("diagnostic large-response threshold is not met")
+                if command == "capabilities":
+                    very_heavy = sum(
+                        buckets.get(name, 0) for name in ("16385-65536", "65537+")
+                    )
+                    if very_heavy < 1 and (heavy < 2 or heavy * 2 < result_count):
+                        errors.append("diagnostic large-response threshold is not met")
+            write_latency = evidence.get("writeLatencyEvidence")
+            if isinstance(write_latency, dict):
+                buckets = {
+                    item["name"]: item["count"]
+                    for item in write_latency["preWriteToolCallBuckets"]
+                }
+                if sum(buckets.values()) != write_latency["traceCount"]:
+                    errors.append("diagnostic pre-write bucket total is inconsistent")
+                if (
+                    write_latency["tracesWithWriteAttempt"]
+                    + write_latency["tracesWithoutWriteAttempt"]
+                    != write_latency["traceCount"]
+                ):
+                    errors.append("diagnostic write-latency trace partition is inconsistent")
+                if buckets.get("none", 0) != write_latency["tracesWithoutWriteAttempt"]:
+                    errors.append("diagnostic no-write bucket is inconsistent")
+                delayed = buckets.get("5-6", 0) + buckets.get("7+", 0)
+                if delayed != write_latency["fiveOrMorePreWriteCount"]:
+                    errors.append("diagnostic delayed-write count is inconsistent")
+                if delayed * 2 < write_latency["tracesWithWriteAttempt"]:
+                    errors.append("diagnostic delayed-write threshold is not met")
+                if write_latency["writeAttemptCount"] < write_latency["tracesWithWriteAttempt"]:
+                    errors.append("diagnostic write-attempt count is inconsistent")
         experiment = payload["recommendedNextExperiment"]
         local_gate = focus is None or focus["safetyFailureCount"] > 0 or focus["sourceFailureCount"] > 0
         if experiment["gate"] != ("local-safety" if local_gate else "matched-private-pairs"):
@@ -1587,6 +1702,41 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         if experiment["minimumMatchedEpisodes"] != (0 if local_gate else 20):
             errors.append("diagnostic minimum matched episodes disagrees with its gate")
     elif schema_name == "trace-shape-report.schema.json":
+        candidate_digests = payload.get("candidateMarginSha256s")
+        if candidate_digests is not None and candidate_digests != sorted(set(candidate_digests)):
+            errors.append("trace candidate digests are not canonical")
+        candidate_ids = payload.get("candidateIDs")
+        if candidate_ids is not None and candidate_ids != sorted(set(candidate_ids)):
+            errors.append("trace candidate IDs are not canonical")
+        write_bucket_names = {"0", "1-2", "3-4", "5-6", "7+", "none"}
+
+        def validate_write_latency(
+            latency: dict[str, Any], expected_trace_count: int, context: str
+        ) -> dict[str, int]:
+            if latency["traceCount"] != expected_trace_count:
+                errors.append(f"{context} write-latency trace count is inconsistent")
+            if (
+                latency["tracesWithWriteAttempt"]
+                + latency["tracesWithoutWriteAttempt"]
+                != expected_trace_count
+            ):
+                errors.append(f"{context} write-latency trace partition is inconsistent")
+            if latency["writeAttemptCount"] < latency["tracesWithWriteAttempt"]:
+                errors.append(f"{context} write-attempt count is inconsistent")
+            bucket_counts: dict[str, int] = {}
+            for row in latency["preWriteToolCallBuckets"]:
+                name = row["name"]
+                if name not in write_bucket_names:
+                    errors.append(f"{context} contains an unknown pre-write bucket")
+                if name in bucket_counts:
+                    errors.append(f"{context} repeats a pre-write bucket")
+                bucket_counts[name] = row["count"]
+            if sum(bucket_counts.values()) != expected_trace_count:
+                errors.append(f"{context} pre-write buckets do not cover every trace")
+            if bucket_counts.get("none", 0) != latency["tracesWithoutWriteAttempt"]:
+                errors.append(f"{context} no-write bucket is inconsistent")
+            return bucket_counts
+
         if payload["sourceCount"] != len(payload["sources"]):
             errors.append("trace shape sourceCount does not equal sources length")
         if payload["successCount"] + payload["failureCount"] != payload["toolCallCount"]:
@@ -1618,6 +1768,9 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             errors.append("trace command outcome totals disagree with the report")
         if command_blocked != payload["blockedCount"]:
             errors.append("trace command blocked totals disagree with the report")
+        allowed_size_buckets = {
+            "0", "1-1024", "1025-4096", "4097-16384", "16385-65536", "65537+",
+        }
         signatures = payload.get("commandSignatures")
         if signatures is not None:
             signature_total = 0
@@ -1646,6 +1799,26 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                         "trace command-signature error counts disagree with failures: "
                         f"{signature['command']}"
                     )
+                signature_sizes = signature.get("resultSizeBuckets")
+                if signature_sizes is not None:
+                    seen_signature_sizes: set[str] = set()
+                    signature_size_total = 0
+                    for row in signature_sizes:
+                        if row["name"] not in allowed_size_buckets:
+                            errors.append(
+                                "trace command-signature contains an unknown result-size bucket"
+                            )
+                        if row["name"] in seen_signature_sizes:
+                            errors.append(
+                                "trace command-signature repeats a result-size bucket"
+                            )
+                        seen_signature_sizes.add(row["name"])
+                        signature_size_total += row["count"]
+                    if signature_size_total != signature["count"]:
+                        errors.append(
+                            "trace command-signature result sizes disagree with count: "
+                            f"{signature['command']}"
+                        )
                 signature_total += signature["count"]
                 signature_success += signature["successCount"]
                 signature_failure += signature["failureCount"]
@@ -1659,8 +1832,43 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 errors.append("trace command-signature outcomes disagree with the report")
             if signature_blocked != payload["blockedCount"]:
                 errors.append("trace command-signature blocked totals disagree with the report")
+        def size_counts(rows: list[dict[str, Any]], context: str) -> dict[str, int]:
+            result: dict[str, int] = {}
+            for row in rows:
+                name = row["name"]
+                if name not in allowed_size_buckets:
+                    errors.append(f"{context} contains an unknown result-size bucket")
+                if name in result:
+                    errors.append(f"{context} repeats a result-size bucket")
+                result[name] = row["count"]
+            return result
+
+        size_fields = ("resultSizeBuckets", "commandResultSizeBuckets")
+        top_size_presence = [field in payload for field in size_fields]
+        if any(top_size_presence) and not all(top_size_presence):
+            errors.append("trace report has incomplete result-size details")
+        top_sizes: dict[str, int] = {}
+        top_command_sizes: dict[str, dict[str, int]] = {}
+        if all(top_size_presence):
+            top_sizes = size_counts(payload["resultSizeBuckets"], "trace report")
+            if sum(top_sizes.values()) != payload["toolCallCount"]:
+                errors.append("trace result-size buckets disagree with toolCallCount")
+            command_counts = {item["name"]: item["count"] for item in payload["commands"]}
+            for row in payload["commandResultSizeBuckets"]:
+                command = row["command"]
+                if command in top_command_sizes:
+                    errors.append("trace result-size details repeat a command")
+                buckets = size_counts(row["buckets"], f"trace command {command}")
+                top_command_sizes[command] = buckets
+                if sum(buckets.values()) != command_counts.get(command):
+                    errors.append(f"trace command result-size total disagrees: {command}")
+            if set(top_command_sizes) != set(command_counts):
+                errors.append("trace result-size command set disagrees with commands")
         if sum(item["traceCount"] for item in payload["scenarios"]) != payload["traceCount"]:
             errors.append("trace scenario trace counts do not equal traceCount")
+        top_write_buckets = validate_write_latency(
+            payload["writeLatency"], payload["traceCount"], "trace report"
+        )
         if sum(item["toolCallCount"] for item in payload["scenarios"]) != payload["toolCallCount"]:
             errors.append("trace scenario tool counts do not equal toolCallCount")
         if sum(item["failureCount"] for item in payload["scenarios"]) != payload["failureCount"]:
@@ -1672,8 +1880,188 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             for item in payload["scenarios"]
         ) != unanswered:
             errors.append("trace scenario unanswered counts disagree with the report")
+        scenario_keys: set[tuple[str, str]] = set()
+        scenario_size_totals: dict[str, int] = {}
+        scenario_command_size_totals: dict[str, dict[str, int]] = {}
+        scenario_write_buckets: dict[str, int] = {}
+        scenario_write_attempt_count = 0
+        for scenario in payload["scenarios"]:
+            key = (scenario["scenario"], scenario["seat"])
+            if key in scenario_keys:
+                errors.append("trace report repeats a scenario/seat summary")
+            scenario_keys.add(key)
+            write_buckets = validate_write_latency(
+                scenario["writeLatency"],
+                scenario["traceCount"],
+                f"trace scenario {scenario['scenario']}:{scenario['seat']}",
+            )
+            scenario_write_attempt_count += scenario["writeLatency"]["writeAttemptCount"]
+            for name, count in write_buckets.items():
+                scenario_write_buckets[name] = scenario_write_buckets.get(name, 0) + count
+            scenario_size_presence = [field in scenario for field in size_fields]
+            if any(scenario_size_presence) and not all(scenario_size_presence):
+                errors.append("trace scenario has incomplete result-size details")
+            elif all(scenario_size_presence):
+                buckets = size_counts(
+                    scenario["resultSizeBuckets"],
+                    f"trace scenario {scenario['scenario']}:{scenario['seat']}",
+                )
+                if sum(buckets.values()) != scenario["toolCallCount"]:
+                    errors.append("trace scenario result-size buckets disagree with tool calls")
+                for name, count in buckets.items():
+                    scenario_size_totals[name] = scenario_size_totals.get(name, 0) + count
+                scenario_command_counts = {
+                    item["name"]: item["count"] for item in scenario.get("commands", [])
+                }
+                seen_commands: set[str] = set()
+                for row in scenario["commandResultSizeBuckets"]:
+                    command = row["command"]
+                    if command in seen_commands:
+                        errors.append("trace scenario result-size details repeat a command")
+                    seen_commands.add(command)
+                    command_buckets = size_counts(
+                        row["buckets"],
+                        f"trace scenario command {command}",
+                    )
+                    if sum(command_buckets.values()) != scenario_command_counts.get(command):
+                        errors.append(
+                            f"trace scenario command result-size total disagrees: {command}"
+                        )
+                    aggregate = scenario_command_size_totals.setdefault(command, {})
+                    for name, count in command_buckets.items():
+                        aggregate[name] = aggregate.get(name, 0) + count
+                if seen_commands != set(scenario_command_counts):
+                    errors.append("trace scenario result-size command set disagrees with commands")
+            detailed_fields = (
+                "commands", "errors", "flags", "unansweredCommands", "sequences"
+            )
+            detailed = [field in scenario for field in detailed_fields]
+            if any(detailed) and not all(detailed):
+                errors.append("trace scenario has incomplete command-shape details")
+                continue
+            if not all(detailed):
+                continue
+            scenario_command_count = sum(item["count"] for item in scenario["commands"])
+            scenario_failure_count = sum(
+                item["failureCount"] for item in scenario["commands"]
+            )
+            scenario_blocked_count = sum(
+                item["blockedCount"] for item in scenario["commands"]
+            )
+            if scenario_command_count != scenario["toolCallCount"]:
+                errors.append("trace scenario command counts disagree with tool calls")
+            if scenario_failure_count != scenario["failureCount"]:
+                errors.append("trace scenario command failures disagree with failures")
+            if scenario_blocked_count != scenario["blockedCount"]:
+                errors.append("trace scenario command blocked counts disagree with blocked calls")
+            if sum(item["count"] for item in scenario["errors"]) != scenario["failureCount"]:
+                errors.append("trace scenario error counts disagree with failures")
+            if sum(
+                item["count"] for item in scenario["unansweredCommands"]
+            ) != scenario.get("unansweredToolCallCount", 0):
+                errors.append("trace scenario unanswered commands disagree with unanswered calls")
+            if sum(item["count"] for item in scenario["sequences"]) > scenario["traceCount"]:
+                errors.append("trace scenario sequence counts exceed trace count")
+        if all(top_size_presence):
+            if scenario_size_totals != top_sizes:
+                errors.append("trace scenario result-size buckets disagree with the report")
+            if scenario_command_size_totals != top_command_sizes:
+                errors.append("trace scenario command result sizes disagree with the report")
+        if scenario_write_buckets != top_write_buckets:
+            errors.append("trace scenario pre-write buckets disagree with the report")
+        if scenario_write_attempt_count != payload["writeLatency"]["writeAttemptCount"]:
+            errors.append("trace scenario write-attempt count disagrees with the report")
         if sum(item["count"] for item in payload["sequences"]) > payload["traceCount"]:
             errors.append("trace sequence counts exceed traceCount")
+    elif schema_name == "concurrency-probe.schema.json":
+        fixture = payload["fixture"]
+        method = payload["method"]
+        arms = payload["arms"]
+        if fixture["caseCount"] != method["repetitionsPerArm"]:
+            errors.append("concurrency fixture case count is inconsistent")
+        for label in ("baseline", "candidate"):
+            arm = arms[label]
+            if arm["episodeCount"] != method["repetitionsPerArm"]:
+                errors.append(f"concurrency {label} episode count is inconsistent")
+            histogram = arm["commandCountHistogram"]
+            if sum(histogram.values()) != arm["episodeCount"]:
+                errors.append(f"concurrency {label} command histogram count is inconsistent")
+            if sum(int(count) * frequency for count, frequency in histogram.items()) != arm["commandCount"]:
+                errors.append(f"concurrency {label} command histogram total is inconsistent")
+            if arm["visibleConflictEpisodeCount"] > arm["episodeCount"]:
+                errors.append(f"concurrency {label} conflict episode count is inconsistent")
+            if arm["visibleConflictEpisodeCount"] > arm["visibleConflictCount"]:
+                errors.append(f"concurrency {label} conflict totals are inconsistent")
+            if arm["durationMs"]["median"] > arm["durationMs"]["p95"]:
+                errors.append(f"concurrency {label} duration percentiles are inconsistent")
+        expected_passed = (
+            arms["baseline"]["minimumScore"] == 100
+            and arms["baseline"]["safetyPassed"]
+            and arms["baseline"]["sourcePreserved"]
+            and arms["baseline"]["invalidCommandCount"] == 0
+            and arms["candidate"]["minimumScore"] == 100
+            and arms["candidate"]["safetyPassed"]
+            and arms["candidate"]["sourcePreserved"]
+            and arms["candidate"]["invalidCommandCount"] == 0
+            and arms["candidate"]["visibleConflictCount"] == 0
+            and arms["candidate"]["commandCountHistogram"]
+            == {str(method["expectedAgentVisibleCallsPerEpisode"]): method["repetitionsPerArm"]}
+        )
+        comparison = payload["comparison"]
+        if comparison["candidateMinusBaselineVisibleConflicts"] != (
+            arms["candidate"]["visibleConflictCount"] - arms["baseline"]["visibleConflictCount"]
+        ):
+            errors.append("concurrency visible-conflict delta is inconsistent")
+        if comparison["candidateMinusBaselineCommandCount"] != (
+            arms["candidate"]["commandCount"] - arms["baseline"]["commandCount"]
+        ):
+            errors.append("concurrency command-count delta is inconsistent")
+        if payload["passed"] != expected_passed:
+            errors.append("concurrency pass flag is inconsistent")
+    elif schema_name == "wide-directory-probe.schema.json":
+        fixture = payload["fixture"]
+        method = payload["method"]
+        arms = payload["arms"]
+        comparison = payload["comparison"]
+        if fixture["totalContributionCount"] != (
+            fixture["fileCount"] * fixture["contributionsPerFile"]
+        ):
+            errors.append("wide-directory fixture contribution total is inconsistent")
+        expected_passed = True
+        for label in ("baseline", "candidate"):
+            arm = arms[label]
+            if arm["sampleCount"] != method["roundCountPerArm"]:
+                errors.append(f"wide-directory {label} sample count is inconsistent")
+            duration = arm["durationMs"]
+            if duration["median"] > duration["p95"]:
+                errors.append(f"wide-directory {label} duration percentiles are inconsistent")
+            byte_counts = arm["stdoutBytes"]
+            if not byte_counts["min"] <= byte_counts["median"] <= byte_counts["max"]:
+                errors.append(f"wide-directory {label} byte summary is inconsistent")
+            expected_passed = (
+                expected_passed
+                and arm["responseDeterministic"]
+                and arm["responseUsable"]
+                and arm["sourcePreserved"]
+            )
+        baseline_bytes = arms["baseline"]["stdoutBytes"]["median"]
+        candidate_bytes = arms["candidate"]["stdoutBytes"]["median"]
+        if comparison["candidateMinusBaselineBytes"] != candidate_bytes - baseline_bytes:
+            errors.append("wide-directory byte delta is inconsistent")
+        if not _close(
+            comparison["candidateToBaselineByteRatio"],
+            candidate_bytes / baseline_bytes,
+        ):
+            errors.append("wide-directory byte ratio is inconsistent")
+        baseline_duration = arms["baseline"]["durationMs"]["median"]
+        candidate_duration = arms["candidate"]["durationMs"]["median"]
+        if not _close(
+            comparison["candidateToBaselineMedianDurationRatio"],
+            candidate_duration / baseline_duration,
+        ):
+            errors.append("wide-directory duration ratio is inconsistent")
+        if payload["passed"] != expected_passed:
+            errors.append("wide-directory pass flag is inconsistent")
     elif schema_name == "binary-manifest.schema.json":
         artifacts = payload["artifacts"]
         for field in ("architecture", "platform", "path"):

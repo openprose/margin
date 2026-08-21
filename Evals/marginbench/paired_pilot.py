@@ -37,6 +37,7 @@ from marginbench.prime_study import (  # noqa: E402
 )
 from marginbench.schema import EpisodeResult, canonical_json  # noqa: E402
 from marginbench.submission import build_submission, verify_submission  # noqa: E402
+from marginbench.trace_shapes import summarize_trace_shapes  # noqa: E402
 from marginbench.validation import MAX_ARTIFACT_BYTES, validate_bytes  # noqa: E402
 from prime_pilot import (  # noqa: E402
     CONFIRMATION as CHILD_CONFIRMATION,
@@ -75,6 +76,24 @@ def wait_until_paid_start_allowed(
         remaining = minimum_interval_seconds - (clock() - previous)
         if previous <= 0 or remaining <= 0:
             return
+        sleeper(remaining)
+
+
+def wait_until_inter_job_cooldown_allowed(
+    previous_receipt: Path,
+    minimum_interval_seconds: float,
+    *,
+    clock: Callable[[], float] = time.time,
+    sleeper: Callable[[float], None] = time.sleep,
+) -> None:
+    """Keep one paid candidate from inheriting the prior job's throttle window."""
+    if minimum_interval_seconds <= 0:
+        return
+    if previous_receipt.is_symlink() or not previous_receipt.is_file():
+        raise PrimeStudyError("Previous job receipt is unavailable for cooldown pacing.")
+    completed_at = previous_receipt.stat().st_mtime
+    remaining = minimum_interval_seconds - (clock() - completed_at)
+    if remaining > 0:
         sleeper(remaining)
 
 
@@ -439,6 +458,29 @@ def _validated_receipt(value: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
+def _cost_totals(receipts: list[dict[str, Any]]) -> tuple[float, float, bool]:
+    observed = round(
+        sum(float(item["observedWalletDebitUSD"]) for item in receipts),
+        6,
+    )
+    fully_attributed = all(
+        "proxyAccountedCostUpperBoundUSD" in item for item in receipts
+    )
+    accounted = round(
+        sum(
+            float(
+                item.get(
+                    "proxyAccountedCostUpperBoundUSD",
+                    item["observedWalletDebitUSD"],
+                )
+            )
+            for item in receipts
+        ),
+        6,
+    )
+    return observed, accounted, fully_attributed
+
+
 def _final_receipt(output: Path, plan: dict[str, Any], receipts: list[dict[str, Any]]) -> dict[str, Any]:
     verification = verify_submission(output / "submission.json")
     if not verification["valid"]:
@@ -448,19 +490,51 @@ def _final_receipt(output: Path, plan: dict[str, Any], receipts: list[dict[str, 
         output / "diagnostic.json",
         "urn:marginbench:diagnostic-report:v1",
     )
-    diagnostic_inputs = sorted(item["sha256"] for item in diagnostic["artifacts"])
+    diagnostic_inputs = sorted(
+        item["sha256"]
+        for item in diagnostic["artifacts"]
+        if item["schema"] == "urn:marginbench:run:v1"
+    )
     submission_runs = sorted(item["sha256"] for item in submission["runs"])
     if diagnostic_inputs != submission_runs:
         raise PrimeStudyError("Completed diagnostic report does not cover the published runs.")
+    diagnostic_shapes = sorted(
+        item["sha256"]
+        for item in diagnostic["artifacts"]
+        if item["schema"] == "urn:marginbench:trace-shape-report:v1"
+    )
+    allowed_schemas = {
+        "urn:marginbench:run:v1",
+        "urn:marginbench:trace-shape-report:v1",
+    }
+    if any(item["schema"] not in allowed_schemas for item in diagnostic["artifacts"]):
+        raise PrimeStudyError("Completed diagnostic report contains an unsupported input.")
+    published_shapes: list[str] = []
+    shape_root = output / "trace-shapes"
+    if shape_root.exists():
+        if shape_root.is_symlink() or not shape_root.is_dir():
+            raise PrimeStudyError("Published trace-shape path is unsafe.")
+        for path in sorted(shape_root.glob("*.json")):
+            _, raw = _read_json(path, "urn:marginbench:trace-shape-report:v1")
+            published_shapes.append(hashlib.sha256(raw).hexdigest())
+    if sorted(published_shapes) != diagnostic_shapes:
+        raise PrimeStudyError("Published trace-shape evidence does not match the diagnosis.")
+    observed_total, accounted_total, fully_attributed = _cost_totals(receipts)
     return _validated_receipt({
         "schema": "urn:marginbench:prime-study-completion:v1",
         "completed": True,
         "paidModelsInvoked": True,
         "planID": plan["id"],
         "jobCount": len(receipts),
-        "observedWalletDebitUSD": round(
-            sum(float(item["observedWalletDebitUSD"]) for item in receipts),
-            6,
+        "observedWalletDebitUSD": observed_total,
+        **(
+            {
+                "proxyAccountedCostUpperBoundUSD": accounted_total,
+                "walletObservationScope": "account-wide",
+                "walletDebitAttribution": "unattributed",
+            }
+            if fully_attributed
+            else {}
         ),
         "traceReportedCostUSD": round(
             sum(float(item["traceReportedCostUSD"]) for item in receipts),
@@ -511,6 +585,7 @@ def _finalize(
         baseline_results: list[EpisodeResult] = []
         candidate_results: list[EpisodeResult] = []
         run_relatives: list[Path] = []
+        trace_shape_relatives: list[Path] = []
         for receipt in receipts:
             run_source = _safe_relative(work, receipt["run"]["path"])
             run, raw = _read_json(run_source, "urn:marginbench:run:v1")
@@ -524,6 +599,15 @@ def _finalize(
                 else candidate_results
             )
             destination.append(result)
+            job = plan["jobs"][int(receipt["ordinal"])]
+            trace_path = _job_paths(work, job)["raw"] / "traces.jsonl"
+            if trace_path.is_file():
+                trace_shape = summarize_trace_shapes([trace_path])
+                trace_shape["candidateIDs"] = [receipt["candidateID"]]
+                relative_shape = Path("trace-shapes") / f"{receipt['ordinal']:04d}.json"
+                (staging / relative_shape).parent.mkdir(exist_ok=True)
+                (staging / relative_shape).write_bytes(canonical_json(trace_shape))
+                trace_shape_relatives.append(relative_shape)
         study, _ = _read_json(frozen["studyPlan"], "urn:marginbench:study-plan:v1")
         comparison = paired_compare(
             baseline_results,
@@ -547,7 +631,10 @@ def _finalize(
         (staging / "verification.json").write_bytes(canonical_json(verification))
         try:
             diagnostic = diagnose_artifacts(
-                [staging / relative for relative in run_relatives],
+                [
+                    *(staging / relative for relative in run_relatives),
+                    *(staging / relative for relative in trace_shape_relatives),
+                ],
                 focus_candidate=plan["candidate"]["id"],
             )
         except DiagnosticError as error:
@@ -571,6 +658,7 @@ def execute_study(
     child_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
     start_claimer: Callable[..., None] = claim_paid_start,
     start_pacer: Callable[[Path, float], None] = wait_until_paid_start_allowed,
+    cooldown_pacer: Callable[..., None] = wait_until_inter_job_cooldown_allowed,
     prime_resolver: Callable[[str], str | None] = shutil.which,
 ) -> dict[str, Any]:
     work = arguments.work_dir
@@ -652,6 +740,18 @@ def execute_study(
             raise PrimeStudyError("Wallet cannot cover the remaining admission bound and reserve.")
         new_jobs = 0
         for job in plan["jobs"][len(receipts):]:
+            if receipts:
+                previous_job = plan["jobs"][job["ordinal"] - 1]
+                cooldown_pacer(
+                    _job_paths(work, previous_job)["receipt"],
+                    float(
+                        plan["limits"].get(
+                            "minimumInterJobCooldownSeconds",
+                            0.0,
+                        )
+                    ),
+                    clock=arguments.clock,
+                )
             current = wallet_reader(prime)
             remaining_bound = round(
                 sum(
@@ -720,13 +820,10 @@ def execute_study(
                 )
             receipts.append(receipt)
             new_jobs += 1
-            observed_total = round(
-                sum(float(item["observedWalletDebitUSD"]) for item in receipts),
-                6,
-            )
-            if observed_total > float(plan["budget"]["hardAdmissionCapUSD"]) + 0.000001:
+            observed_total, accounted_total, fully_attributed = _cost_totals(receipts)
+            if accounted_total > float(plan["budget"]["hardAdmissionCapUSD"]) + 0.000001:
                 raise PrimeStudyError(
-                    "Observed wallet debit exceeded the hard study cap; execution stopped."
+                    "Benchmark-attributable cost exceeded the hard study cap; execution stopped."
                 )
             progress = {
                 "schema": "urn:marginbench:prime-study-progress:v1",
@@ -735,6 +832,15 @@ def execute_study(
                 "jobCount": plan["jobCount"],
                 "lastJobID": job["id"],
                 "observedWalletDebitUSD": observed_total,
+                **(
+                    {
+                        "proxyAccountedCostUpperBoundUSD": accounted_total,
+                        "walletObservationScope": "account-wide",
+                        "walletDebitAttribution": "unattributed",
+                    }
+                    if fully_attributed
+                    else {}
+                ),
             }
             _validated_receipt(progress)
             print(canonical_json(progress).decode("utf-8"), file=sys.stderr, flush=True)
@@ -806,6 +912,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--live-proxy-timeout-seconds", type=float, default=120.0)
     parser.add_argument("--minimum-wallet-reserve-usd", type=float, default=80.0)
     parser.add_argument("--minimum-start-interval-seconds", type=float, default=300.0)
+    parser.add_argument("--minimum-inter-job-cooldown-seconds", type=float, default=60.0)
     parser.add_argument("--minimum-request-interval-seconds", type=float, default=0.0)
     parser.add_argument(
         "--max-new-jobs",
@@ -827,6 +934,8 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("max-new-jobs must be between 1 and 1000")
     if not 0 <= arguments.minimum_start_interval_seconds <= 3600:
         raise SystemExit("minimum-start-interval-seconds must be between 0 and 3600")
+    if not 0 <= arguments.minimum_inter_job_cooldown_seconds <= 3600:
+        raise SystemExit("minimum-inter-job-cooldown-seconds must be between 0 and 3600")
     if not 0 < arguments.live_proxy_timeout_seconds <= 300:
         raise SystemExit("live-proxy-timeout-seconds must be above zero and at most 300")
     if not 0 <= arguments.minimum_request_interval_seconds <= 60:
@@ -857,6 +966,7 @@ def main(argv: list[str] | None = None) -> int:
         "wallTimeoutSeconds": arguments.wall_timeout_seconds,
         "liveProxyTimeoutSeconds": arguments.live_proxy_timeout_seconds,
         "minimumStartIntervalSeconds": arguments.minimum_start_interval_seconds,
+        "minimumInterJobCooldownSeconds": arguments.minimum_inter_job_cooldown_seconds,
         "minimumRequestIntervalSeconds": arguments.minimum_request_interval_seconds,
         "temperature": arguments.temperature,
         "liveProxyMaxRequestBytes": arguments.live_proxy_max_request_bytes,

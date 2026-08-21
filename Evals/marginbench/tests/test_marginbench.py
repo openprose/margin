@@ -32,27 +32,46 @@ from marginbench.controls import (
     planned_topology,
     require_implemented_profile,
 )
-from marginbench.diagnostics import DiagnosticError, diagnose_artifacts
+from marginbench.diagnostics import (
+    DiagnosticError,
+    _unfinished_after_stop,
+    diagnose_artifacts,
+)
 from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY
+from marginbench.event_summary import SAFE_ERROR_CODES, summarize_command_events
 from marginbench.fake_model import scripted_response
-from marginbench.gateway import MarginGateway, event_command_path, read_command_events
+from marginbench.gateway import (
+    BOOLEAN_OPTIONS,
+    VALUE_OPTIONS,
+    MarginGateway,
+    _error_code,
+    event_command_path,
+    read_command_events,
+)
 from marginbench.keys import create_holdout_key
 from marginbench.phase_identity import PhaseIdentityController, read_phase_identity
 from marginbench.provenance import implementation_files, implementation_sha256
 from marginbench.reference_study import ReferenceStudyError, run_reference_study
 from marginbench.runner import ReferenceDriver, run_episode
-from marginbench.scenarios import SCENARIO_IDS, generate_episode
+from marginbench.scenarios import (
+    AVAILABLE_SCENARIO_IDS,
+    EXPERIMENTAL_SCENARIO_IDS,
+    SCENARIO_IDS,
+    generate_episode,
+)
 from marginbench.schema import Actor, CommandEvent, EpisodeResult, RoleTask, canonical_json
-from marginbench.scorer import score_episode
+from marginbench.scorer import _id_matches, score_episode
 from marginbench.scheduling import build_execution_plan
 from marginbench.studies import build_study_plan
 from marginbench.submission import SubmissionError, build_submission, verify_submission
 from marginbench.trace_shapes import summarize_trace_shapes
 from marginbench.validation import submission_identifier, validate_artifact, validate_bytes
 from prime_pilot import (
+    DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE,
     _create_private_output_directory,
     _effective_stop_condition,
     _execution_status,
+    _infrastructure_codes,
     _run_manifest,
     _summarize_traces,
     _require_fresh_output_targets,
@@ -64,6 +83,7 @@ from prime_pilot import (
     load_prime_inference_credentials,
     load_candidate_manifest,
     load_holdout_key,
+    wallet,
 )
 from preflight import _expected_trace_count, _find_scores, _subprocess_environment
 
@@ -107,11 +127,49 @@ class ReferencePlusChatterDriver:
             gateway.call(["version"])
 
 
+class ReferencePlusRedundantDiscoveryDriver:
+    def run(self, episode, role, gateway) -> None:
+        gateway.call(["context", ".", "--json", "--max-files", "16"])
+        gateway.call(["inbox", ".", "--status", "open", "--max-contributions", "64"])
+        ReferenceDriver().run(episode, role, gateway)
+
+
+class WideTriageWrongDiscoveryOrderDriver:
+    def run(self, episode, role, gateway) -> None:
+        gateway.call(["inbox", ".", "--kind", "question", "--status", "open", "--brief"])
+        gateway.call(["context", ".", "--json", "--brief"])
+        ReferenceDriver().run(episode, role, gateway)
+
+
 class MarginBenchCoreTests(unittest.TestCase):
+    def test_completed_durable_work_is_not_mislabeled_as_budget_exhaustion(self) -> None:
+        complete = {
+            "stops": ["agent_completed", "max_turns"],
+            "dimensions": {"outcome": 100.0},
+            "checks": {
+                "all_expected_annotations": True,
+                "required_commands": True,
+                "required_recovery_observed": True,
+                "valid_command_use": True,
+            },
+        }
+        self.assertFalse(_unfinished_after_stop(complete))
+
+        incomplete = json.loads(json.dumps(complete))
+        incomplete["checks"]["required_commands"] = False
+        self.assertTrue(_unfinished_after_stop(incomplete))
+
     def setUp(self) -> None:
         self.binary = available_binary()
         if self.binary is None:
             self.skipTest(f"Build Margin first or install a packaged Linux artifact: {BINARY}")
+
+    def test_plain_text_usage_exit_is_classified_without_retaining_its_message(self) -> None:
+        self.assertEqual(
+            _error_code("", "unknown manual topic", exit_code=64),
+            "USAGE",
+        )
+        self.assertIsNone(_error_code("", "provider-specific text", exit_code=65))
 
     def test_reply_shorthand_is_scored_as_the_same_semantic_command(self) -> None:
         self.assertEqual(
@@ -126,6 +184,142 @@ class MarginBenchCoreTests(unittest.TestCase):
                 "comments", "reply", "review.md", "urn:uuid:parent", "-m", "Verified",
             ]),
             "comments reply",
+        )
+        self.assertEqual(
+            event_command_path([
+                "comments", "add", "review.md", "--parent", "urn:uuid:parent",
+                "-m", "Verified", "--resolve",
+            ]),
+            "comments reply --resolve",
+        )
+
+    def test_refresh_submit_shortcut_receives_refresh_and_submission_credit(self) -> None:
+        semantic_path = event_command_path([
+            "stage", "refresh", ".", "urn:margin:stage:old",
+            "--id", "urn:margin:stage:new", "--submit",
+        ])
+        self.assertEqual(semantic_path, "stage refresh --submit")
+        self.assertTrue(semantic_path.startswith("stage refresh "))
+
+    def test_gateway_option_registry_covers_every_advertised_option(self) -> None:
+        capabilities = subprocess.run(
+            [str(self.binary), "capabilities", "--json"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(capabilities.stdout)
+        advertised = {
+            name
+            for command in payload["commands"]
+            for option in command["options"]
+            for name in option["names"]
+        }
+        self.assertEqual(advertised - (BOOLEAN_OPTIONS | VALUE_OPTIONS), set())
+
+    def test_trace_shape_reports_refresh_submit_as_a_known_flag(self) -> None:
+        trace = {
+            "traces": [{
+                "task": {"data": {"scenario_id": "staged_multifile"}},
+                "agent": {"name": "reviewer"},
+                "nodes": [
+                    {"message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "refresh-call",
+                            "name": "margin",
+                            "arguments": json.dumps({"arguments": [
+                                "stage", "refresh", ".", "private-old-id",
+                                "--id", "private-new-id", "--submit", "--json",
+                            ]}),
+                        }],
+                    }},
+                    {"message": {
+                        "role": "tool",
+                        "tool_call_id": "refresh-call",
+                        "content": json.dumps({"ok": True}),
+                    }},
+                ],
+            }],
+        }
+        with tempfile.TemporaryDirectory(prefix="marginbench-refresh-trace-") as temporary:
+            path = Path(temporary) / "traces.jsonl"
+            path.write_text(json.dumps(trace) + "\n", encoding="utf-8")
+            report = summarize_trace_shapes([path])
+        self.assertIn({"name": "--submit", "count": 1}, report["flags"])
+        signature = report["commandSignatures"][0]
+        self.assertEqual(signature["command"], "stage refresh --submit")
+        self.assertIn("--submit", signature["flags"])
+
+    def test_trace_shape_preserves_atomic_reply_resolution_semantics(self) -> None:
+        trace = {
+            "traces": [{
+                "task": {"data": {"scenario_id": "directory_handoff"}},
+                "agent": {"name": "reviewer"},
+                "nodes": [
+                    {"message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "reply-call",
+                            "name": "margin",
+                            "arguments": json.dumps({"arguments": [
+                                "comments", "reply", "private.md", "private-id",
+                                "-m", "private body", "--resolve",
+                            ]}),
+                        }],
+                    }},
+                    {"message": {
+                        "role": "tool",
+                        "tool_call_id": "reply-call",
+                        "content": json.dumps({"ok": True, "exitCode": 0}),
+                    }},
+                ],
+            }],
+        }
+        with tempfile.TemporaryDirectory(prefix="marginbench-resolve-trace-") as temporary:
+            path = Path(temporary) / "traces.jsonl"
+            path.write_text(json.dumps(trace) + "\n", encoding="utf-8")
+            report = summarize_trace_shapes([path])
+        self.assertEqual(report["commands"][0]["name"], "comments reply --resolve")
+        self.assertEqual(
+            report["scenarios"][0]["sequences"],
+            [{"commands": ["comments reply --resolve"], "count": 1}],
+        )
+
+    def test_trace_shape_retains_only_static_manual_topics(self) -> None:
+        secret = "private-man-topic"
+        nodes = []
+        for index, arguments in enumerate((["man", "handoffs"], ["man", secret])):
+            identifier = f"call-{index}"
+            nodes.extend([
+                {"message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": identifier,
+                        "name": "margin",
+                        "arguments": json.dumps({"arguments": arguments}),
+                    }],
+                }},
+                {"message": {
+                    "role": "tool",
+                    "tool_call_id": identifier,
+                    "content": json.dumps({"ok": True, "exitCode": 0}),
+                }},
+            ])
+        trace = {"traces": [{
+            "task": {"data": {"scenario_id": "distributed_synthesis"}},
+            "agent": {"name": "author"},
+            "nodes": nodes,
+        }]}
+        with tempfile.TemporaryDirectory(prefix="marginbench-man-trace-") as temporary:
+            path = Path(temporary) / "traces.jsonl"
+            path.write_text(json.dumps(trace) + "\n", encoding="utf-8")
+            report = summarize_trace_shapes([path])
+        encoded = canonical_json(report)
+        self.assertNotIn(secret.encode("utf-8"), encoded)
+        self.assertEqual(
+            {item["name"] for item in report["commands"]},
+            {"man", "man handoff"},
         )
 
     def test_generation_is_deterministic_but_keyed(self) -> None:
@@ -208,6 +402,13 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertNotIn("private-contribution-id", encoded)
         self.assertEqual(report["leadingLiteralMarginCount"], 1)
         self.assertEqual(report["blockedCount"], 1)
+        self.assertEqual(report["writeLatency"], {
+            "traceCount": 1,
+            "tracesWithWriteAttempt": 1,
+            "tracesWithoutWriteAttempt": 0,
+            "writeAttemptCount": 1,
+            "preWriteToolCallBuckets": [{"name": "0", "count": 1}],
+        })
         self.assertEqual(report["commands"][0]["name"], "comments add")
         self.assertEqual(
             report["commandSignatures"],
@@ -219,16 +420,35 @@ class MarginBenchCoreTests(unittest.TestCase):
                 "failureCount": 1,
                 "blockedCount": 1,
                 "errors": [{"name": "MARGINBENCH_COMMAND_BLOCKED", "count": 1}],
+                "resultSizeBuckets": [{"name": "1-1024", "count": 1}],
             }],
         )
         self.assertEqual(report["errors"][0]["name"], "MARGINBENCH_COMMAND_BLOCKED")
         self.assertIn({"name": "--contribution-id", "count": 1}, report["flags"])
+        self.assertEqual(report["resultSizeBuckets"], [{"name": "1-1024", "count": 1}])
+        self.assertEqual(
+            report["commandResultSizeBuckets"],
+            [{
+                "command": "comments add",
+                "buckets": [{"name": "1-1024", "count": 1}],
+            }],
+        )
+        self.assertFalse(report["privacy"]["exactResultSizesRetained"])
         self.assertEqual(report["finalFinishReasons"], [{"name": "length", "count": 1}])
         self.assertEqual(report["stopConditions"], [{"name": "agent_completed", "count": 1}])
         self.assertEqual(
             report["scenarios"][0]["finalFinishReasons"],
             [{"name": "length", "count": 1}],
         )
+        self.assertEqual(report["scenarios"][0]["commands"], report["commands"])
+        self.assertEqual(report["scenarios"][0]["errors"], report["errors"])
+        self.assertEqual(report["scenarios"][0]["flags"], report["flags"])
+        self.assertEqual(report["scenarios"][0]["sequences"], report["sequences"])
+        tampered = json.loads(json.dumps(report))
+        tampered["resultSizeBuckets"][0]["count"] = 2
+        receipt = validate_bytes(canonical_json(tampered))
+        self.assertFalse(receipt["valid"])
+        self.assertTrue(any("result-size" in error for error in receipt["errors"]))
 
     def test_trace_shape_report_understands_plain_workspace_without_retaining_content(self) -> None:
         secret = "private-plain-body-and-path-2a71"
@@ -296,6 +516,10 @@ class MarginBenchCoreTests(unittest.TestCase):
             ["workspace read", "workspace write"],
         )
         self.assertEqual(report["errors"], [{"name": "PRECONDITION_FAILED", "count": 1}])
+        self.assertEqual(
+            report["writeLatency"]["preWriteToolCallBuckets"],
+            [{"name": "1-2", "count": 1}],
+        )
 
     def test_trace_shape_report_counts_an_unanswered_workspace_call(self) -> None:
         trace = {
@@ -323,6 +547,70 @@ class MarginBenchCoreTests(unittest.TestCase):
             report["unansweredCommands"],
             [{"name": "workspace read", "count": 1}],
         )
+        self.assertEqual(
+            report["scenarios"][0]["unansweredCommands"],
+            [{"name": "workspace read", "count": 1}],
+        )
+        self.assertEqual(
+            report["writeLatency"]["preWriteToolCallBuckets"],
+            [{"name": "none", "count": 1}],
+        )
+
+    def test_trace_shape_counts_unanswered_write_after_coarse_orientation_without_content(self) -> None:
+        secret = "private-orientation-marker-d49b"
+        nodes = []
+        for index, arguments in enumerate((
+            ["man", "agents"],
+            ["capabilities", "--json", "--for", "handoff", "--brief"],
+            ["context", ".", "--json", "--brief"],
+            ["inbox", ".", "--status", "open"],
+            ["handoff", "list", "."],
+            ["comments", "list", f"{secret}.md"],
+            ["comments", "get", f"{secret}.md", secret],
+        )):
+            call_id = f"read-{index}"
+            nodes.extend([
+                {"message": {"role": "assistant", "tool_calls": [{
+                    "id": call_id,
+                    "name": "margin",
+                    "arguments": json.dumps({"arguments": arguments}),
+                }]}},
+                {"message": {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": json.dumps({"ok": True, "exitCode": 0, "stdout": secret}),
+                }},
+            ])
+        nodes.append({"message": {"role": "assistant", "tool_calls": [{
+            "id": "unanswered-write",
+            "name": "margin",
+            "arguments": json.dumps({"arguments": [
+                "handoff", "add", f"{secret}.md", "-m", secret,
+            ]}),
+        }]}})
+        trace = {"traces": [{
+            "task": {"data": {"scenario_id": "directory_handoff", "prompt": secret}},
+            "agent": {"name": "author"},
+            "nodes": nodes,
+        }]}
+        with tempfile.TemporaryDirectory(prefix="marginbench-write-latency-") as temporary:
+            path = Path(temporary) / "traces.jsonl"
+            path.write_text(json.dumps(trace) + "\n", encoding="utf-8")
+            report = summarize_trace_shapes([path])
+        encoded = canonical_json(report).decode("utf-8")
+        self.assertTrue(validate_bytes(encoded.encode("utf-8"))["valid"])
+        self.assertNotIn(secret, encoded)
+        self.assertEqual(report["unansweredCommands"], [{"name": "handoff add", "count": 1}])
+        self.assertEqual(report["writeLatency"], {
+            "traceCount": 1,
+            "tracesWithWriteAttempt": 1,
+            "tracesWithoutWriteAttempt": 0,
+            "writeAttemptCount": 1,
+            "preWriteToolCallBuckets": [{"name": "7+", "count": 1}],
+        })
+        tampered = json.loads(encoded)
+        tampered["writeLatency"]["tracesWithoutWriteAttempt"] = 1
+        self.assertFalse(validate_bytes(canonical_json(tampered))["valid"])
 
     def test_result_contract_rejects_nonfinite_unsafe_and_inconsistent_values(self) -> None:
         values = {
@@ -418,6 +706,12 @@ class MarginBenchCoreTests(unittest.TestCase):
         )
         self.assertEqual(_expected_trace_count("single-agent-margin-v1", KEY), 9)
 
+        wide = generate_episode("wide_directory_triage", KEY, 0)
+        self.assertEqual(
+            scripted_response([{"role": "user", "content": wide.roles[0].prompt}])["arguments"],
+            ["context", ".", "--json", "--brief"],
+        )
+
     def test_preflight_uses_only_an_explicit_holdout_key(self) -> None:
         variable = "MARGINBENCH_HOLDOUT_KEY"
         with patch.dict(os.environ, {variable: "ambient-secret-must-not-be-used"}):
@@ -426,6 +720,76 @@ class MarginBenchCoreTests(unittest.TestCase):
             self.assertEqual(os.environ[variable], "ambient-secret-must-not-be-used")
         self.assertNotIn(variable, public_environment)
         self.assertEqual(private_environment[variable], "explicit-private-test-key")
+
+    def test_public_event_summary_is_exact_bounded_and_content_free(self) -> None:
+        events = (
+            CommandEvent(
+                role="author",
+                command="stage create",
+                exit_code=64,
+                duration_ms=1,
+                stdin_bytes=123,
+                stdout_bytes=0,
+                stderr_bytes=456,
+                error_code="USAGE",
+            ),
+            CommandEvent(
+                role="reviewer",
+                command="merge private/secret-plan.md",
+                exit_code=65,
+                duration_ms=2,
+                stdin_bytes=0,
+                stdout_bytes=789,
+                stderr_bytes=1,
+                error_code="SECRET_IDENTIFIER",
+            ),
+            CommandEvent(
+                role="reviewer",
+                command="stage refresh --submit",
+                exit_code=0,
+                duration_ms=3,
+                stdin_bytes=0,
+                stdout_bytes=1,
+                stderr_bytes=0,
+            ),
+        )
+        summary = summarize_command_events(events)
+        self.assertEqual(summary["commandCount"], 3)
+        self.assertEqual(summary["successCount"], 1)
+        self.assertEqual(summary["failureCount"], 2)
+        self.assertEqual(summary["blockedCount"], 0)
+        self.assertEqual(
+            summary["errors"],
+            [{"name": "UNCLASSIFIED", "count": 1}, {"name": "USAGE", "count": 1}],
+        )
+        self.assertEqual(
+            {item["name"] for item in summary["commands"]},
+            {"merge", "stage create", "stage refresh --submit"},
+        )
+        encoded = canonical_json(summary)
+        for private_value in (
+            b"private", b"secret", b"SECRET_IDENTIFIER", b"author", b"reviewer",
+            b"123", b"456", b"789",
+        ):
+            self.assertNotIn(private_value, encoded)
+
+        bounded = summarize_command_events(tuple(
+            CommandEvent(
+                role="author",
+                command="context",
+                exit_code=65,
+                duration_ms=1,
+                stdin_bytes=0,
+                stdout_bytes=0,
+                stderr_bytes=0,
+                error_code=code,
+            )
+            for code in sorted(SAFE_ERROR_CODES)
+        ))
+        self.assertEqual(len(bounded["errors"]), 64)
+        self.assertTrue(bounded["isTruncated"])
+        self.assertEqual(sum(item["count"] for item in bounded["errors"]), len(SAFE_ERROR_CODES))
+        self.assertIn({"name": "OTHER", "count": len(SAFE_ERROR_CODES) - 63}, bounded["errors"])
 
     def test_prime_summary_aggregates_roles_into_one_schema_valid_episode(self) -> None:
         margin_sha256 = CandidateManifest.create("summary-test", self.binary).margin_sha256
@@ -436,6 +800,18 @@ class MarginBenchCoreTests(unittest.TestCase):
             "sourcePreserved": True,
             "commandCount": 7,
             "invalidCommandCount": 0,
+            "eventSummary": summarize_command_events(tuple(
+                CommandEvent(
+                    role="author",
+                    command="context",
+                    exit_code=0,
+                    duration_ms=1,
+                    stdin_bytes=0,
+                    stdout_bytes=0,
+                    stderr_bytes=0,
+                )
+                for _ in range(7)
+            )),
             "durationMs": 12.5,
             "marginSha256": margin_sha256,
             "checks": {"valid_documents": True},
@@ -471,6 +847,7 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(summary["episodeCount"], 1)
         self.assertTrue(summary["traceConsistencyPassed"])
         self.assertEqual(summary["episodes"][0]["usage"]["reportedCostUSD"], 0.003)
+        self.assertEqual(summary["episodes"][0]["eventSummary"]["commandCount"], 7)
         self.assertEqual(
             [role["seat"] for role in summary["episodes"][0]["roleRuns"]],
             ["author", "reviewer"],
@@ -569,12 +946,7 @@ class MarginBenchCoreTests(unittest.TestCase):
             observed_wallet_debit=0.003,
         )
         self.assertEqual(partial_manifest["execution"]["agentProcessCount"], 2)
-        try:
-            from jsonschema import Draft202012Validator
-        except ImportError:
-            return
-        schema = json.loads((SCHEMA_ROOT / "run-manifest.schema.json").read_text(encoding="utf-8"))
-        Draft202012Validator(schema).validate(manifest)
+        self.assertTrue(validate_bytes(canonical_json(manifest))["valid"])
 
     def test_single_agent_accounting_preserves_logical_actors_and_sums_limits(self) -> None:
         episode = generate_episode("agent_agent_handoff", KEY, 0)
@@ -721,7 +1093,7 @@ class MarginBenchCoreTests(unittest.TestCase):
             self.assertEqual(payload["$schema"], "https://json-schema.org/draft/2020-12/schema")
             self.assertNotIn(payload["$id"], schemas)
             schemas[payload["$id"]] = payload
-        self.assertEqual(len(schemas), 43)
+        self.assertEqual(len(schemas), 46)
         self.assertIn("urn:marginbench:crossover-prime-plan:v1", schemas)
         self.assertIn("urn:marginbench:crossover-prime-completion:v1", schemas)
 
@@ -1223,6 +1595,67 @@ class MarginBenchCoreTests(unittest.TestCase):
                     load_prime_inference_credentials()
                 self.assertNotIn("private-test-token", str(captured.exception))
 
+    def test_wallet_falls_back_to_documented_api_when_prime_agent_removed_command(self) -> None:
+        secret = "private-wallet-test-token"
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_: object) -> None:
+                return None
+
+            def read(self, limit: int) -> bytes:
+                self_limit = 1024 * 1024 + 1
+                self.assertEqual(limit, self_limit)
+                return json.dumps({
+                    "balance_usd": 197.25,
+                    "total_billings": 42,
+                }).encode("utf-8")
+
+        response = Response()
+        response.assertEqual = self.assertEqual
+        with (
+            patch("prime_pilot.subprocess.run", return_value=SimpleNamespace(
+                returncode=1,
+                stdout=b"",
+                stderr=b"unsupported",
+            )),
+            patch(
+                "prime_pilot.load_prime_inference_credentials",
+                return_value=("https://inference.example", secret, "team one"),
+            ),
+            patch("prime_pilot.urlopen", return_value=response) as open_wallet,
+        ):
+            self.assertEqual(wallet(Path("/prime-agent")), {
+                "balanceUSD": 197.25,
+                "totalBillings": 42,
+            })
+        request = open_wallet.call_args.args[0]
+        self.assertEqual(
+            request.full_url,
+            "https://api.primeintellect.ai/api/v1/billing/wallet?limit=5&teamId=team+one",
+        )
+        self.assertEqual(request.get_header("Authorization"), f"Bearer {secret}")
+
+    def test_wallet_api_failure_never_exposes_credentials(self) -> None:
+        secret = "private-wallet-test-token"
+        with (
+            patch("prime_pilot.subprocess.run", return_value=SimpleNamespace(
+                returncode=1,
+                stdout=b"",
+                stderr=secret.encode("utf-8"),
+            )),
+            patch(
+                "prime_pilot.load_prime_inference_credentials",
+                return_value=("https://inference.example", secret, None),
+            ),
+            patch("prime_pilot.urlopen", side_effect=OSError(secret)),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "wallet API is unavailable") as captured:
+                wallet(Path("/prime-agent"))
+        self.assertNotIn(secret, str(captured.exception))
+
     def test_inference_budget_proxy_enforces_auth_bytes_output_and_cumulative_cost(self) -> None:
         observed: list[dict[str, object]] = []
 
@@ -1643,6 +2076,30 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(report["providerBoundViolationCount"], 0)
         self.assertFalse(report["latchedClosed"])
 
+    def test_default_provider_allowance_covers_priced_hidden_reasoning_tokens(self) -> None:
+        gate = InferenceBudgetGate(InferenceBudgetPolicy(
+            allowed_model="test/reasoning-model",
+            max_request_bytes=64,
+            template_token_allowance=0,
+            input_token_ceiling=1000,
+            max_output_tokens=1800,
+            input_price_per_million=1.0,
+            output_price_per_million=1.0,
+            billing_overhead_usd_per_call=0.0,
+            max_total_cost_usd=0.01,
+            response_token_allowance=DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE,
+        ))
+        reservation = gate.reserve(10, 1800)
+        self.assertIsNotNone(reservation)
+        self.assertEqual(reservation.output_tokens_upper, 5896)
+        gate.record_response(
+            {"usage": {"prompt_tokens": 20, "completion_tokens": 2863}},
+            reservation,
+        )
+        report = gate.report()
+        self.assertEqual(report["providerBoundViolationCount"], 0)
+        self.assertFalse(report["latchedClosed"])
+
     def test_paid_start_gate_serializes_and_enforces_cooldown(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-paid-gate-") as temporary:
             marker = Path(temporary) / "last-start"
@@ -1693,6 +2150,20 @@ class MarginBenchCoreTests(unittest.TestCase):
         failed_role["episodes"][0]["roleRuns"][0]["stopCondition"] = "error"
         self.assertEqual(_execution_status(0, failed_role, []), "infrastructure_error")
 
+    def test_provider_throttling_is_not_masked_by_the_later_budget_stop(self) -> None:
+        codes = _infrastructure_codes(
+            (
+                "ProviderError: upstream 429 rate_limit_exceeded\n"
+                "ProviderError: BUDGET_PROXY_COST_LIMIT\n"
+            ),
+            {"providerBoundViolationCount": 0},
+            timed_out=False,
+        )
+        self.assertEqual(
+            codes,
+            ["PROVIDER_RATE_LIMIT", "LIVE_BUDGET_EXHAUSTED"],
+        )
+
     def test_gateway_blocks_escape_gui_and_identity_override_without_raw_log(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-gateway-test-") as temporary:
             root = Path(temporary)
@@ -1710,8 +2181,9 @@ class MarginBenchCoreTests(unittest.TestCase):
             self.assertEqual(gateway.call(["../../escape"]).error_code, "MARGINBENCH_COMMAND_BLOCKED")
             directory_block = gateway.call(["ls", "."])
             self.assertEqual(directory_block.error_code, "MARGINBENCH_COMMAND_BLOCKED")
-            self.assertIn("context . --json --max-files 16", directory_block.stderr)
-            self.assertIn("inbox . --status open --max-contributions 64", directory_block.stderr)
+            self.assertIn("man agents", directory_block.stderr)
+            self.assertNotIn("context . --json", directory_block.stderr)
+            self.assertNotIn("inbox . --status", directory_block.stderr)
             self.assertEqual(
                 gateway.call(["submit"]).error_code,
                 "MARGINBENCH_COMMAND_BLOCKED",
@@ -1784,15 +2256,213 @@ class MarginBenchCoreTests(unittest.TestCase):
             with self.subTest(scenario=scenario):
                 episode = generate_episode(scenario, KEY, index)
                 with tempfile.TemporaryDirectory(prefix="marginbench-reference-test-") as temporary:
+                    root = Path(temporary)
+                    workspace = root / "workspace"
                     result = run_episode(
                         episode,
                         self.binary,
-                        Path(temporary) / "workspace",
+                        workspace,
                         ReferenceDriver(),
                     )
-                self.assertEqual(result.score, 100.0)
-                self.assertTrue(result.safety_passed)
-                self.assertTrue(all(result.checks.values()))
+                    self.assertEqual(result.score, 100.0)
+                    self.assertTrue(result.safety_passed)
+                    self.assertTrue(all(result.checks.values()))
+
+                    missing_protocol = score_episode(
+                        episode,
+                        workspace,
+                        self.binary,
+                        root / "missing-events.jsonl",
+                    )
+                    self.assertFalse(missing_protocol.checks["required_commands"])
+                    self.assertLess(missing_protocol.score, 100.0)
+                    self.assertTrue(missing_protocol.safety_passed)
+
+                    (workspace / "unexpected-agent-residue.txt").write_text(
+                        "unrequested\n",
+                        encoding="utf-8",
+                    )
+                    unexpected_path = score_episode(
+                        episode,
+                        workspace,
+                        self.binary,
+                        root / ".marginbench-control" / "events.jsonl",
+                    )
+                    self.assertFalse(unexpected_path.checks["workspace_expected_paths"])
+                    self.assertFalse(unexpected_path.safety_passed)
+                    self.assertLessEqual(unexpected_path.score, 25.0)
+
+    def test_concurrent_review_does_not_penalize_one_normal_write_collision(self) -> None:
+        episode = generate_episode("concurrent_review", KEY, 0)
+        self.assertEqual(episode.oracle["efficientCommandTarget"], 6)
+        with tempfile.TemporaryDirectory(prefix="marginbench-concurrent-recovery-") as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            complete = run_episode(
+                episode,
+                self.binary,
+                workspace,
+                ReferenceDriver(),
+                control_profile="single-agent-margin-v1",
+            )
+            self.assertEqual(complete.command_count, 4)
+            log = root / ".marginbench-control" / "events.jsonl"
+            collision = CommandEvent(
+                role="reviewer",
+                command="comments add",
+                exit_code=75,
+                duration_ms=1.0,
+                stdin_bytes=0,
+                stdout_bytes=0,
+                stderr_bytes=1,
+                error_code="COLLABORATION_PRECONDITION_FAILED",
+                blocked=False,
+            )
+            recovery_read = CommandEvent(
+                role="reviewer",
+                command="comments list",
+                exit_code=0,
+                duration_ms=1.0,
+                stdin_bytes=0,
+                stdout_bytes=1,
+                stderr_bytes=0,
+                error_code=None,
+                blocked=False,
+            )
+            with log.open("ab") as stream:
+                stream.write(canonical_json(asdict(collision)) + b"\n")
+                stream.write(canonical_json(asdict(recovery_read)) + b"\n")
+            recovered = score_episode(episode, workspace, self.binary, log)
+        self.assertEqual(recovered.command_count, 6)
+        self.assertEqual(recovered.dimensions["efficiency"], 100.0)
+        self.assertEqual(recovered.score, 100.0)
+        self.assertTrue(recovered.checks["valid_command_use"])
+
+    def test_wide_directory_triage_is_opt_in_exact_and_reference_solvable(self) -> None:
+        self.assertNotIn("wide_directory_triage", SCENARIO_IDS)
+        self.assertIn("wide_directory_triage", EXPERIMENTAL_SCENARIO_IDS)
+        self.assertIn("wide_directory_triage", AVAILABLE_SCENARIO_IDS)
+        episode = generate_episode("wide_directory_triage", KEY, 0)
+        repeated = generate_episode("wide_directory_triage", KEY, 0)
+        self.assertEqual(episode.fingerprint, repeated.fingerprint)
+        self.assertEqual(episode.files, repeated.files)
+        self.assertEqual(len(episode.files), 16)
+        self.assertEqual(len(episode.events), 64)
+        self.assertEqual(len(episode.oracle["annotations"]), 65)
+        self.assertTrue(episode.oracle["contextThenInboxIsExpected"])
+        plan = build_study_plan(
+            baseline="wide-baseline",
+            candidate="wide-candidate",
+            scenarios=["wide_directory_triage"],
+            repetitions=1,
+            key=KEY,
+            development_cases=True,
+        )
+        self.assertEqual(plan["scenarioIDs"], ["wide_directory_triage"])
+
+        with tempfile.TemporaryDirectory(prefix="marginbench-wide-triage-") as temporary:
+            result = run_episode(
+                episode,
+                self.binary,
+                Path(temporary) / "workspace",
+                ReferenceDriver(),
+            )
+        self.assertEqual(result.score, 100.0)
+        self.assertTrue(result.safety_passed)
+        self.assertTrue(all(result.checks.values()))
+        self.assertEqual(
+            [event.command for event in result.events],
+            [
+                "context",
+                "inbox",
+                "comments reply --resolve",
+                "comments list",
+                "comments validate",
+            ],
+        )
+        self.assertLess(result.events[0].stdout_bytes, 12 * 1_024)
+        self.assertLess(result.events[1].stdout_bytes, 4 * 1_024)
+
+        with tempfile.TemporaryDirectory(prefix="marginbench-wide-order-") as temporary:
+            wrong_order = run_episode(
+                episode,
+                self.binary,
+                Path(temporary) / "workspace",
+                WideTriageWrongDiscoveryOrderDriver(),
+            )
+        self.assertTrue(wrong_order.checks["all_expected_annotations"])
+        self.assertFalse(wrong_order.checks["avoided_redundant_initial_reads"])
+
+    def test_redundant_initial_directory_reads_are_diagnosed_without_changing_outcomes(self) -> None:
+        episode = generate_episode("directory_handoff", KEY, 41)
+        with tempfile.TemporaryDirectory(prefix="marginbench-redundant-discovery-") as temporary:
+            root = Path(temporary)
+            result = run_episode(
+                episode,
+                self.binary,
+                root / "workspace",
+                ReferencePlusRedundantDiscoveryDriver(),
+            )
+            self.assertTrue(result.checks["all_expected_annotations"])
+            self.assertTrue(result.checks["source_expected"])
+            self.assertFalse(result.checks["avoided_redundant_initial_reads"])
+            artifact = root / "result.json"
+            artifact.write_bytes(canonical_json(result.to_dict()))
+            report = diagnose_artifacts([artifact])
+        self.assertEqual(report["topOpportunity"], "redundant-discovery")
+        self.assertEqual(
+            report["findings"][0]["evidence"]["failedChecks"],
+            [{"name": "avoided_redundant_initial_reads", "count": 1}],
+        )
+
+    def test_annotation_ids_match_only_exact_values_or_canonical_uuid_urns(self) -> None:
+        identifier = "00000000-0000-4000-8000-000000000123"
+        self.assertTrue(_id_matches(identifier, identifier))
+        self.assertTrue(_id_matches(f"urn:uuid:{identifier}", identifier))
+        self.assertFalse(_id_matches(f"urn:marginbench:lookalike:{identifier}", identifier))
+        self.assertFalse(_id_matches(f"prefix-{identifier}", identifier))
+
+    def test_failed_required_command_does_not_receive_protocol_credit(self) -> None:
+        episode = generate_episode("human_agent_relay", KEY, 0)
+        with tempfile.TemporaryDirectory(prefix="marginbench-command-credit-test-") as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            complete = run_episode(episode, self.binary, workspace, ReferenceDriver())
+            self.assertTrue(complete.checks["required_commands"])
+            failed_log = root / "failed-events.jsonl"
+            failed = CommandEvent(
+                role="reviewer",
+                command="comments reply",
+                exit_code=64,
+                duration_ms=1.0,
+                stdin_bytes=0,
+                stdout_bytes=0,
+                stderr_bytes=1,
+                error_code="USAGE",
+                blocked=False,
+            )
+            failed_log.write_bytes(canonical_json(asdict(failed)) + b"\n")
+            rescored = score_episode(episode, workspace, self.binary, failed_log)
+            self.assertFalse(rescored.checks["required_commands"])
+            self.assertFalse(rescored.checks["valid_command_use"])
+
+    def test_unexpected_empty_directory_is_workspace_residue(self) -> None:
+        episode = generate_episode("human_agent_relay", KEY, 0)
+        with tempfile.TemporaryDirectory(prefix="marginbench-empty-dir-test-") as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            complete = run_episode(episode, self.binary, workspace, ReferenceDriver())
+            self.assertTrue(complete.checks["workspace_expected_paths"])
+            (workspace / "unrequested-empty-directory").mkdir()
+            rescored = score_episode(
+                episode,
+                workspace,
+                self.binary,
+                root / ".marginbench-control" / "events.jsonl",
+            )
+            self.assertFalse(rescored.checks["workspace_expected_paths"])
+            self.assertFalse(rescored.safety_passed)
+            self.assertLessEqual(rescored.score, 25.0)
 
     def test_directory_handoff_scores_verified_state_not_one_validation_spelling(self) -> None:
         episode = generate_episode("directory_handoff", KEY, 0)
@@ -1825,6 +2495,12 @@ class MarginBenchCoreTests(unittest.TestCase):
             )
         self.assertLess(result.score, 60.0)
         self.assertFalse(result.checks["all_expected_annotations"])
+        self.assertFalse(result.checks["annotation_identity"])
+        self.assertFalse(result.checks["annotation_body"])
+        self.assertFalse(result.checks["annotation_kind"])
+        self.assertFalse(result.checks["annotation_status"])
+        self.assertFalse(result.checks["annotation_thread"])
+        self.assertFalse(result.checks["annotation_properties"])
         self.assertFalse(result.checks["required_commands"])
         self.assertFalse(result.checks["committed_all"])
 
@@ -1872,6 +2548,12 @@ class MarginBenchCoreTests(unittest.TestCase):
                 root / ".marginbench-control" / "events.jsonl",
             )
             self.assertFalse(rescored.checks["all_expected_annotations"])
+            self.assertTrue(rescored.checks["annotation_identity"])
+            self.assertFalse(rescored.checks["annotation_body"])
+            self.assertTrue(rescored.checks["annotation_kind"])
+            self.assertTrue(rescored.checks["annotation_status"])
+            self.assertTrue(rescored.checks["annotation_thread"])
+            self.assertTrue(rescored.checks["annotation_properties"])
             self.assertTrue(rescored.checks["attribution"])
 
     def test_synthesis_prompts_do_not_present_placeholders_as_exact_text(self) -> None:
@@ -2117,6 +2799,115 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(focused["focus"], focused["candidates"][1])
         self.assertTrue(validate_bytes(canonical_json(focused))["valid"])
 
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_multi_candidate_diagnostics_publish_both_shapes_but_focus_one(self) -> None:
+        digest_a = "a" * 64
+        digest_b = "b" * 64
+        episode_id = "directory_handoff:0:abcabcabcabc"
+
+        def result(candidate: str, digest: str) -> EpisodeResult:
+            return EpisodeResult(
+                episode_id=episode_id,
+                candidate_id=candidate,
+                score=100.0,
+                dimensions={
+                    "outcome": 100.0,
+                    "integrity": 100.0,
+                    "protocol": 100.0,
+                    "recovery": 100.0,
+                    "efficiency": 100.0,
+                },
+                checks={"valid_command_use": True},
+                command_count=0,
+                invalid_command_count=0,
+                duration_ms=1.0,
+                safety_passed=True,
+                source_preserved=True,
+                margin_sha256=digest,
+            )
+
+        def shape(root: Path, candidate: str, digest: str, output_bytes: int) -> Path:
+            trace = root / f"{digest[0]}.jsonl"
+            nodes = [
+                {"message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "context-1",
+                        "name": "margin",
+                        "arguments": json.dumps({
+                            "arguments": ["context", ".", "--json", "--brief"],
+                        }),
+                    }],
+                }},
+                {"message": {
+                    "role": "tool",
+                    "tool_call_id": "context-1",
+                    "content": json.dumps({
+                        "ok": True,
+                        "exitCode": 0,
+                        "stdout": "x" * output_bytes,
+                    }),
+                }},
+            ]
+            if output_bytes > 4_096:
+                nodes.extend([
+                    {"message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "context-2",
+                            "name": "margin",
+                            "arguments": json.dumps({
+                                "arguments": ["context", ".", "--json", "--brief"],
+                            }),
+                        }],
+                    }},
+                    {"message": {
+                        "role": "tool",
+                        "tool_call_id": "context-2",
+                        "content": json.dumps({
+                            "ok": True,
+                            "exitCode": 0,
+                            "stdout": "y" * output_bytes,
+                        }),
+                    }},
+                ])
+            trace.write_text(json.dumps({
+                "traces": [{
+                    "info": {"marginbench": {"marginSha256": digest}},
+                    "task": {"data": {"scenario_id": "directory_handoff"}},
+                    "agent": {"name": "author"},
+                    "nodes": nodes,
+                }],
+            }) + "\n", encoding="utf-8")
+            report = root / f"{digest[0]}-shape.json"
+            payload = summarize_trace_shapes([trace])
+            payload["candidateIDs"] = [candidate]
+            report.write_bytes(canonical_json(payload))
+            return report
+
+        with tempfile.TemporaryDirectory(prefix="marginbench-label-neutral-") as temporary:
+            root = Path(temporary)
+            result_a = root / "a-result.json"
+            result_b = root / "b-result.json"
+            result_a.write_bytes(canonical_json(result("candidate-a", digest_a).to_dict()))
+            result_b.write_bytes(canonical_json(result("candidate-b", digest_b).to_dict()))
+            shape_a = shape(root, "candidate-a", digest_a, 5_000)
+            shape_b = shape(root, "candidate-b", digest_b, 100)
+            report = diagnose_artifacts(
+                [result_a, result_b, shape_a, shape_b],
+                focus_candidate="candidate-a",
+            )
+
+        self.assertEqual(report["artifactCount"], 4)
+        evidence = next(
+            item["evidence"]["responseSizeEvidence"]
+            for item in report["findings"]
+            if item["id"] == "heavy-context-responses"
+        )
+        self.assertEqual(evidence["resultCount"], 2)
+        self.assertEqual(evidence["largerThan4096Count"], 2)
+        self.assertTrue(validate_bytes(canonical_json(report))["valid"])
+
         broken = dict(report)
         broken["topOpportunity"] = "not-the-ranked-finding"
         invalid = validate_bytes(canonical_json(broken))
@@ -2202,15 +2993,442 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertTrue(validate_bytes(canonical_json(policy_report))["valid"])
 
     @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_diagnostics_reject_infrastructure_runs_as_product_evidence(self) -> None:
+        for name in (
+            "topology-agent-handoff-continuing-v2-public-r0-summary.json",
+            "topology-agent-handoff-continuing-v2-public-r0-run.json",
+        ):
+            source = PACKAGE_ROOT / "results" / name
+            self.assertTrue(validate_artifact(source)["valid"])
+            with self.assertRaisesRegex(DiagnosticError, "not product evidence"):
+                diagnose_artifacts([source])
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_diagnostics_use_coarse_trace_sizes_only_as_supplementary_evidence(self) -> None:
+        result = EpisodeResult(
+            episode_id="directory_handoff:3:" + "d" * 12,
+            candidate_id="compact-context-candidate",
+            score=100.0,
+            dimensions={
+                "outcome": 100.0,
+                "integrity": 100.0,
+                "protocol": 100.0,
+                "recovery": 100.0,
+                "efficiency": 100.0,
+            },
+            checks={
+                "source_expected": True,
+                "valid_documents": True,
+                "all_or_none": True,
+                "workspace_expected_paths": True,
+                "workspace_policy": True,
+                "duplicate_free": True,
+                "all_expected_annotations": True,
+                "minimum_annotations": True,
+                "committed_all": True,
+                "no_unexpected_annotations": True,
+                "required_recovery_observed": True,
+                "required_commands": True,
+                "valid_command_use": True,
+                "attribution": True,
+                "avoided_redundant_initial_reads": True,
+            },
+            command_count=0,
+            invalid_command_count=0,
+            duration_ms=1.0,
+            safety_passed=True,
+            source_preserved=True,
+            margin_sha256="0" * 64,
+        )
+        private_marker = "private-context-result-5f31"
+        nodes = []
+        for index in range(3):
+            identifier = f"context-{index}"
+            nodes.extend((
+                {"message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": identifier,
+                        "name": "margin",
+                        "arguments": json.dumps({
+                            "arguments": ["context", ".", "--json", "--brief"],
+                        }),
+                    }],
+                }},
+                {"message": {
+                    "role": "tool",
+                    "tool_call_id": identifier,
+                    "content": json.dumps({
+                        "ok": True,
+                        "exitCode": 0,
+                        "stdout": private_marker * 240,
+                    }),
+                }},
+            ))
+        raw_trace = {
+            "traces": [{
+                "task": {"data": {"scenario_id": "directory_handoff"}},
+                "agent": {"name": "author"},
+                "nodes": nodes,
+            }],
+        }
+        with tempfile.TemporaryDirectory(prefix="marginbench-size-diagnostic-") as temporary:
+            root = Path(temporary)
+            result_path = root / "result.json"
+            result_path.write_bytes(canonical_json(result.to_dict()))
+            trace_path = root / "traces.jsonl"
+            trace_path.write_text(json.dumps(raw_trace) + "\n", encoding="utf-8")
+            shape = summarize_trace_shapes([trace_path])
+            shape_path = root / "trace-shape.json"
+            shape_path.write_bytes(canonical_json(shape))
+            self.assertTrue(
+                validate_bytes(result_path.read_bytes())["valid"],
+                validate_bytes(result_path.read_bytes())["errors"],
+            )
+            self.assertTrue(
+                validate_bytes(shape_path.read_bytes())["valid"],
+                validate_bytes(shape_path.read_bytes())["errors"],
+            )
+            report = diagnose_artifacts([result_path, shape_path])
+
+            with self.assertRaisesRegex(DiagnosticError, "no episodes"):
+                diagnose_artifacts([shape_path])
+            with self.assertRaisesRegex(DiagnosticError, "overlap"):
+                diagnose_artifacts([result_path, shape_path, shape_path])
+
+        self.assertEqual(report["artifactCount"], 2)
+        self.assertEqual(report["episodeCount"], 1)
+        self.assertEqual(report["topOpportunity"], "heavy-context-responses")
+        evidence = report["findings"][0]["evidence"]["responseSizeEvidence"]
+        self.assertEqual(evidence["command"], "context")
+        self.assertEqual(evidence["resultCount"], 3)
+        self.assertEqual(evidence["largerThan4096Count"], 3)
+        self.assertEqual(evidence["buckets"], [{"name": "4097-16384", "count": 3}])
+        self.assertFalse(report["privacy"]["exactResultSizesRetained"])
+        encoded = canonical_json(report)
+        self.assertNotIn(private_marker.encode("utf-8"), encoded)
+        self.assertTrue(validate_bytes(encoded)["valid"])
+
+        tampered = json.loads(encoded)
+        tampered["findings"][0]["evidence"]["responseSizeEvidence"][
+            "largerThan4096Count"
+        ] = 2
+        receipt = validate_bytes(canonical_json(tampered))
+        self.assertFalse(receipt["valid"])
+        self.assertTrue(any("large-response" in item for item in receipt["errors"]))
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_diagnostics_do_not_charge_full_context_sizes_to_the_brief_projection(self) -> None:
+        result = EpisodeResult(
+            episode_id="directory_handoff:4:" + "e" * 12,
+            candidate_id="signature-scoped-context-candidate",
+            score=100.0,
+            dimensions={
+                "outcome": 100.0,
+                "integrity": 100.0,
+                "protocol": 100.0,
+                "recovery": 100.0,
+                "efficiency": 100.0,
+            },
+            checks={
+                "source_expected": True,
+                "valid_documents": True,
+                "all_or_none": True,
+                "workspace_expected_paths": True,
+                "workspace_policy": True,
+                "duplicate_free": True,
+                "all_expected_annotations": True,
+                "minimum_annotations": True,
+                "committed_all": True,
+                "no_unexpected_annotations": True,
+                "required_recovery_observed": True,
+                "required_commands": True,
+                "valid_command_use": True,
+                "attribution": True,
+                "avoided_redundant_initial_reads": True,
+            },
+            command_count=0,
+            invalid_command_count=0,
+            duration_ms=1.0,
+            safety_passed=True,
+            source_preserved=True,
+            margin_sha256="0" * 64,
+        )
+        nodes = []
+        for index, brief in enumerate((False, False, False, True, True)):
+            identifier = f"context-{index}"
+            arguments = ["context", ".", "--json"]
+            if brief:
+                arguments.append("--brief")
+            nodes.extend((
+                {"message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": identifier,
+                        "name": "margin",
+                        "arguments": json.dumps({"arguments": arguments}),
+                    }],
+                }},
+                {"message": {
+                    "role": "tool",
+                    "tool_call_id": identifier,
+                    "content": json.dumps({
+                        "ok": True,
+                        "exitCode": 0,
+                        "stdout": ("full-private-marker" * 1_000)
+                        if not brief else ("brief-private-marker" * 40),
+                    }),
+                }},
+            ))
+        raw_trace = {
+            "traces": [{
+                "task": {"data": {"scenario_id": "directory_handoff"}},
+                "agent": {"name": "author"},
+                "nodes": nodes,
+            }],
+        }
+        with tempfile.TemporaryDirectory(prefix="marginbench-signature-diagnostic-") as temporary:
+            root = Path(temporary)
+            result_path = root / "result.json"
+            result_path.write_bytes(canonical_json(result.to_dict()))
+            trace_path = root / "traces.jsonl"
+            trace_path.write_text(json.dumps(raw_trace) + "\n", encoding="utf-8")
+            shape_path = root / "trace-shape.json"
+            shape_path.write_bytes(canonical_json(summarize_trace_shapes([trace_path])))
+            report = diagnose_artifacts([result_path, shape_path])
+
+        self.assertEqual(report["topOpportunity"], "no-ranked-defect")
+        self.assertNotIn(
+            "heavy-context-responses",
+            {finding["id"] for finding in report["findings"]},
+        )
+        self.assertTrue(validate_bytes(canonical_json(report))["valid"])
+
+    def test_diagnostics_flag_oversized_capability_discovery_without_exact_sizes(self) -> None:
+        result = EpisodeResult(
+            episode_id="directory_handoff:0:capability-size",
+            candidate_id="compact-discovery-candidate",
+            score=100.0,
+            dimensions={
+                "outcome": 100.0,
+                "protocol": 100.0,
+                "integrity": 100.0,
+                "recovery": 100.0,
+                "efficiency": 100.0,
+            },
+            checks={
+                "source_expected": True,
+                "valid_documents": True,
+                "all_or_none": True,
+                "workspace_expected_paths": True,
+                "workspace_policy": True,
+                "duplicate_free": True,
+                "all_expected_annotations": True,
+                "minimum_annotations": True,
+                "committed_all": True,
+                "no_unexpected_annotations": True,
+                "required_recovery_observed": True,
+                "required_commands": True,
+                "valid_command_use": True,
+                "attribution": True,
+                "avoided_redundant_initial_reads": True,
+            },
+            command_count=0,
+            invalid_command_count=0,
+            duration_ms=1.0,
+            safety_passed=True,
+            source_preserved=True,
+            margin_sha256="0" * 64,
+        )
+        private_marker = "private-capability-result-7d42"
+        raw_trace = {
+            "traces": [{
+                "task": {"data": {"scenario_id": "directory_handoff"}},
+                "agent": {"name": "author"},
+                "nodes": [
+                    {"message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "capability-1",
+                            "name": "margin",
+                            "arguments": json.dumps({
+                                "arguments": [
+                                    "capabilities", "--json", "--for", "handoff", "--brief",
+                                ],
+                            }),
+                        }],
+                    }},
+                    {"message": {
+                        "role": "tool",
+                        "tool_call_id": "capability-1",
+                        "content": json.dumps({
+                            "ok": True,
+                            "exitCode": 0,
+                            "stdout": private_marker * 1_200,
+                        }),
+                    }},
+                ],
+            }],
+        }
+        with tempfile.TemporaryDirectory(prefix="marginbench-capability-diagnostic-") as temporary:
+            root = Path(temporary)
+            result_path = root / "result.json"
+            result_path.write_bytes(canonical_json(result.to_dict()))
+            trace_path = root / "traces.jsonl"
+            trace_path.write_text(json.dumps(raw_trace) + "\n", encoding="utf-8")
+            shape_path = root / "trace-shape.json"
+            shape_path.write_bytes(canonical_json(summarize_trace_shapes([trace_path])))
+            self.assertTrue(
+                validate_bytes(result_path.read_bytes())["valid"],
+                validate_bytes(result_path.read_bytes())["errors"],
+            )
+            self.assertTrue(
+                validate_bytes(shape_path.read_bytes())["valid"],
+                validate_bytes(shape_path.read_bytes())["errors"],
+            )
+            report = diagnose_artifacts([result_path, shape_path])
+
+        self.assertEqual(report["topOpportunity"], "oversized-capability-responses")
+        evidence = report["findings"][0]["evidence"]["responseSizeEvidence"]
+        self.assertEqual(evidence["command"], "capabilities")
+        self.assertEqual(evidence["resultCount"], 1)
+        self.assertEqual(evidence["largerThan4096Count"], 1)
+        self.assertEqual(evidence["buckets"], [{"name": "16385-65536", "count": 1}])
+        encoded = canonical_json(report)
+        self.assertNotIn(private_marker.encode("utf-8"), encoded)
+        self.assertTrue(validate_bytes(encoded)["valid"])
+
+    def test_diagnostics_flag_long_path_to_first_write_without_retaining_trace_content(self) -> None:
+        result = EpisodeResult(
+            episode_id="directory_handoff:0:write-latency",
+            candidate_id="action-first-candidate",
+            score=100.0,
+            dimensions={
+                "outcome": 100.0,
+                "protocol": 100.0,
+                "integrity": 100.0,
+                "recovery": 100.0,
+                "efficiency": 100.0,
+            },
+            checks={
+                "source_expected": True,
+                "valid_documents": True,
+                "all_or_none": True,
+                "workspace_expected_paths": True,
+                "workspace_policy": True,
+                "duplicate_free": True,
+                "all_expected_annotations": True,
+                "minimum_annotations": True,
+                "committed_all": True,
+                "no_unexpected_annotations": True,
+                "required_recovery_observed": True,
+                "required_commands": True,
+                "valid_command_use": True,
+                "attribution": True,
+                "avoided_redundant_initial_reads": True,
+            },
+            command_count=0,
+            invalid_command_count=0,
+            duration_ms=1.0,
+            safety_passed=True,
+            source_preserved=True,
+            margin_sha256="0" * 64,
+        )
+        secret = "private-latency-evidence-4d72"
+        nodes = []
+        for index in range(5):
+            identifier = f"orientation-{index}"
+            nodes.extend((
+                {"message": {"role": "assistant", "tool_calls": [{
+                    "id": identifier,
+                    "name": "margin",
+                    "arguments": json.dumps({"arguments": ["context", secret, "--brief"]}),
+                }]}},
+                {"message": {
+                    "role": "tool",
+                    "tool_call_id": identifier,
+                    "content": json.dumps({"ok": True, "exitCode": 0, "stdout": secret}),
+                }},
+            ))
+        nodes.extend((
+            {"message": {"role": "assistant", "tool_calls": [{
+                "id": "write",
+                "name": "margin",
+                "arguments": json.dumps({"arguments": [
+                    "handoff", "add", secret, "-m", secret,
+                ]}),
+            }]}},
+            {"message": {
+                "role": "tool",
+                "tool_call_id": "write",
+                "content": json.dumps({"ok": True, "exitCode": 0}),
+            }},
+        ))
+        raw_trace = {"traces": [{
+            "task": {"data": {"scenario_id": "directory_handoff", "prompt": secret}},
+            "agent": {"name": "author"},
+            "nodes": nodes,
+        }]}
+        with tempfile.TemporaryDirectory(prefix="marginbench-write-diagnostic-") as temporary:
+            root = Path(temporary)
+            result_path = root / "result.json"
+            result_path.write_bytes(canonical_json(result.to_dict()))
+            trace_path = root / "traces.jsonl"
+            trace_path.write_text(json.dumps(raw_trace) + "\n", encoding="utf-8")
+            shape_path = root / "trace-shape.json"
+            shape_path.write_bytes(canonical_json(summarize_trace_shapes([trace_path])))
+            report = diagnose_artifacts([result_path, shape_path])
+
+        self.assertEqual(report["topOpportunity"], "long-path-to-first-write")
+        evidence = report["findings"][0]["evidence"]["writeLatencyEvidence"]
+        self.assertEqual(evidence["fiveOrMorePreWriteCount"], 1)
+        self.assertEqual(evidence["preWriteToolCallBuckets"], [
+            {"name": "5-6", "count": 1},
+        ])
+        encoded = canonical_json(report)
+        self.assertNotIn(secret.encode("utf-8"), encoded)
+        self.assertTrue(validate_bytes(encoded)["valid"])
+
+        tampered = json.loads(encoded)
+        tampered["findings"][0]["evidence"]["writeLatencyEvidence"][
+            "fiveOrMorePreWriteCount"
+        ] = 2
+        receipt = validate_bytes(canonical_json(tampered))
+        self.assertFalse(receipt["valid"])
+        self.assertTrue(any("delayed-write" in item for item in receipt["errors"]))
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
     def test_run_manifest_validation_recomputes_cost_and_rejects_tampering(self) -> None:
         margin_sha256 = CandidateManifest.create("validation-test", self.binary).margin_sha256
+        published_events = (
+            CommandEvent(
+                role="author",
+                command="stage create",
+                exit_code=64,
+                duration_ms=1,
+                stdin_bytes=0,
+                stdout_bytes=0,
+                stderr_bytes=0,
+                error_code="USAGE",
+            ),
+            *(CommandEvent(
+                role="reviewer",
+                command="context",
+                exit_code=0,
+                duration_ms=1,
+                stdin_bytes=0,
+                stdout_bytes=0,
+                stderr_bytes=0,
+            ) for _ in range(6)),
+        )
         result = {
             "episodeID": "agent_agent_handoff:0:" + "a" * 12,
             "score": 100.0,
             "safetyPassed": True,
             "sourcePreserved": True,
             "commandCount": 7,
-            "invalidCommandCount": 0,
+            "invalidCommandCount": 1,
+            "eventSummary": summarize_command_events(published_events),
             "durationMs": 12.5,
             "marginSha256": margin_sha256,
             "checks": {"valid_documents": True},
@@ -2284,6 +3502,19 @@ class MarginBenchCoreTests(unittest.TestCase):
             artifact = output / "run.json"
             artifact.write_text(json.dumps(manifest), encoding="utf-8")
             self.assertTrue(validate_artifact(artifact)["valid"])
+            diagnostic = diagnose_artifacts([artifact])
+            self.assertEqual(diagnostic["errorCodes"], [{"name": "USAGE", "count": 1}])
+            self.assertEqual(
+                diagnostic["failingCommandPaths"],
+                [{"name": "stage create", "count": 1}],
+            )
+            unsafe_summary = json.loads(json.dumps(manifest))
+            unsafe_summary["episodes"][0]["eventSummary"]["commands"][0]["name"] = (
+                "private secret"
+            )
+            receipt = validate_bytes(canonical_json(unsafe_summary))
+            self.assertFalse(receipt["valid"])
+            self.assertTrue(any("non-public command label" in item for item in receipt["errors"]))
             representation_manifest = json.loads(json.dumps(manifest))
             representation_manifest["track"] = "representation"
             artifact.write_text(json.dumps(representation_manifest), encoding="utf-8")
@@ -2313,6 +3544,37 @@ class MarginBenchCoreTests(unittest.TestCase):
             receipt = validate_artifact(artifact)
             self.assertFalse(receipt["valid"])
             self.assertTrue(any("cost bound requires" in item for item in receipt["errors"]))
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_prime_summary_resolves_the_content_free_event_summary_schema(self) -> None:
+        payload = json.loads(
+            (PACKAGE_ROOT / "results" / "PRIME_GATE2_CONCURRENT_V7.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        episode = payload["episodes"][0]
+        command_count = episode["commandCount"]
+        episode["eventSummary"] = {
+            "commandCount": command_count,
+            "successCount": command_count - 1,
+            "failureCount": 1,
+            "blockedCount": 0,
+            "commands": [{
+                "name": "comments add",
+                "count": command_count,
+                "successCount": command_count - 1,
+                "failureCount": 1,
+                "blockedCount": 0,
+            }],
+            "errors": [{"name": "USAGE", "count": 1}],
+            "isTruncated": False,
+        }
+        receipt = validate_bytes(canonical_json(payload))
+        self.assertTrue(receipt["valid"], receipt["errors"])
+        episode["eventSummary"]["commands"][0]["name"] = "private identifier"
+        receipt = validate_bytes(canonical_json(payload))
+        self.assertFalse(receipt["valid"])
+        self.assertTrue(any("non-public command label" in item for item in receipt["errors"]))
 
     @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
     def test_tracked_prime_evidence_is_independently_checkable(self) -> None:

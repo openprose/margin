@@ -6,7 +6,7 @@ import hashlib
 from typing import Any
 
 from .controls import DEFAULT_CONTROL_PROFILE, planned_topology
-from .scenarios import SCENARIO_IDS, generate_episode
+from .scenarios import AVAILABLE_SCENARIO_IDS, generate_episode
 
 
 MINIMUM_PROMOTION_PAIRS = 20
@@ -38,7 +38,7 @@ def build_study_plan(
         raise ValueError("Study repetitions must be between 1 and 100.")
     if not scenarios or len(scenarios) != len(set(scenarios)):
         raise ValueError("Study scenarios must be a nonempty unique list.")
-    if any(scenario not in SCENARIO_IDS for scenario in scenarios):
+    if any(scenario not in AVAILABLE_SCENARIO_IDS for scenario in scenarios):
         raise ValueError("Study plan contains an unknown scenario.")
 
     episodes = [

@@ -111,6 +111,7 @@ enum MarginCommand {
 
     private static func runCapabilities(_ cursor: inout ArgumentCursor) throws {
         let pretty = cursor.takeFlag("--pretty")
+        let brief = cursor.takeFlag("--brief")
         let rawWorkflow = try cursor.takeValue("--for")
         guard cursor.takeFlag("--json") else {
             throw CLIError.usage("capabilities requires --json. Run 'margin capabilities --help'.")
@@ -121,12 +122,26 @@ enum MarginCommand {
                 let choices = CLICapabilityWorkflow.allCases.map(\.rawValue).joined(separator: ", ")
                 throw CLIError.usage("--for must be one of: \(choices).")
             }
-            try CLIOutput.json(
-                CLICommandCatalog.capabilitiesProjection(cliVersion: version, workflow: workflow),
-                pretty: pretty,
-                maximumBytes: CLICapabilitiesProjectionEnvelope.maximumEncodedBytes
-            )
+            if brief {
+                try CLIOutput.json(
+                    CLICommandCatalog.capabilitiesBriefProjection(
+                        cliVersion: version,
+                        workflow: workflow
+                    ),
+                    pretty: pretty,
+                    maximumBytes: CLICapabilitiesBriefProjectionEnvelope.maximumEncodedBytes
+                )
+            } else {
+                try CLIOutput.json(
+                    CLICommandCatalog.capabilitiesProjection(cliVersion: version, workflow: workflow),
+                    pretty: pretty,
+                    maximumBytes: CLICapabilitiesProjectionEnvelope.maximumEncodedBytes
+                )
+            }
         } else {
+            if brief {
+                throw CLIError.usage("--brief requires --for WORKFLOW.")
+            }
             try CLIOutput.json(
                 CLICommandCatalog.capabilities(cliVersion: version),
                 pretty: pretty,
@@ -997,6 +1012,8 @@ enum MarginCommand {
         switch error {
         case .preconditionFailed, .lockTimeout:
             exit = .temporaryFailure
+        case .stageNotFound:
+            exit = .notFound
         case .io, .transactionFailed, .rollbackFailed, .recoveryFailed:
             exit = .io
         case .pathEscapesRoot, .symlinkNotAllowed:
@@ -1131,13 +1148,17 @@ private extension MarginCommand {
       margin handoff add|list ...
       margin reconcile CURRENT --from PREVIOUS ...
       margin merge BASE OURS THEIRS ...
-      margin capabilities --json [--for review|staging|suggestions|handoff|merge] [--pretty]
-      margin man [review|comments|suggestions|staging|handoff|merge|safety] [--json]
+      margin capabilities --json --for review|staging|suggestions|handoff|merge --brief [--pretty]
+      margin man [agents|review|comments|suggestions|staging|handoff|merge|safety] [--json]
       margin help [COMMAND [SUBCOMMAND]]
 
     LEARN MARGIN
-      margin man teaches the safe workflow in small, task-specific pages.
-      margin capabilities is the exact machine-readable contract.
+      Agents with a known target should start with context TARGET --json --brief
+      and act from its concrete workflowGuidance. Use margin man agents when the
+      target or workflow is unclear, then at most one task-specific page.
+      Use capabilities --json --for WORKFLOW --brief only when context does not
+      expose the needed action and a small machine contract is useful.
+      The unfiltered capabilities catalog is for integrations, not task orientation.
       margin COMMAND --help is the exact local grammar.
 
     AGENT READING
@@ -1148,9 +1169,10 @@ private extension MarginCommand {
       review    Bounded outline, thread groups, excerpts, anchor health, and revision.
 
     DISCOVERY
-      capabilities  Versioned, bounded machine-readable command contract.
+      capabilities --for WORKFLOW --brief gives the small machine-readable task index.
       COMMAND --help and COMMAND SUBCOMMAND --help show command-local grammar.
-      context is the canonical bounded agent entry and emits an mcur1 cursor.
+      context --brief is the compact agent entry; omit it only when a cursor,
+      collaborator activity, or extended metadata is required.
       All collaboration commands are local and emit one JSON object.
 
     ALIASES
@@ -1171,11 +1193,11 @@ private extension MarginCommand {
       margin slice architecture.md --lines 20:1-45:1 --json
       margin slice --help
       margin comments add --help
-      margin context architecture.md --json --max-files 1
+      margin context architecture.md --json --brief --max-files 1
       margin stage create . --operations-file plan.json
       margin suggest add architecture.md --quote "# Design" \
         --replacement "# Architecture" -m "Use the established term"
-      margin capabilities --json
+      margin capabilities --json --for review --brief
       margin man
       margin man staging
       margin man comments add --json

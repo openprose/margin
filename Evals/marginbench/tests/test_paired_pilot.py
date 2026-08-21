@@ -13,7 +13,7 @@ from marginbench.binary import resolve_margin_binary
 from marginbench.candidates import CandidateManifest
 from marginbench.controls import DEFAULT_CONTROL_PROFILE
 from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY
-from marginbench.prime_study import build_prime_study_plan
+from marginbench.prime_study import build_prime_study_plan, describe_censored_evidence
 from marginbench.provenance import implementation_sha256
 from marginbench.runner import ReferenceDriver, run_episode
 from marginbench.scenarios import generate_episode
@@ -22,7 +22,11 @@ from marginbench.scheduling import build_execution_plan
 from marginbench.studies import build_study_plan
 from marginbench.submission import verify_submission
 from marginbench.validation import validate_artifact, validate_bytes
-from paired_pilot import execute_study, wait_until_paid_start_allowed
+from paired_pilot import (
+    execute_study,
+    wait_until_inter_job_cooldown_allowed,
+    wait_until_paid_start_allowed,
+)
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -71,6 +75,50 @@ class PairedPrimeControllerTests(unittest.TestCase):
             )
             self.assertEqual(sleeps, [5.0])
 
+    def test_inter_job_pacer_waits_from_the_prior_receipt_completion(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="marginbench-paired-cooldown-") as temporary:
+            receipt = Path(temporary) / "receipt.json"
+            receipt.write_text("{}\n", encoding="ascii")
+            receipt.touch()
+            completed_at = receipt.stat().st_mtime
+            now = [completed_at + 15.0]
+            sleeps: list[float] = []
+
+            def sleep(seconds: float) -> None:
+                sleeps.append(seconds)
+                now[0] += seconds
+
+            wait_until_inter_job_cooldown_allowed(
+                receipt,
+                45.0,
+                clock=lambda: now[0],
+                sleeper=sleep,
+            )
+            self.assertEqual(sleeps, [30.0])
+
+    def test_censored_evidence_reports_provider_cause_without_adopting_good_state(self) -> None:
+        message = describe_censored_evidence(
+            {
+                "status": "infrastructure_error",
+                "infrastructureCodes": ["LIVE_PROXY_UPSTREAM_ERROR"],
+                "episodes": [{"checks": {"outcome": True, "integrity": True}}],
+            },
+            {"status": "infrastructure-error"},
+        )
+        self.assertIn("LIVE_PROXY_UPSTREAM_ERROR", message)
+        self.assertIn("deterministic state checks passed", message)
+        self.assertIn("still censors the pair", message)
+
+        failed_state = describe_censored_evidence(
+            {
+                "status": "infrastructure_error",
+                "infrastructureCodes": ["WALL_TIMEOUT"],
+                "episodes": [{"checks": {"outcome": False}}],
+            },
+            {"status": "infrastructure-error"},
+        )
+        self.assertNotIn("state checks passed", failed_state)
+
 
     def _fixture(
         self,
@@ -79,6 +127,7 @@ class PairedPrimeControllerTests(unittest.TestCase):
         control_profile: str = DEFAULT_CONTROL_PROFILE,
         scenario: str = "human_agent_relay",
         response_token_allowance: int = 0,
+        inter_job_cooldown_seconds: float = 0.0,
     ) -> tuple[argparse.Namespace, dict]:
         root.mkdir(parents=True, exist_ok=True)
         baseline = CandidateManifest.create(
@@ -123,6 +172,7 @@ class PairedPrimeControllerTests(unittest.TestCase):
             "wallTimeoutSeconds": 60.0,
             "liveProxyTimeoutSeconds": 45.0,
             "minimumStartIntervalSeconds": 0.0,
+            "minimumInterJobCooldownSeconds": inter_job_cooldown_seconds,
             "minimumRequestIntervalSeconds": 0.25,
             "temperature": 0.0,
         }
@@ -161,6 +211,34 @@ class PairedPrimeControllerTests(unittest.TestCase):
             clock=lambda: 1_000.0,
         )
         return arguments, plan
+
+    def test_controller_applies_the_frozen_cooldown_before_the_second_job(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="marginbench-paired-cooldown-run-") as temporary:
+            root = Path(temporary)
+            arguments, plan = self._fixture(
+                root,
+                inter_job_cooldown_seconds=90.0,
+            )
+            arguments.max_new_jobs = 2
+            cooldowns: list[tuple[Path, float]] = []
+
+            completed = execute_study(
+                arguments,
+                plan,
+                wallet_reader=lambda _: {"balanceUSD": 200.0, "totalBillings": 0},
+                child_runner=self._fake_child(plan, root),
+                start_claimer=lambda *_, **__: None,
+                start_pacer=lambda *_: None,
+                cooldown_pacer=lambda path, seconds, **_: cooldowns.append(
+                    (path, seconds)
+                ),
+                prime_resolver=lambda _: "/opt/fake-prime",
+            )
+
+        self.assertTrue(completed["verified"])
+        self.assertEqual(len(cooldowns), 1)
+        self.assertEqual(cooldowns[0][1], 90.0)
+        self.assertTrue(cooldowns[0][0].name.endswith(".receipt.json"))
 
     def test_paired_plan_prices_provider_wrapper_tokens_without_expanding_sampling(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-paired-wrapper-budget-") as temporary:
@@ -201,7 +279,13 @@ class PairedPrimeControllerTests(unittest.TestCase):
         self.assertTrue(all(job["traceSeats"] == ["agent"] for job in continuing["jobs"]))
         self.assertTrue(validate_bytes(canonical_json(continuing))["valid"])
 
-    def _fake_child(self, plan: dict, root: Path):
+    def _fake_child(
+        self,
+        plan: dict,
+        root: Path,
+        *,
+        observed_wallet_debit: float = 0.0005,
+    ):
         candidates = {plan["baseline"]["id"]: plan["baseline"], plan["candidate"]["id"]: plan["candidate"]}
 
         def run(command: list[str], **_: object) -> subprocess.CompletedProcess:
@@ -257,7 +341,7 @@ class PairedPrimeControllerTests(unittest.TestCase):
                 "roleRuns": role_runs,
             }
             before = 200.0
-            observed = 0.0005
+            observed = observed_wallet_debit
             live_budget = {
                 "enabled": True,
                 "forwardedRequestCount": 1,
@@ -303,6 +387,8 @@ class PairedPrimeControllerTests(unittest.TestCase):
                     "before": {"balanceUSD": before, "totalBillings": 0},
                     "after": {"balanceUSD": before - observed, "totalBillings": 1},
                     "observedDebitUSD": observed,
+                    "observationScope": "account-wide",
+                    "debitAttribution": "unattributed",
                 },
                 "estimatedMaximumCostUSD": job["estimatedMaximumCostUSD"],
                 "contractMaximumCostUSD": job["contractMaximumCostUSD"],
@@ -400,6 +486,8 @@ class PairedPrimeControllerTests(unittest.TestCase):
                     "currency": "USD",
                     "traceReported": 0,
                     "observedWalletDebit": observed,
+                    "observedWalletDebitScope": "account-wide",
+                    "observedWalletDebitAttribution": "unattributed",
                     "unreconciled": observed,
                     "admissionBound": job["estimatedMaximumCostUSD"],
                     "contractBound": job["contractMaximumCostUSD"],
@@ -427,6 +515,22 @@ class PairedPrimeControllerTests(unittest.TestCase):
                 },
             }
             raw_path.mkdir(parents=True)
+            raw_path.joinpath("traces.jsonl").write_bytes(canonical_json({
+                "traces": [
+                    {
+                        "task": {"data": {
+                            "scenario_id": scenario,
+                            "test_job_ordinal": job["ordinal"],
+                        }},
+                        "agent": {"name": role if role in {"author", "reviewer"} else "agent"},
+                        "info": {"marginbench": {
+                            "marginSha256": candidates[candidate_id]["marginSha256"],
+                        }},
+                        "nodes": [],
+                    }
+                    for role in job["roles"]
+                ],
+            }) + b"\n")
             summary_path.parent.mkdir(parents=True, exist_ok=True)
             summary_path.write_bytes(canonical_json(summary))
             run_path.write_bytes(canonical_json(run_manifest))
@@ -542,6 +646,16 @@ class PairedPrimeControllerTests(unittest.TestCase):
             diagnostic = json.loads(diagnostic_path.read_bytes())
             self.assertEqual(completed["diagnostic"]["topOpportunity"], diagnostic["topOpportunity"])
             self.assertFalse(diagnostic["privacy"]["rawTracesRequired"])
+            trace_shapes = sorted((arguments.publication_dir / "trace-shapes").glob("*.json"))
+            self.assertEqual(len(trace_shapes), 2)
+            self.assertTrue(all(validate_artifact(path)["valid"] for path in trace_shapes))
+            self.assertEqual(
+                sum(
+                    item["schema"] == "urn:marginbench:trace-shape-report:v1"
+                    for item in diagnostic["artifacts"]
+                ),
+                2,
+            )
             receipts = sorted((arguments.work_dir / "redacted" / "jobs").glob("*.receipt.json"))
             self.assertEqual(len(receipts), 2)
             self.assertTrue(all(validate_artifact(path)["valid"] for path in receipts))
@@ -574,6 +688,41 @@ class PairedPrimeControllerTests(unittest.TestCase):
                     ),
                 )
 
+    def test_shared_wallet_spend_is_reported_but_not_charged_to_the_study(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="marginbench-shared-wallet-") as temporary:
+            root = Path(temporary)
+            arguments, plan = self._fixture(root)
+            arguments.max_new_jobs = 1000
+            child = self._fake_child(
+                plan,
+                root,
+                observed_wallet_debit=0.75,
+            )
+
+            completed = execute_study(
+                arguments,
+                plan,
+                wallet_reader=lambda _: {"balanceUSD": 200.0, "totalBillings": 0},
+                child_runner=child,
+                start_claimer=lambda *_, **__: None,
+                start_pacer=lambda *_: None,
+                prime_resolver=lambda _: "/opt/fake-prime",
+            )
+
+        self.assertEqual(completed["observedWalletDebitUSD"], 1.5)
+        self.assertEqual(completed["proxyAccountedCostUpperBoundUSD"], 0.0004)
+        self.assertEqual(completed["walletObservationScope"], "account-wide")
+        self.assertEqual(completed["walletDebitAttribution"], "unattributed")
+        self.assertGreater(
+            completed["observedWalletDebitUSD"],
+            plan["budget"]["hardAdmissionCapUSD"],
+        )
+        self.assertLess(
+            completed["proxyAccountedCostUpperBoundUSD"],
+            plan["budget"]["hardAdmissionCapUSD"],
+        )
+        self.assertTrue(validate_bytes(canonical_json(completed))["valid"])
+
     def test_dry_cli_emits_the_exact_valid_plan_without_creating_work_state(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-paired-dry-cli-") as temporary:
             root = Path(temporary)
@@ -601,6 +750,7 @@ class PairedPrimeControllerTests(unittest.TestCase):
                 "--wall-timeout-seconds", "60",
                 "--live-proxy-timeout-seconds", "45",
                 "--minimum-start-interval-seconds", "0",
+                "--minimum-inter-job-cooldown-seconds", "0",
                 "--minimum-request-interval-seconds", "0.25",
                 "--input-price-per-million", "0.03",
                 "--output-price-per-million", "0.13",

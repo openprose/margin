@@ -19,6 +19,9 @@
     "summary": {"$ref": "#/$defs/evidence"},
     "run": {"$ref": "#/$defs/evidence"},
     "observedWalletDebitUSD": {"type": "number", "minimum": 0},
+    "proxyAccountedCostUpperBoundUSD": {"type": "number", "minimum": 0},
+    "walletObservationScope": {"const": "account-wide"},
+    "walletDebitAttribution": {"const": "unattributed"},
     "traceReportedCostUSD": {"type": "number", "minimum": 0},
     "modelCalls": {"type": "integer", "minimum": 0},
     "safetyPassed": {"type": "boolean"},
@@ -33,6 +36,17 @@
         "holdoutKeyPublished": {"const": false}
       }
     }
+  },
+  "dependentRequired": {
+    "proxyAccountedCostUpperBoundUSD": [
+      "walletObservationScope", "walletDebitAttribution"
+    ],
+    "walletObservationScope": [
+      "proxyAccountedCostUpperBoundUSD", "walletDebitAttribution"
+    ],
+    "walletDebitAttribution": [
+      "proxyAccountedCostUpperBoundUSD", "walletObservationScope"
+    ]
   },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},

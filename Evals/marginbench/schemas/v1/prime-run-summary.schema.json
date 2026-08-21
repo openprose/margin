@@ -33,7 +33,13 @@
       "properties": {
         "before": {"$ref": "#/$defs/walletSnapshot"},
         "after": {"$ref": "#/$defs/walletSnapshot"},
-        "observedDebitUSD": {"type": "number", "minimum": 0}
+        "observedDebitUSD": {"type": "number", "minimum": 0},
+        "observationScope": {"const": "account-wide"},
+        "debitAttribution": {"const": "unattributed"}
+      },
+      "dependentRequired": {
+        "observationScope": ["debitAttribution"],
+        "debitAttribution": ["observationScope"]
       }
     },
     "estimatedMaximumCostUSD": {"type": "number", "minimum": 0},
@@ -166,6 +172,7 @@
         "sourcePreserved": {"type": "boolean"},
         "commandCount": {"type": "integer", "minimum": 0},
         "invalidCommandCount": {"type": "integer", "minimum": 0},
+        "eventSummary": {"$ref": "https://margin.tools/schemas/marginbench/v1/event-summary.schema.json"},
         "durationMs": {"type": "number", "minimum": 0},
         "marginSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "checks": {"type": "object", "additionalProperties": {"type": "boolean"}},

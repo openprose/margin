@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:schema:wide-directory-probe:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "version",
+    "paidModelsInvoked",
+    "passed",
+    "fixture",
+    "method",
+    "arms",
+    "comparison"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:wide-directory-probe:v1"},
+    "version": {"const": 1},
+    "paidModelsInvoked": {"const": false},
+    "passed": {"type": "boolean"},
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "fileCount", "contributionsPerFile", "totalContributionCount"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "fileCount": {"type": "integer", "minimum": 8, "maximum": 64},
+        "contributionsPerFile": {"type": "integer", "minimum": 1, "maximum": 8},
+        "totalContributionCount": {"type": "integer", "minimum": 8, "maximum": 512}
+      }
+    },
+    "method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "warmupCountPerArm", "roundCountPerArm", "counterbalanced", "timeoutSeconds"],
+      "properties": {
+        "command": {"const": "context --json --brief"},
+        "warmupCountPerArm": {"type": "integer", "minimum": 0, "maximum": 20},
+        "roundCountPerArm": {"type": "integer", "minimum": 4, "maximum": 200},
+        "counterbalanced": {"const": true},
+        "timeoutSeconds": {"type": "number", "minimum": 1, "maximum": 120}
+      }
+    },
+    "arms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "candidate"],
+      "properties": {
+        "baseline": {"$ref": "#/$defs/arm"},
+        "candidate": {"$ref": "#/$defs/arm"}
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateMinusBaselineBytes",
+        "candidateToBaselineByteRatio",
+        "candidateToBaselineMedianDurationRatio"
+      ],
+      "properties": {
+        "candidateMinusBaselineBytes": {"type": "integer"},
+        "candidateToBaselineByteRatio": {"type": "number", "exclusiveMinimum": 0},
+        "candidateToBaselineMedianDurationRatio": {"type": "number", "exclusiveMinimum": 0}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nonnegativeIntegers": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "uniqueItems": true,
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "arm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binarySha256",
+        "sampleCount",
+        "durationMs",
+        "stdoutBytes",
+        "responseDeterministic",
+        "responseUsable",
+        "responseShape",
+        "sourcePreserved"
+      ],
+      "properties": {
+        "binarySha256": {"$ref": "#/$defs/sha256"},
+        "sampleCount": {"type": "integer", "minimum": 4, "maximum": 200},
+        "durationMs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["median", "p95"],
+          "properties": {
+            "median": {"type": "number", "exclusiveMinimum": 0},
+            "p95": {"type": "number", "exclusiveMinimum": 0}
+          }
+        },
+        "stdoutBytes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min", "median", "max"],
+          "properties": {
+            "min": {"type": "integer", "minimum": 1},
+            "median": {"type": "integer", "minimum": 1},
+            "max": {"type": "integer", "minimum": 1}
+          }
+        },
+        "responseDeterministic": {"type": "boolean"},
+        "responseUsable": {"type": "boolean"},
+        "responseShape": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "fileCounts",
+            "workCounts",
+            "workflowGuidanceCounts",
+            "truncatedValues",
+            "omittedFileCounts",
+            "omittedFileCountLowerBoundValues"
+          ],
+          "properties": {
+            "fileCounts": {"$ref": "#/$defs/nonnegativeIntegers"},
+            "workCounts": {"$ref": "#/$defs/nonnegativeIntegers"},
+            "workflowGuidanceCounts": {"$ref": "#/$defs/nonnegativeIntegers"},
+            "truncatedValues": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {"type": "boolean"}
+            },
+            "omittedFileCounts": {"$ref": "#/$defs/nonnegativeIntegers"},
+            "omittedFileCountLowerBoundValues": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {"type": "boolean"}
+            }
+          }
+        },
+        "sourcePreserved": {"type": "boolean"}
+      }
+    }
+  }
+}

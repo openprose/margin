@@ -13,6 +13,14 @@ final class CollaborationContextTests: XCTestCase {
         XCTAssertEqual(root.kind, .document)
         XCTAssertEqual(root.path, file.standardizedFileURL.resolvingSymlinksInPath().path)
         XCTAssertNil(root.workspaceID)
+
+        let legacyDiscovery = try JSONDecoder().decode(
+            CollaborationDiscoveryResult.self,
+            from: Data(
+                #"{"paths":[],"bytes":0,"omittedFileCount":0,"hitFileLimit":false,"hitByteLimit":false,"hitDepthLimit":false}"#.utf8
+            )
+        )
+        XCTAssertNil(legacyDiscovery.omittedFileCountIsLowerBound)
     }
 
     func testWorkspaceInitializationDiscoveryAndContextAreBoundedAndDeterministic() throws {
@@ -63,6 +71,7 @@ final class CollaborationContextTests: XCTestCase {
         XCTAssertEqual(context.files.map(\.path), ["README.md", "notes/équipe.md"])
         XCTAssertEqual(context.cursor.files.map(\.path), ["README.md", "notes/équipe.md"])
         XCTAssertFalse(context.truncation.isTruncated)
+        XCTAssertEqual(context.truncation.discovery.omittedFileCountIsLowerBound, false)
         XCTAssertEqual(context.files[1].outline.first?.title, "Café ☕️")
         XCTAssertEqual(context.files[0].sourcePreview, "# Root\n\nWelcome.\n")
         XCTAssertFalse(context.files[0].sourcePreviewTruncated)
@@ -216,6 +225,11 @@ final class CollaborationContextTests: XCTestCase {
         XCTAssertEqual(bounded.omittedCount, 1)
         XCTAssertTrue(bounded.isTruncated)
         XCTAssertEqual(try store.list(root: root, limit: 0).omittedCount, 2)
+
+        let missingStageID = "urn:stage:missing"
+        XCTAssertThrowsError(try store.load(stageID: missingStageID, root: root)) { error in
+            XCTAssertEqual(error as? CollaborationError, .stageNotFound(missingStageID))
+        }
     }
 
     func testShortReferencesAreDeterministicAndExtendOnCollision() {

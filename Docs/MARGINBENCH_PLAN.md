@@ -1,6 +1,6 @@
 # MarginBench build plan
 
-Last updated: 2026-08-19 10:55 ET
+Last updated: 2026-08-20 21:30 ET
 
 MarginBench is the working name for a portable, execution-scored benchmark for
 human-to-agent and agent-to-agent collaboration over Markdown workspaces. The
@@ -1295,3 +1295,184 @@ certificate; public notarized distribution still requires that identity.
 The read-only Prime wallet check after all paid evidence reported $199.3243,
 leaving more than the protected $190 reserve. No further model call was made
 after the targeted replacement pair.
+
+## 2026-08-20 published-baseline continuation
+
+The continuation began by re-establishing the product and evidence baseline.
+`main` now includes the public `v0.4.0` tag, the GitHub release workflow,
+combined macOS app-and-CLI packages, separate Linux CLI archives, release audit
+hardening, and the target-size startup matrix. The published v0.4.0 binary is
+retained byte-for-byte as the comparison baseline rather than rebuilt from the
+new working tree.
+
+The current cycle alternated benchmark corrections and narrowly scoped CLI
+changes:
+
+| Step | Mechanism tested | Result | Decision |
+| --- | --- | --- | --- |
+| v31 | Put concrete actions before descriptive context | One Qwen pair improved by 27.9 points, but one pair is calibration only | Retain for further matched evidence |
+| v32 | Compact the action-first view | One Luna pair scored 91.944 versus 92.5 for v31 | No improvement claim |
+| v33 | Accept natural manual topics such as directory, folder, workspace, context, and inbox | One Luna pair used four fewer commands and two fewer model calls but scored 92.5 versus 94.583 | Keep the harmless aliases; do not claim quality gain |
+| v34 | Include exact reply-and-resolve, thread verification, handoff creation, and handoff verification actions in brief context | In the valid counter-ordered Luna pair, v34 scored 96.25 versus 92.5, completed the required workflow, and was 4.58 seconds faster | Useful one-pair mechanism signal; not promotable |
+| v35 | Redirect `margin man FILE.md` to a safe, bounded target workflow | A fresh Luna pair tied v34 at 100 with equal commands and no invalid calls; the redirect itself was not invoked | Safe but not yet causally exercised |
+| v36 | Remove redundant prose and fields from brief context and halve its default source preview | A long-document/open-work fixture fell from 5,064 to 3,776 bytes while retaining executable reply, resolve, verification, read, and handoff actions | Keep behind permanent size and content regressions |
+| v37 | Bound the default brief view of a wide directory while preserving explicit overrides | On the frozen 16-file/four-item-per-file probe, output fell from 52,383 to 7,377 bytes and median elapsed time from 57.423 to 22.015 ms in a counterbalanced 20-round comparison | Keep behind a wide-workspace regression; require a real task before claiming agent benefit |
+| v38 | Add an opt-in wide-directory triage task and a compact filtered inbox | The exact 16-file/64-distractor reference completed at 100 in five commands; filtered inbox output fell from 11,440 to 3,215 bytes while still finding the one question outside brief context | Retain as an experimental scenario; buy no model run until the full release gates and a future paid plan are frozen |
+| v39 | Align built-in agent teaching with the bounded defaults and tighten the new route oracle | Every manual page stopped overriding brief context with 16 files, filtered inbox examples became compact, and a deliberately reversed inbox-before-context trace now fails the route check despite completing the document | Keep as contract hardening; require future real-model evidence before promoting the experimental scenario |
+| v40 | Make concurrent-work efficiency reflect the benchmark's prescribed recovery path | Running both Python contract suites under contention exposed a legitimate write collision: the reference agent recovered exactly as instructed but lost 0.769 points because the efficient-call allowance covered only the collision-free path. The scorer fixture now treats one failed write plus its required reread as fully efficient, and a deterministic regression constructs that six-call recovery | Keep as benchmark correction; do not interpret normal concurrency recovery as agent waste |
+| v41 | Absorb safe annotation-only races inside typed contribution creation | Eight simultaneous distinct issues first proved that three retries were insufficient; a bounded eight-attempt implementation then passed ten consecutive eight-writer runs while preserving every identity, contribution, and source byte. In a 200-case side-by-side stress sample, the frozen v0.4.0 binary exposed 29 collision/recovery episodes and used six calls in each, while v41 exposed zero and used four calls in all 200; both arms remained 100 and safe | Keep as a measured CLI candidate; explicit revision guards and Markdown changes still fail closed, and model-free contention evidence is not a model-quality claim |
+| v42 | Make concurrent contention a reproducible, schema-checked benchmark mechanism | The new model-free probe starts baseline and candidate together for 1,000 paired two-writer episodes, counterbalances submission order, binds the generated case set by digest, checks exact outcome/safety/source preservation, and records visible-conflict and command-count histograms. Under this deliberately stronger contention, the frozen v0.4.0 baseline surfaced 719 conflicts and used 5,438 visible calls; v41 surfaced none and used 4,000. Both scored 100 and preserved source | Keep the probe and retained report. Never require the baseline to collide, never treat mechanism evidence as model-quality evidence, and use real-model paired studies only for agent-performance claims |
+| v43 | Prevent a broken comparison baseline from yielding a passing contention report | Final adversarial review found that the candidate gate was strict but the baseline arm was descriptive even for correctness. The report and independent validator now require both arms to score 100, pass safety, preserve source, and avoid invalid commands; only baseline collision frequency remains descriptive. A tampered-baseline regression fails the pass flag | Keep as benchmark-integrity hardening. The retained 1,000-pair evidence remains valid because both arms already met the stricter contract |
+| v44 | Diagnose Linux XCTest stalls without weakening the product gate | Live LLDB capture identified the exact open swift-corelibs XCTest teardown deadlock (`ppoll` → Foundation run loop → XCTest expectation wait → teardown → `invokeTest`) with no active Margin frame. A strict per-test runner retries only that captured framework stack. A 200-process stress sample recovered four exact cases, a forced ordinary timeout failed closed, and four full 124-test gates passed, the last three with zero recoveries | Keep the narrow diagnostic classifier and its adversarial tests. Never treat an assertion, crash, debugger failure, product stack on any thread, or unclassified timeout as retryable |
+
+The v41 retry path is never initialized for help or ordinary reads. In a
+counterbalanced 100-process final sample, global help measured 5.704 ms median /
+7.212 ms p95 for the published v0.4.0 binary and 5.617 ms / 6.456 ms for the
+candidate. These are scheduling-scale differences, not a speedup claim; they
+show that the concurrency safety path adds no observable startup penalty.
+
+The v34 mechanism pair used one fresh private case and is therefore diagnostic,
+not a population estimate. It cost $0.0209 as reported by the model adapter;
+its conservative proxy upper bound was $0.1068. The v35 pair reported $0.0266
+with a $0.138892 conservative upper bound. An earlier v34 attempt stopped after
+one arm because Prime returned a temporary upstream 502; its deterministic
+workspace checks happened to pass, but the controller correctly censored the
+pair and did not retry. That incident reported $0.014. This continuation's
+model-reported total is therefore $0.0615; account-wide wallet movements remain
+separate, unattributed observations and are not called experiment spend.
+
+MarginBench itself was hardened in the same loop:
+
+- infrastructure causes survive from the gateway through run, completion, and
+  controller receipts, and censored comparisons name the exact failing layer;
+- paid requests use an inter-job cooldown and uncertain provider attempts are
+  never silently retried;
+- privacy-safe trace shapes now include command sequences, coarse response-size
+  buckets, unanswered calls, and path-to-first-write buckets without retaining
+  prompts, arguments, paths, identifiers, or document content;
+- paired publications now produce trace-shape evidence for both trial arms.
+  Each shape is linked to its candidate identity, because a binary digest alone
+  cannot distinguish two settings bundles that intentionally share one binary;
+- multi-candidate diagnosis uses only the selected candidate's trace evidence,
+  so reversing operational order cannot change which behavior is diagnosed;
+- a role that has already produced the complete durable outcome is no longer
+  mislabeled as a product-facing budget failure merely because its final tool
+  call consumed the last turn before a closing sentence;
+- plain-text CLI usage failures now receive the stable `USAGE` class instead of
+  falling into an unclassified bucket.
+
+At this checkpoint the native suite passes 177 tests. Both the system and Prime
+Python runtimes pass 198 MarginBench tests; the full nine-scenario reference
+run scores 100 with no model call, and the neutral control and publication
+audits pass. The compact-context regression is included in those final counts.
+
+A final load-sensitive audit found one benchmark race rather than a product
+failure. In `concurrent_review`, the ideal two-writer reference path uses four
+calls. A real shared-state collision correctly adds one failed write and the
+prescribed reread before retrying, for six calls. The old five-call efficiency
+target therefore made the exact safe recovery path score 99.230769 under CPU
+contention even though every outcome and safety check passed. The target is now
+six, a direct regression constructs the collision, and the complete Prime
+runtime suite passes while the system suite runs concurrently. This changes no
+document outcome, safety rule, or maximum command budget; it only stops charging
+an agent for the benchmark's own required recovery protocol.
+
+The wide-directory measurement is now a first-class model-free command rather
+than an ad hoc fixture. It creates deterministic, byte-identical workspaces,
+normalizes generated IDs and timestamps, validates every embedded comment
+envelope, alternates candidate order, verifies source preservation, and emits a
+schema-backed report. The retained development report is
+`Evals/marginbench/results/wide-directory/v37-model-free.json`. That probe also
+found that early-stop discovery could report one observed omitted file as if it
+were an exact total. The CLI now labels `omittedFileCount` as a lower bound when
+it intentionally avoids a full directory walk. The report's pass condition
+also requires nonempty actionable files, work items, guidance, action paths,
+roots, and revisions; deterministic empty output cannot pass.
+
+Concurrent contention is now equally reproducible. `concurrency-probe` starts
+the frozen baseline and candidate at the same barrier for each episode,
+counterbalances which arm is submitted first, and emits no paths, bodies,
+identifiers, or event traces. Its retained 1,000-pair report is
+`Evals/marginbench/results/concurrency/v41-model-free.json` (SHA-256
+`a5bf26712590063d8851f7babe7930e40b3b68d1918f4504d7f67084cb644fdb`).
+The baseline had 719 agent-visible collision/recovery episodes (`281 × 4`
+calls, `719 × 6`), while v41 had none
+(`1,000 × 4` calls). Both arms scored 100, passed safety, and
+preserved every source byte. The report passes its v1 schema and semantic
+consistency checks. Both arms must be correct, safe, source-preserving, and free
+of invalid calls; only baseline collisions remain descriptive rather than a
+pass requirement, so scheduler luck cannot invalidate the mechanism gate.
+
+The portable Linux gate passes 124 core and CLI tests across 19 suites. Each
+test runs in its own XCTest process with a strict timeout. Live LLDB inspection
+of the intermittent stalls found the exact open swift-corelibs XCTest teardown
+deadlock: `ppoll`, Foundation's run loop, XCTest expectation waiting,
+`performTearDownSequence`, and `invokeTest`, with no active Margin frame. The
+diagnostic runner freezes a timeout and retries at most twice only when that
+whole framework stack is present. Assertion failures, crashes, debugger
+failures, product stacks, and unclassified timeouts fail immediately. A
+200-process stress sample recovered four exact framework deadlocks; a forced
+0.001-second timeout was correctly rejected as unclassified. One complete gate
+then passed with one proven recovery, followed by three consecutive clean
+124-test runs with zero recoveries. The policy contains an upstream framework
+defect without masking a product failure. See
+[swift-corelibs-xctest #504](https://github.com/swiftlang/swift-corelibs-xctest/issues/504).
+A Linux archive rebuild was attempted separately, but Docker Hub
+stalled while resolving its build frontend before compilation began; that is
+recorded as packaging infrastructure rather than a product result.
+
+Startup remains flat. In one counterbalanced 100-process sample, ordinary help
+measured 5.654 ms median for the published v0.4.0 binary and 5.674 ms for v36;
+context help measured 5.648 and 5.701 ms. A real brief-context operation measured
+17.832 ms median for v35 and 17.892 ms for v36. These sub-millisecond differences
+are scheduling noise, not a speed claim, and show no material regression.
+
+That next experiment now exists as the opt-in `wide_directory_triage` scenario.
+It has 16 Markdown files, 64 distractor threads, one uniquely typed question in
+the omitted portion, and an exact reply-and-resolve outcome. The model-free
+reference proves the intended route: brief context, filtered brief inbox,
+targeted thread read, atomic reply-and-resolve, verification, and validation.
+It remains outside the stable nine-scenario default so historical studies do
+not silently change. A future paid plan should start with one cheap fresh
+matched case and expand only if both arms actually exercise the intended route.
+Directional product language still requires at least 20 valid matched cases
+under the frozen promotion rule.
+
+The CLI's own progressive manual now teaches that same route. It no longer
+adds `--max-files 16` to brief context or requests a full-cursor inbox by
+default. The benchmark also checks sequence, not just command presence:
+successful context must precede the filtered inbox before the first mutation.
+
+The final local candidate binary is 2,776,448 bytes with SHA-256
+`883ed7e4e1a11fbb035a619c96ffb949793635c8493253ea005512ecc0533902`.
+The combined app-and-CLI zip is 3,656,870 bytes with SHA-256
+`aa255580813d3da6aa8d1d98c6ddbdd98fac43a847352d9e07c11c7fa6b7c6a0`;
+the installer is 3,644,806 bytes with SHA-256
+`8c53681bbcd52075f54d2ff43cb845011c449f9259e957d463673cdabe2f4847`.
+Both checksum files and zip integrity verify. The app and CLI are ad-hoc signed;
+the installer remains unsigned and this development candidate was not
+published over the v0.4.0 release. Repackaging can change archive-container
+checksums and the unsigned installer metadata even when the executable is
+byte-identical, so benchmark candidate identity is always the executable digest
+(`883ed7…`), never a zip or installer digest.
+
+## Next research queue
+
+1. Extend the model-free contention matrix to suggestions, handoffs, and more
+   than two writers before generalizing the new retry behavior. Each operation
+   needs its own proof of what may be safely rebased; “same Markdown” alone is
+   not automatically sufficient for every collaboration meaning.
+2. Buy a real-model matched concurrency case only to answer an agent-behavior
+   question: whether removing visible recovery changes completion, command
+   choice, tokens, or latency. The 1,000-pair mechanism result already answers
+   the storage/CLI question without further spend.
+3. Add fresh held-out wide-directory shapes and vary relevant-work density,
+   nesting, and document size while preserving historical scenario versions.
+   Promote compact discovery only if agents recover omitted work as reliably as
+   they do on the full view.
+4. Restore the digest-pinned Linux binary inputs required by
+   `make marginbench-package`, then rebuild and inspect the portable wheel. The
+   app-and-CLI macOS zip/pkg are green; the benchmark wheel correctly refuses to
+   package while either Linux architecture artifact is absent.
+5. Keep the current v0.4.0 public release untouched until a later candidate
+   earns the frozen promotion threshold and passes the full release audit.

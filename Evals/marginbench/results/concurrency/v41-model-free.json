@@ -1,0 +1,56 @@
+{
+  "arms": {
+    "baseline": {
+      "binarySha256": "3a2847e929bb0a3fc2a141fed4a22dadacf0194ecbfe0054a158b510b026edba",
+      "commandCount": 5438,
+      "commandCountHistogram": {"4": 281, "6": 719},
+      "durationMs": {"median": 83.8215, "p95": 90.274},
+      "episodeCount": 1000,
+      "invalidCommandCount": 0,
+      "meanScore": 100.0,
+      "minimumScore": 100.0,
+      "safetyPassed": true,
+      "sourcePreserved": true,
+      "visibleConflictCount": 719,
+      "visibleConflictEpisodeCount": 719
+    },
+    "candidate": {
+      "binarySha256": "7ea930aa19bdd9da66f6dcab09c19f6bba49a7783f9592f86b18895e597a46ef",
+      "commandCount": 4000,
+      "commandCountHistogram": {"4": 1000},
+      "durationMs": {"median": 59.445, "p95": 66.974},
+      "episodeCount": 1000,
+      "invalidCommandCount": 0,
+      "meanScore": 100.0,
+      "minimumScore": 100.0,
+      "safetyPassed": true,
+      "sourcePreserved": true,
+      "visibleConflictCount": 0,
+      "visibleConflictEpisodeCount": 0
+    }
+  },
+  "comparison": {
+    "candidateMinusBaselineCommandCount": -1438,
+    "candidateMinusBaselineVisibleConflicts": -719
+  },
+  "fixture": {
+    "caseCount": 1000,
+    "caseSetSha256": "cbe8c7b8105839a97ed7446bf193e78b9fb15d964a55557c859cca7972dbf18f",
+    "firstRepetition": 0
+  },
+  "method": {
+    "baselineCollisionRequired": false,
+    "controlProfile": "role-separated-margin-only-v1",
+    "counterbalancedSubmissionOrder": true,
+    "expectedAgentVisibleCallsPerEpisode": 4,
+    "gatewayTimeoutSeconds": 30.0,
+    "pairedSimultaneousStart": true,
+    "repetitionsPerArm": 1000,
+    "rolesPerEpisode": 2,
+    "scenario": "concurrent_review"
+  },
+  "paidModelsInvoked": false,
+  "passed": true,
+  "schema": "urn:marginbench:concurrency-probe:v1",
+  "version": 1
+}

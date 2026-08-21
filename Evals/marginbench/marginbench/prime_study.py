@@ -156,6 +156,7 @@ def build_prime_study_plan(
         "liveProxyTemplateTokenAllowance": 8192,
         "liveProxyTimeoutSeconds": 120.0,
         "minimumStartIntervalSeconds": 300.0,
+        "minimumInterJobCooldownSeconds": 60.0,
         "minimumRequestIntervalSeconds": 0.0,
         "providerResponseTokenAllowance": 0,
         **limits,
@@ -254,6 +255,12 @@ def build_prime_study_plan(
     minimum_start_interval = _nonnegative_number(limits, "minimumStartIntervalSeconds")
     if minimum_start_interval > 3600:
         raise PrimeStudyError("minimumStartIntervalSeconds cannot exceed 3600.")
+    minimum_inter_job_cooldown = _nonnegative_number(
+        limits,
+        "minimumInterJobCooldownSeconds",
+    )
+    if minimum_inter_job_cooldown > 3600:
+        raise PrimeStudyError("minimumInterJobCooldownSeconds cannot exceed 3600.")
     minimum_request_interval = _nonnegative_number(limits, "minimumRequestIntervalSeconds")
     if minimum_request_interval > 60:
         raise PrimeStudyError("minimumRequestIntervalSeconds cannot exceed 60.")
@@ -409,7 +416,7 @@ def validate_prime_job_outputs(
     )
     errors: list[str] = []
     if summary["status"] != "completed" or run["status"] != "completed":
-        errors.append("child execution did not complete")
+        errors.append(describe_censored_evidence(summary, run))
     if summary["model"] != plan["model"] or run["execution"]["model"] != plan["model"]:
         errors.append("child model differs from the paired plan")
     if summary["candidate"] != candidate["id"] or run["candidate"]["id"] != candidate["id"]:
@@ -546,7 +553,23 @@ def validate_prime_job_outputs(
         abs_tol=0.000001,
     ):
         errors.append("run admission bound differs from the scheduled job bound")
-    if summary["wallet"]["observedDebitUSD"] > job["estimatedMaximumCostUSD"] + 0.000001:
+    wallet_is_unattributed = (
+        summary["wallet"].get("observationScope") == "account-wide"
+        and summary["wallet"].get("debitAttribution") == "unattributed"
+    )
+    proxy_accounted_upper = summary.get("liveBudget", {}).get(
+        "reservedCostUpperBoundUSD"
+    )
+    if wallet_is_unattributed:
+        if (
+            not isinstance(proxy_accounted_upper, (int, float))
+            or isinstance(proxy_accounted_upper, bool)
+            or proxy_accounted_upper > job["estimatedMaximumCostUSD"] + 0.000001
+        ):
+            errors.append("proxy-accounted cost exceeds the scheduled job bound")
+    elif summary["wallet"]["observedDebitUSD"] > job["estimatedMaximumCostUSD"] + 0.000001:
+        # Historical summaries predate explicit wallet attribution. Keep their
+        # conservative validation so existing private receipts remain replayable.
         errors.append("observed wallet debit exceeds the scheduled job bound")
     expected_basis = {
         "inputTokenCeilingPerCall": plan["limits"]["inputTokenCeilingPerCall"],
@@ -594,6 +617,11 @@ def validate_prime_job_outputs(
         errors.append("summary and run disagree on live proxy accounting")
     if run["cost"]["observedWalletDebit"] != summary["wallet"]["observedDebitUSD"]:
         errors.append("summary and run disagree on observed wallet debit")
+    if wallet_is_unattributed and (
+        run["cost"].get("observedWalletDebitScope") != "account-wide"
+        or run["cost"].get("observedWalletDebitAttribution") != "unattributed"
+    ):
+        errors.append("summary and run disagree on wallet debit attribution")
     if (
         summary["scenarios"] != [job["scenario"]]
         or summary["repetitions"] != 1
@@ -613,6 +641,15 @@ def validate_prime_job_outputs(
         "summary": {"path": summary_relative_path, "sha256": summary_sha256},
         "run": {"path": run_relative_path, "sha256": run_sha256},
         "observedWalletDebitUSD": summary["wallet"]["observedDebitUSD"],
+        **(
+            {
+                "proxyAccountedCostUpperBoundUSD": proxy_accounted_upper,
+                "walletObservationScope": "account-wide",
+                "walletDebitAttribution": "unattributed",
+            }
+            if wallet_is_unattributed
+            else {}
+        ),
         "traceReportedCostUSD": run["cost"]["traceReported"],
         "modelCalls": sum(item["usage"]["modelCalls"] for item in run["episodes"]),
         "safetyPassed": all(item["safetyPassed"] for item in run["episodes"]),
@@ -628,3 +665,30 @@ def validate_prime_job_outputs(
         details = "; ".join(validation.get("errors", ())[:3])
         raise RuntimeError(details or "Generated job receipt violated its public contract.")
     return receipt
+
+
+def describe_censored_evidence(summary: dict[str, Any], run: dict[str, Any]) -> str:
+    """Explain why a completed child artifact cannot enter a paired comparison."""
+    codes = sorted({
+        value
+        for value in summary.get("infrastructureCodes", ())
+        if isinstance(value, str) and value
+    })[:8]
+    checks = [
+        value
+        for episode in summary.get("episodes", ())
+        if isinstance(episode, dict)
+        for value in episode.get("checks", {}).values()
+        if isinstance(value, bool)
+    ]
+    state_note = (
+        "; deterministic state checks passed, but provider/harness instability still censors the pair"
+        if checks and all(checks)
+        else ""
+    )
+    code_note = f"; infrastructure codes={','.join(codes)}" if codes else ""
+    return (
+        "child evidence is non-adoptable "
+        f"(summary status={summary.get('status')}, run status={run.get('status')}{code_note})"
+        f"{state_note}"
+    )

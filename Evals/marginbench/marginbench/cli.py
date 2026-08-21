@@ -14,6 +14,7 @@ from .candidates import CandidateManifest, load_results, paired_compare
 from .challenges import challenge_catalog
 from .checkpoint import CheckpointPromotionError, promote_checkpoint
 from .controls import DEFAULT_CONTROL_PROFILE, control_catalog
+from .concurrency_probe import ConcurrencyProbeLimits, run_concurrency_probe
 from .crossover import (
     CONTINUING_PROFILE,
     ROLE_SEPARATED_PROFILE,
@@ -32,7 +33,7 @@ from .publication import audit_crossover_publication
 from .reference_study import ReferenceStudyError, run_reference_study
 from .runner import ReferenceDriver, run_episode
 from .scheduling import ExecutionPlanError, build_execution_plan
-from .scenarios import SCENARIO_IDS, generate_episode
+from .scenarios import AVAILABLE_SCENARIO_IDS, SCENARIO_IDS, generate_episode
 from .schema import canonical_json
 from .studies import build_study_plan
 from .submission import (
@@ -43,6 +44,7 @@ from .submission import (
 )
 from .trace_shapes import TraceShapeError, summarize_trace_shapes
 from .validation import validate_artifact
+from .wide_directory_probe import ProbeLimits, run_wide_directory_probe
 
 
 def _key(path: str | None) -> bytes:
@@ -86,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     generate = subparsers.add_parser("generate", help="emit a public episode manifest")
-    generate.add_argument("--scenario", choices=SCENARIO_IDS, required=True)
+    generate.add_argument("--scenario", choices=AVAILABLE_SCENARIO_IDS, required=True)
     generate.add_argument("--repetition", type=int, default=0)
     generate.add_argument("--key-file")
 
@@ -95,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
         "--margin-bin",
         help="Margin executable; defaults to the verified binary bundled in the package.",
     )
-    reference.add_argument("--scenario", action="append", choices=SCENARIO_IDS)
+    reference.add_argument("--scenario", action="append", choices=AVAILABLE_SCENARIO_IDS)
     reference.add_argument("--repetitions", type=int, default=1)
     reference.add_argument("--key-file")
 
@@ -149,6 +151,26 @@ def main(argv: list[str] | None = None) -> int:
     compare.add_argument("baseline")
     compare.add_argument("candidate")
 
+    wide_probe = subparsers.add_parser(
+        "wide-directory-probe",
+        help="compare brief-context size and latency on a deterministic wide workspace",
+    )
+    wide_probe.add_argument("--baseline-bin", required=True)
+    wide_probe.add_argument("--candidate-bin", required=True)
+    wide_probe.add_argument("--files", type=int, default=16)
+    wide_probe.add_argument("--contributions-per-file", type=int, default=4)
+    wide_probe.add_argument("--warmups", type=int, default=3)
+    wide_probe.add_argument("--rounds", type=int, default=20)
+    wide_probe.add_argument("--timeout-seconds", type=float, default=30.0)
+
+    concurrency_probe = subparsers.add_parser(
+        "concurrency-probe",
+        help="compare agent-visible contention in repeated simultaneous two-writer episodes",
+    )
+    concurrency_probe.add_argument("--baseline-bin", required=True)
+    concurrency_probe.add_argument("--candidate-bin", required=True)
+    concurrency_probe.add_argument("--repetitions", type=int, default=100)
+
     candidate = subparsers.add_parser("candidate", help="freeze a CLI/manual/settings candidate by digest")
     candidate.add_argument("--id", required=True)
     candidate.add_argument("--margin-bin", required=True)
@@ -163,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     study.add_argument("--baseline", required=True)
     study.add_argument("--candidate", required=True)
-    study.add_argument("--scenario", action="append", choices=SCENARIO_IDS)
+    study.add_argument("--scenario", action="append", choices=AVAILABLE_SCENARIO_IDS)
     study.add_argument("--repetitions", type=int, default=4)
     study.add_argument("--key-file")
     study.add_argument("--control-profile", default=DEFAULT_CONTROL_PROFILE)
@@ -265,12 +287,18 @@ def main(argv: list[str] | None = None) -> int:
         "artifact",
         type=Path,
         nargs="+",
-        help="validated result, reference run, redacted run, or Prime summary",
+        help=(
+            "validated result/reference/run evidence, plus optional content-free "
+            "trace-shape reports"
+        ),
     )
 
     trace_shapes = subparsers.add_parser(
         "trace-shapes",
-        help="summarize private Prime command shapes without retaining content, paths, or IDs",
+        help=(
+            "summarize private Prime command shapes without retaining content, paths, "
+            "or IDs; the report can supplement diagnose"
+        ),
     )
     trace_shapes.add_argument(
         "trace",
@@ -325,6 +353,26 @@ def main(argv: list[str] | None = None) -> int:
     submission_verify.add_argument("manifest", type=Path)
 
     arguments = parser.parse_args(argv)
+    if arguments.command == "wide-directory-probe":
+        _write(run_wide_directory_probe(
+            _binary(arguments.baseline_bin),
+            _binary(arguments.candidate_bin),
+            limits=ProbeLimits(
+                files=arguments.files,
+                contributions_per_file=arguments.contributions_per_file,
+                warmups=arguments.warmups,
+                rounds=arguments.rounds,
+                timeout_seconds=arguments.timeout_seconds,
+            ),
+        ))
+        return 0
+    if arguments.command == "concurrency-probe":
+        _write(run_concurrency_probe(
+            _binary(arguments.baseline_bin),
+            _binary(arguments.candidate_bin),
+            limits=ConcurrencyProbeLimits(repetitions=arguments.repetitions),
+        ))
+        return 0
     if arguments.command == "generate":
         episode = generate_episode(arguments.scenario, _key(arguments.key_file), arguments.repetition)
         _write(episode.public_manifest())

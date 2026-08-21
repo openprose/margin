@@ -17,6 +17,9 @@
     "planID": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "jobCount": {"type": "integer", "minimum": 2, "maximum": 2000},
     "observedWalletDebitUSD": {"type": "number", "minimum": 0},
+    "proxyAccountedCostUpperBoundUSD": {"type": "number", "minimum": 0},
+    "walletObservationScope": {"const": "account-wide"},
+    "walletDebitAttribution": {"const": "unattributed"},
     "reportedCostUSD": {"type": "number", "minimum": 0},
     "modelCalls": {"type": "integer", "minimum": 0},
     "allSafe": {"type": "boolean"},
@@ -38,5 +41,16 @@
       }
     },
     "automaticRetryPerformed": {"const": false}
+  },
+  "dependentRequired": {
+    "proxyAccountedCostUpperBoundUSD": [
+      "walletObservationScope", "walletDebitAttribution"
+    ],
+    "walletObservationScope": [
+      "proxyAccountedCostUpperBoundUSD", "walletDebitAttribution"
+    ],
+    "walletDebitAttribution": [
+      "proxyAccountedCostUpperBoundUSD", "walletObservationScope"
+    ]
   }
 }

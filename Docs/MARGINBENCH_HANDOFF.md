@@ -1,5 +1,10 @@
 # MarginBench build-phase handoff
 
+> **Historical snapshot:** This file records the August 18 build-phase handoff
+> and intentionally preserves the evidence available at that time. It is not
+> current release guidance. See `Docs/MARGINBENCH_PLAN.md` for the live state,
+> current test counts, retained results, package status, and next work.
+
 Status at 2026-08-18 11:03 ET: the primary benchmark track and its
 compute-matched continuing-agent control are implemented, portable, tested,
 packaged, and locally green. Two paid topology attempts each produced a valid

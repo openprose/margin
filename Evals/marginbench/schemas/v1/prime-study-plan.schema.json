@@ -179,6 +179,9 @@
         "minimumStartIntervalSeconds": {
           "type": "number", "minimum": 0, "maximum": 3600
         },
+        "minimumInterJobCooldownSeconds": {
+          "type": "number", "minimum": 0, "maximum": 3600
+        },
         "minimumRequestIntervalSeconds": {
           "type": "number", "minimum": 0, "maximum": 60
         }

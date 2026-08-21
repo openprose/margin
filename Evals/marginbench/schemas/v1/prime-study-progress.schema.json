@@ -15,13 +15,25 @@
     "jobCount": {"type": "integer", "minimum": 2, "maximum": 1000},
     "lastJobID": {"$ref": "#/$defs/prefixedSha256"},
     "observedWalletDebitUSD": {"type": "number", "minimum": 0},
+    "proxyAccountedCostUpperBoundUSD": {"type": "number", "minimum": 0},
+    "walletObservationScope": {"const": "account-wide"},
+    "walletDebitAttribution": {"const": "unattributed"},
     "status": {"const": "paused"},
     "paidModelsInvoked": {"const": true},
     "nextOrdinal": {"type": "integer", "minimum": 1, "maximum": 999},
     "automaticRetryPerformed": {"const": false}
   },
   "dependentRequired": {
-    "status": ["paidModelsInvoked", "nextOrdinal", "automaticRetryPerformed"]
+    "status": ["paidModelsInvoked", "nextOrdinal", "automaticRetryPerformed"],
+    "proxyAccountedCostUpperBoundUSD": [
+      "walletObservationScope", "walletDebitAttribution"
+    ],
+    "walletObservationScope": [
+      "proxyAccountedCostUpperBoundUSD", "walletDebitAttribution"
+    ],
+    "walletDebitAttribution": [
+      "proxyAccountedCostUpperBoundUSD", "walletObservationScope"
+    ]
   },
   "$defs": {
     "prefixedSha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}

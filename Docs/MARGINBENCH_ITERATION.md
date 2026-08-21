@@ -1,6 +1,6 @@
 # MarginBench iteration loop
 
-Status: active operating procedure, 2026-08-19.
+Status: active operating procedure, 2026-08-20.
 
 This document defines how Margin and MarginBench improve without confusing a
 better tool with an easier test, a luckier model sample, or a repaired runner.
@@ -47,6 +47,39 @@ better tool with an easier test, a luckier model sample, or a repaired runner.
     command count, invalid commands, and recovery separately. Audit the redacted
     bundle as one unit and reproduce its aggregate report from its published
     cells. A single weighted collaboration score is not a release decision.
+
+## Order-neutral evidence
+
+Counterbalancing is useful only if the evidence path is also neutral to which
+arm happened to run first. Publish the same privacy-safe trace shape for both
+arms, and bind each shape to its candidate identity. A binary digest is useful
+corroboration but is not sufficient: two candidates may deliberately share one
+binary while changing only the manual or settings. Diagnostics may use an
+unlinked historical shape only when exactly one candidate is present; a
+multi-candidate report must fail closed rather than guess.
+
+The report may include both arms' shapes, but candidate-specific findings must
+use only the selected candidate's evidence. Reversing the labels or operational
+order must not change the behavior attributed to a candidate.
+
+## Completion versus conversational closure
+
+Separate durable task completion from a polite final sentence. If all required
+work, workflow, recovery, safety, and source checks pass with a full outcome,
+an answered final tool call at the turn ceiling is not a CLI budget defect. It
+may still be relevant to harness UX or cost, but it must not outrank a real
+product opportunity. A turn-limit stop remains a product-facing finding when
+the durable outcome, required workflow, valid command use, or required recovery
+is incomplete.
+
+## Response-size evidence
+
+Measure the bytes the agent actually receives, including its tool adapter, in
+coarse privacy-safe buckets. Keep an independent direct CLI byte contract as the
+deterministic gate. Optimize a brief view only after repeated traces show that
+it crosses a meaningful bucket, and preserve executable next actions while
+removing duplicated prose or metadata. Rerun startup and real-operation timing;
+smaller output is not an acceptable trade for slower startup or hidden reads.
 
 ## Topology experiments
 
@@ -130,6 +163,81 @@ not a population estimate, a promotion, or permission to retune the case.
 Four matched pairs are calibration. Ordinary directional language requires at
 least 20 valid pairs in the reported cell, all safety gates passing, and the
 paired uncertainty interval clearing the frozen quality or speed threshold.
+
+## Wide-directory response budgets
+
+A single-document size check does not represent directory collaboration. Test
+wide orientation separately with enough distractor documents and open work to
+force bounded discovery. Freeze the directory shape, relevant target, work-item
+distribution, command, process order, and candidate binaries before measuring.
+
+Measure direct response bytes and elapsed time first, without a model. Run both
+candidates in counterbalanced order after warmups, and retain medians and p95s.
+Then assert that the compact response reports truncation and supplies executable
+follow-up actions; a small response that silently omits work is a failure. When
+an early stop avoids enumerating the remaining tree, describe the observed
+omission count as a lower bound instead of an exact total.
+
+Use the checked-in instrument for this first gate:
+
+```sh
+PYTHONPATH=Evals/marginbench python3 -m marginbench.cli wide-directory-probe \
+  --baseline-bin PATH_TO_BASELINE --candidate-bin build/margin
+```
+
+The command normalizes generated fixture metadata, validates every document,
+alternates arm order, refuses malformed command output, verifies that neither
+arm changed the workspace, requires actionable file/work/guidance coordinates,
+and emits a schema-backed model-free report. Empty-but-stable output cannot
+pass.
+
+The opt-in `wide_directory_triage` scenario is the second gate. It places one
+typed question beyond a four-file brief overview in a 16-document workspace
+with 64 distractor threads. The exact reference must recover through
+`inbox --brief`, make one atomic reply-and-resolve write, verify the thread, and
+validate the document. Keep this scenario outside the historical default set
+until enough paired evidence justifies changing the benchmark population.
+
+Only after those free checks pass should one cheap matched agent case ask the
+agent to orient, select the relevant document, make a durable change, and
+verify it. The paid comparison must examine response-size bucket, model input,
+path to first write, commands, invalid calls, correctness, and omitted-work
+recovery. A lower byte count alone is not evidence that agents collaborate
+better. Preserve old scenario versions rather than changing their directory
+width, because historical scores must remain reproducible.
+
+## Concurrent-write mechanism gates
+
+Keep three questions separate: whether every update is preserved, whether a
+normal collision is scored fairly, and whether an agent has to see and recover
+from that collision. A correct store can still impose avoidable coordination
+work; a convenient retry can still be unsafe if it crosses a source edit.
+
+Use deterministic tests to force collisions and prove source preservation,
+identity preservation, bounded retries, and fail-closed explicit preconditions.
+Then use the model-free paired probe to measure what reaches the agent:
+
+```sh
+PYTHONPATH=Evals/marginbench python3 -m marginbench.cli concurrency-probe \
+  --baseline-bin PATH_TO_BASELINE --candidate-bin build/margin \
+  --repetitions 100
+```
+
+The probe starts both arms at the same barrier, alternates submission order,
+and retains only aggregate call and conflict counts. Both arms must be exact,
+safe, source-preserving, and free of invalid calls. The candidate must also use
+four calls in every episode with no surfaced conflict. Baseline collision
+frequency is descriptive, never a pass requirement: thread scheduling is a
+source of measurement variation, not an oracle. Do not compare raw durations
+from this contention probe as a launch-speed claim; use the separate
+counterbalanced startup instrument for that question.
+
+A model-free reduction in surfaced conflicts proves a mechanism improvement,
+not better agent judgment. Buy a matched real-model case only when the research
+question is whether the removed recovery burden changes completion, command
+choice, tokens, or latency. Keep the benchmark's six-call safe-recovery path at
+full efficiency so older binaries and real external conflicts are judged
+fairly.
 
 ## Spend ladder
 

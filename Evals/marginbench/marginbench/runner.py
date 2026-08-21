@@ -152,6 +152,29 @@ class ReferenceDriver:
                 gateway.call(["comments", "validate", "notes/decision.md"])
             return
 
+        if scenario == "wide_directory_triage":
+            gateway.call(["context", ".", "--json", "--brief"])
+            inbox_response = gateway.call([
+                "inbox", ".", "--kind", "question", "--status", "open", "--json", "--brief",
+            ])
+            items = _result(inbox_response).get("items")
+            if not isinstance(items, list) or len(items) != 1 or not isinstance(items[0], dict):
+                raise RuntimeError("The wide-directory inbox did not return exactly one item.")
+            item = items[0]
+            path = item.get("actionPath")
+            root = item.get("rootID")
+            revision = item.get("annotationRevision")
+            if not isinstance(path, str) or not isinstance(root, str) or not isinstance(revision, int):
+                raise RuntimeError("The wide-directory inbox item omitted an action coordinate.")
+            gateway.call([
+                "comments", "reply", path, root,
+                "-m", reference["replyBody"], "--id", reference["replyID"],
+                "--if-revision", str(revision), "--resolve",
+            ])
+            gateway.call(["comments", "list", path, "--thread", root, "--status", "all"])
+            gateway.call(["comments", "validate", path])
+            return
+
         if scenario == "directory_handoff":
             tradeoff_path = reference["tradeoffPath"]
             status_path = reference["statusPath"]
@@ -274,6 +297,8 @@ def apply_harness_event(
             arguments += ["--quote", payload["quote"]]
         else:
             arguments += ["--document"]
+        if payload.get("kind"):
+            arguments += ["--kind", payload["kind"]]
         response = gateway.call(arguments)
         if response.exit_code != 0:
             raise RuntimeError(f"Harness event failed: {response.error_code}")

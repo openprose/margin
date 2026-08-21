@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
+import re
 import time
 from pathlib import Path
 from typing import Any
 
 from .gateway import MarginGateway, binary_sha256, read_command_events
-from .schema import Actor, EpisodeDefinition, EpisodeResult, sha256_bytes
+from .schema import Actor, CommandEvent, EpisodeDefinition, EpisodeResult, sha256_bytes
 
 
 WEIGHTS = {
@@ -18,6 +20,12 @@ WEIGHTS = {
     "efficiency": 0.10,
 }
 
+UUID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+MAX_WORKSPACE_INVENTORY_ENTRIES = 16_384
+
 
 def _result(response) -> dict[str, Any]:
     payload = response.json or {}
@@ -25,8 +33,65 @@ def _result(response) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _canonical_annotation_id(value: str) -> str:
+    lowered = value.lower()
+    candidate = lowered[9:] if lowered.startswith("urn:uuid:") else lowered
+    if UUID_PATTERN.fullmatch(candidate):
+        return f"urn:uuid:{candidate}"
+    return value
+
+
 def _id_matches(actual: str, expected: str) -> bool:
-    return actual == expected or actual.lower().endswith(expected.lower())
+    return _canonical_annotation_id(actual) == _canonical_annotation_id(expected)
+
+
+def _workspace_inventory(workspace: Path) -> tuple[set[str], bool]:
+    """Return bounded public workspace entries, excluding Margin's private state.
+
+    Agents are allowed to change the declared documents and Margin may maintain
+    `.margin` beside them. Other files, directories, symlinks, or an inventory
+    too large to inspect are observable task residue and must not silently
+    receive a clean integrity score. Directory entries have a trailing slash.
+    """
+    paths: set[str] = set()
+    entry_count = 0
+    traversal_errors: list[OSError] = []
+    for root, directories, files in os.walk(
+        workspace,
+        topdown=True,
+        followlinks=False,
+        onerror=traversal_errors.append,
+    ):
+        root_path = Path(root)
+        if root_path == workspace:
+            directories[:] = [
+                name
+                for name in directories
+                if name != ".margin" or (root_path / name).is_symlink()
+            ]
+        for name in list(directories):
+            entry_count += 1
+            path = root_path / name
+            paths.add(path.relative_to(workspace).as_posix() + "/")
+            if path.is_symlink():
+                directories.remove(name)
+        for name in files:
+            entry_count += 1
+            path = root_path / name
+            paths.add(path.relative_to(workspace).as_posix())
+        if entry_count > MAX_WORKSPACE_INVENTORY_ENTRIES:
+            return paths, False
+    return paths, not traversal_errors
+
+
+def _expected_workspace_entries(files: dict[str, str]) -> set[str]:
+    expected = set(files)
+    for raw_path in files:
+        parent = Path(raw_path).parent
+        while parent != Path("."):
+            expected.add(parent.as_posix() + "/")
+            parent = parent.parent
+    return expected
 
 
 def _annotation_id(item: dict[str, Any]) -> str:
@@ -108,6 +173,52 @@ def _mean(values: list[bool]) -> float:
     return sum(1.0 for value in values if value) / len(values) if values else 1.0
 
 
+INITIAL_DISCOVERY_COMMANDS = frozenset({
+    "capabilities", "collaborators", "comments get", "comments list",
+    "comments validate", "context", "handoff list", "help", "inbox",
+    "inspect", "man", "outline", "read", "review", "slice", "stage list",
+    "stage show", "suggest list", "version", "workspace show",
+})
+
+
+def _avoided_redundant_initial_reads(events: tuple[CommandEvent, ...]) -> bool:
+    """Detect overlapping context+inbox reads by one role before its first action."""
+    roles = sorted({event.role for event in events})
+    for role in roles:
+        observed: set[str] = set()
+        for event in (item for item in events if item.role == role):
+            command = event.command
+            is_discovery = command in INITIAL_DISCOVERY_COMMANDS or command.startswith("man ")
+            if not is_discovery:
+                break
+            if event.exit_code == 0 and command in {"context", "inbox"}:
+                observed.add(command)
+        if observed == {"context", "inbox"}:
+            return False
+    return True
+
+
+def _used_expected_context_then_inbox(events: tuple[CommandEvent, ...]) -> bool:
+    """Require the intentional broad-to-filtered discovery order before action."""
+    found_pair = False
+    roles = sorted({event.role for event in events})
+    for role in roles:
+        discovery: list[str] = []
+        for event in (item for item in events if item.role == role):
+            command = event.command
+            is_discovery = command in INITIAL_DISCOVERY_COMMANDS or command.startswith("man ")
+            if not is_discovery:
+                break
+            if event.exit_code == 0:
+                discovery.append(command)
+        if "context" not in discovery or "inbox" not in discovery:
+            continue
+        found_pair = True
+        if discovery.index("context") > discovery.index("inbox"):
+            return False
+    return found_pair
+
+
 def score_episode(
     episode: EpisodeDefinition,
     workspace: Path,
@@ -143,46 +254,59 @@ def score_episode(
         validation = scorer.call(["comments", "validate", path])
         valid[path] = validation.exit_code == 0 and _result(validation).get("valid") is True
 
-    annotation_checks: list[bool] = []
+    annotation_identity_checks: list[bool] = []
+    annotation_body_checks: list[bool] = []
+    annotation_kind_checks: list[bool] = []
+    annotation_status_checks: list[bool] = []
+    annotation_thread_checks: list[bool] = []
+    annotation_property_checks: list[bool] = []
     attribution_checks: list[bool] = []
-    found_ids: set[str] = set()
     for expected in episode.oracle.get("annotations", []):
         path = str(expected["path"])
         candidates = [item for item in by_file.get(path, []) if _id_matches(_annotation_id(item), str(expected["id"]))]
         identity_match = candidates[0] if len(candidates) == 1 else None
-        exact = [item for item in candidates if _annotation_body(item) == expected.get("body")]
-        match = exact[0] if len(exact) == 1 else None
-        annotation_checks.append(match is not None)
-        if identity_match is None:
-            attribution_checks.append(False)
-        else:
-            attribution_checks.append(_creator_id(identity_match) == expected.get("creatorID"))
-        if match is None:
-            continue
-        found_ids.add(str(expected["id"]))
+        annotation_identity_checks.append(identity_match is not None)
+        annotation_body_checks.append(
+            identity_match is not None
+            and _annotation_body(identity_match) == expected.get("body")
+        )
+        attribution_checks.append(
+            identity_match is not None
+            and _creator_id(identity_match) == expected.get("creatorID")
+        )
         if expected.get("kind"):
-            annotation_checks.append(_kind(match) == expected["kind"])
-        if expected.get("status"):
-            annotation_checks.append(_status(match) == expected["status"])
+            annotation_kind_checks.append(
+                identity_match is not None and _kind(identity_match) == expected["kind"]
+            )
+        if "status" in expected:
+            annotation_status_checks.append(
+                identity_match is not None and _status(identity_match) == expected["status"]
+            )
         if expected.get("parentID"):
-            parent = _parent_id(match)
-            annotation_checks.append(
+            parent = _parent_id(identity_match) if identity_match is not None else None
+            annotation_thread_checks.append(
                 isinstance(parent, str) and _id_matches(parent, str(expected["parentID"]))
             )
         if expected.get("rootID"):
-            root = _root_id(match)
-            annotation_checks.append(
+            root = _root_id(identity_match) if identity_match is not None else None
+            annotation_thread_checks.append(
                 isinstance(root, str) and _id_matches(root, str(expected["rootID"]))
             )
         for property_check in expected.get("properties", []):
             path = property_check.get("path")
-            annotation_checks.append(
-                isinstance(path, list)
+            annotation_property_checks.append(
+                identity_match is not None
+                and isinstance(path, list)
                 and all(isinstance(component, str) for component in path)
-                and _nested_property(match, path) == property_check.get("equals")
+                and _nested_property(identity_match, path) == property_check.get("equals")
             )
 
     all_items = [item for items in by_file.values() for item in items]
+    workspace_paths, workspace_inventory_complete = _workspace_inventory(workspace)
+    workspace_expected_paths = (
+        workspace_inventory_complete
+        and workspace_paths == _expected_workspace_entries(episode.files)
+    )
 
     def body_for_reference(identifier: object) -> str:
         if not isinstance(identifier, str):
@@ -265,7 +389,7 @@ def score_episode(
     all_or_none = not group or group_count in {0, len(group)}
     committed_all = not group or group_count == len(group)
 
-    commands = [event.command for event in events]
+    successful_commands = [event.command for event in events if event.exit_code == 0]
     error_codes = [event.error_code for event in events if event.error_code]
     required_groups = episode.oracle.get("requiredCommandGroups")
     if required_groups is None:
@@ -273,7 +397,7 @@ def score_episode(
     required_command_checks = [
         any(
             actual == alternative or actual.startswith(alternative + " ")
-            for actual in commands
+            for actual in successful_commands
             for alternative in group
         )
         for group in required_groups
@@ -301,8 +425,21 @@ def score_episode(
             (max_commands - len(events)) / max(1, max_commands - efficient_target),
         )
 
+    annotation_check_groups = {
+        "annotation_identity": annotation_identity_checks,
+        "annotation_body": annotation_body_checks,
+        "annotation_kind": annotation_kind_checks,
+        "annotation_status": annotation_status_checks,
+        "annotation_thread": annotation_thread_checks,
+        "annotation_properties": annotation_property_checks,
+    }
+    granular_annotation_checks = {
+        name: all(values) if values else True
+        for name, values in annotation_check_groups.items()
+    }
     checks = {
-        "all_expected_annotations": all(annotation_checks) if annotation_checks else True,
+        "all_expected_annotations": all(granular_annotation_checks.values()),
+        **granular_annotation_checks,
         "all_or_none": all_or_none,
         "attribution": all(attribution_checks) if attribution_checks else True,
         "committed_all": committed_all,
@@ -313,8 +450,14 @@ def score_episode(
         "required_recovery_observed": all(required_error_checks) if required_error_checks else True,
         "source_expected": all(source_checks) if source_checks else True,
         "valid_documents": all(valid.values()),
+        "workspace_expected_paths": workspace_expected_paths,
         "workspace_policy": not blocked,
         "valid_command_use": valid_command_use,
+        "avoided_redundant_initial_reads": (
+            _used_expected_context_then_inbox(events)
+            if episode.oracle.get("contextThenInboxIsExpected") is True
+            else _avoided_redundant_initial_reads(events)
+        ),
         **diagnostic_checks,
     }
     dimensions = {
@@ -329,6 +472,7 @@ def score_episode(
             checks["valid_documents"],
             checks["all_or_none"],
             checks["duplicate_free"],
+            checks["workspace_expected_paths"],
         ]),
         "protocol": _mean([
             checks["attribution"],
@@ -343,6 +487,7 @@ def score_episode(
         checks["source_expected"]
         and checks["valid_documents"]
         and checks["all_or_none"]
+        and checks["workspace_expected_paths"]
         and checks["workspace_policy"]
     )
     weighted = sum(dimensions[name] * WEIGHTS[name] for name in WEIGHTS)

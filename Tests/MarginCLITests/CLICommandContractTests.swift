@@ -68,6 +68,25 @@ final class CLICommandContractTests: XCTestCase {
             XCTAssertTrue(projection.commands.allSatisfy { workflow.includes($0.path) })
             XCTAssertTrue(projection.commands.contains { $0.path == ["capabilities"] })
             XCTAssertEqual(projection.stageIntent != nil, workflow == .staging)
+
+            let brief = CLICommandCatalog.capabilitiesBriefProjection(
+                cliVersion: MarginCommand.version,
+                workflow: workflow
+            )
+            let briefCompactData = try compact.encode(brief)
+            let briefPrettyData = try pretty.encode(brief)
+            XCTAssertLessThanOrEqual(briefCompactData.count + 1, brief.bounds.maxEncodedBytes)
+            XCTAssertLessThanOrEqual(briefPrettyData.count + 1, brief.bounds.maxEncodedBytes)
+            XCTAssertEqual(brief.schema, "urn:margin:capabilities-brief-projection:v1")
+            XCTAssertEqual(brief.projection.workflow, workflow)
+            XCTAssertEqual(brief.projection.parentSchema, projection.schema)
+            XCTAssertEqual(brief.commands.map(\.path), projection.commands.map(\.path))
+            XCTAssertTrue(brief.commands.allSatisfy { $0.helpArgv == $0.path + ["--help"] })
+            XCTAssertEqual(brief.next.manualArgv, ["man", workflow.rawValue])
+            XCTAssertEqual(
+                brief.next.detailedCapabilitiesArgv,
+                ["capabilities", "--json", "--for", workflow.rawValue]
+            )
         }
 
         let suggestions = CLICommandCatalog.capabilitiesProjection(
@@ -91,6 +110,22 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertEqual(json["schema"] as? String, "urn:margin:capabilities-projection:v1")
         let identity = try XCTUnwrap(json["projection"] as? [String: Any])
         XCTAssertEqual(identity["workflow"] as? String, "suggestions")
+        let briefOutput = runCapturing([
+            "capabilities", "--json", "--for", "suggestions", "--brief",
+        ])
+        XCTAssertEqual(briefOutput.exit, CLIExit.success.rawValue)
+        let briefJSON = try jsonObject(briefOutput.output)
+        XCTAssertEqual(
+            briefJSON["schema"] as? String,
+            "urn:margin:capabilities-brief-projection:v1"
+        )
+        XCTAssertLessThanOrEqual(briefOutput.output.count, 8 * 1_024)
+        let briefWithoutWorkflow = runCapturingError(["capabilities", "--json", "--brief"])
+        XCTAssertEqual(briefWithoutWorkflow.exit, CLIExit.usage.rawValue)
+        XCTAssertTrue(
+            String(decoding: briefWithoutWorkflow.output, as: UTF8.self)
+                .contains("--brief requires --for WORKFLOW")
+        )
         XCTAssertEqual(
             runSilently(["capabilities", "--json", "--for", "unknown"]),
             CLIExit.usage.rawValue
@@ -120,6 +155,7 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertTrue(add.contains("observed current revision"))
         XCTAssertTrue(add.contains("--parent is reply shorthand"))
         XCTAssertTrue(add.contains("--parent PARENT"))
+        XCTAssertTrue(add.contains("retry annotation-only races"))
 
         let reply = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["comments", "reply"]))
         XCTAssertTrue(reply.contains("(-m TEXT | --message-file PATH | --stdin)"))
@@ -133,12 +169,25 @@ final class CLICommandContractTests: XCTestCase {
         let context = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["context"]))
         XCTAssertFalse(context.contains("Unsupported"))
         XCTAssertTrue(context.contains("margin context TARGET [--json]"))
-        XCTAssertTrue(context.contains("exact available command paths"))
+        XCTAssertTrue(context.contains("compact agent view"))
         XCTAssertTrue(context.contains("--max-source-bytes N"))
+        XCTAssertTrue(context.contains("File cap: 128; brief 4"))
+        XCTAssertTrue(context.contains("Work items/file: 64; brief 1"))
 
         let stageCreate = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["stage", "create"]))
         XCTAssertTrue(stageCreate.contains("--operations-file PLAN_JSON_OR_-"))
         XCTAssertTrue(stageCreate.contains("--change-set-file CHANGESET_JSON_OR_-"))
+        XCTAssertTrue(stageCreate.contains("Do not pass JSON as a positional argument"))
+        let stageCreateWithoutRoot = runCapturingError([
+            "stage", "create", "--operations-file", "-"
+        ])
+        XCTAssertEqual(stageCreateWithoutRoot.exit, CLIExit.usage.rawValue)
+        let stageCreateError = try XCTUnwrap(
+            try jsonObject(stageCreateWithoutRoot.output)["error"] as? [String: Any]
+        )
+        XCTAssertTrue(
+            (stageCreateError["message"] as? String)?.contains("stage create .") == true
+        )
         let stageShow = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["stage", "show"]))
         XCTAssertTrue(stageShow.contains("--max-preview-bytes N"))
         XCTAssertTrue(stageShow.contains("1 MiB"))
@@ -149,6 +198,8 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertTrue(stageList.contains("Byte omissions are reported"))
         let stageRefresh = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["stage", "refresh"]))
         XCTAssertTrue(stageRefresh.contains("--id NEW_STAGE_ID"))
+        XCTAssertTrue(stageRefresh.contains("--submit"))
+        XCTAssertTrue(stageRefresh.contains("Safe to repeat"))
         XCTAssertTrue(stageRefresh.contains("preserving the prior stage"))
 
         let suggestionAdd = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "add"]))
@@ -158,7 +209,12 @@ final class CLICommandContractTests: XCTestCase {
 
         let capabilities = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["capabilities"]))
         XCTAssertTrue(capabilities.contains("--for WORKFLOW"))
+        XCTAssertTrue(capabilities.contains("--brief"))
         XCTAssertTrue(capabilities.contains("review, staging, suggestions, handoff, or merge"))
+
+        let safetyManual = try XCTUnwrap(MarginManual.page(for: "safety"))
+        XCTAssertTrue(safetyManual.contains("retry bounded"))
+        XCTAssertTrue(safetyManual.contains("explicit revision"))
 
         XCTAssertEqual(CLICapabilityWorkflow.parse("comments"), .review)
         XCTAssertEqual(CLICapabilityWorkflow.parse("stage"), .staging)
@@ -212,16 +268,43 @@ final class CLICommandContractTests: XCTestCase {
     func testProgressiveManualIsStaticDiscoverableAndFailClosed() throws {
         let globalHelp = runCapturing(["--help"])
         XCTAssertEqual(globalHelp.exit, CLIExit.success.rawValue)
-        XCTAssertTrue(
-            try XCTUnwrap(String(data: globalHelp.output, encoding: .utf8))
-                .contains("margin man")
+        let globalHelpText = try XCTUnwrap(String(data: globalHelp.output, encoding: .utf8))
+        XCTAssertTrue(globalHelpText.contains("margin man"))
+        XCTAssertTrue(globalHelpText.contains("start with context TARGET --json --brief"))
+        XCTAssertTrue(globalHelpText.contains("Use margin man agents"))
+        XCTAssertTrue(globalHelpText.contains("capabilities --json --for WORKFLOW"))
+        XCTAssertTrue(globalHelpText.contains("--for WORKFLOW --brief"))
+        XCTAssertTrue(globalHelpText.contains("unfiltered capabilities catalog is for integrations"))
+        XCTAssertTrue(globalHelpText.contains("context --brief is the compact agent entry"))
+
+        let capabilitiesHelp = runCapturing(["capabilities", "--help"])
+        XCTAssertEqual(capabilitiesHelp.exit, CLIExit.success.rawValue)
+        let capabilitiesHelpText = try XCTUnwrap(
+            String(data: capabilitiesHelp.output, encoding: .utf8)
         )
+        XCTAssertTrue(capabilitiesHelpText.contains("ordinary agent work"))
+        XCTAssertTrue(capabilitiesHelpText.contains("Recommended for agent tasks"))
+        XCTAssertTrue(capabilitiesHelpText.contains("compact command index"))
+        XCTAssertTrue(capabilitiesHelpText.contains("full integration catalog"))
 
         let overview = runCapturing(["man"])
         XCTAssertEqual(overview.exit, CLIExit.success.rawValue)
         let overviewText = try XCTUnwrap(String(data: overview.output, encoding: .utf8))
         XCTAssertTrue(overviewText.contains("MARGIN MANUAL"))
-        XCTAssertTrue(overviewText.contains("margin capabilities --json --for review"))
+        XCTAssertTrue(overviewText.contains("margin capabilities --json --for review --brief"))
+        XCTAssertLessThan(
+            try XCTUnwrap(overviewText.range(of: "margin context TARGET")).lowerBound,
+            try XCTUnwrap(
+                overviewText.range(of: "margin capabilities --json --for review --brief")
+            ).lowerBound
+        )
+        XCTAssertTrue(overviewText.contains("Act from workflowGuidance"))
+        XCTAssertTrue(overviewText.contains("margin context TARGET --json --brief"))
+        XCTAssertTrue(overviewText.contains("margin inbox TARGET --status open --brief"))
+        XCTAssertTrue(overviewText.contains("filtered queue across the target root"))
+        XCTAssertTrue(overviewText.contains("does not inherit context's four-file cap"))
+        XCTAssertFalse(overviewText.contains("--max-files 16"))
+        XCTAssertFalse(overviewText.contains("--max-contributions 64"))
         XCTAssertTrue(overviewText.contains("Never edit Margin's terminal metadata envelope directly"))
         XCTAssertTrue(overviewText.contains("not proof that someone is online"))
 
@@ -273,9 +356,36 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertEqual(runSilently(["man", "comment"]), CLIExit.success.rawValue)
         XCTAssertEqual(runSilently(["man", "stage"]), CLIExit.success.rawValue)
         XCTAssertEqual(runSilently(["man", "security"]), CLIExit.success.rawValue)
+        let canonicalReview = runCapturing(["man", "review"])
+        XCTAssertEqual(canonicalReview.exit, CLIExit.success.rawValue)
+        for naturalReviewTopic in ["directory", "folder", "workspace", "context", "inbox"] {
+            let alias = runCapturing(["man", naturalReviewTopic])
+            XCTAssertEqual(alias.exit, CLIExit.success.rawValue, naturalReviewTopic)
+            XCTAssertEqual(alias.output, canonicalReview.output, naturalReviewTopic)
+            XCTAssertEqual(
+                MarginManual.contractPaths(for: naturalReviewTopic),
+                MarginManual.contractPaths(for: "review"),
+                naturalReviewTopic
+            )
+        }
         let marginAlias = runCapturing(["man", "margin"])
         XCTAssertEqual(marginAlias.exit, CLIExit.success.rawValue)
         XCTAssertEqual(marginAlias.output, overview.output)
+        let markdownTarget = runCapturing(["man", "status.md"])
+        XCTAssertEqual(markdownTarget.exit, CLIExit.success.rawValue)
+        let markdownTargetText = try XCTUnwrap(String(data: markdownTarget.output, encoding: .utf8))
+        XCTAssertTrue(markdownTargetText.contains("MARGIN MANUAL: MARKDOWN TARGET"))
+        XCTAssertTrue(markdownTargetText.contains("margin context status.md --json --brief"))
+        let nestedMarkdownTarget = runCapturing(["man", "notes/status.md", "--json"])
+        XCTAssertEqual(nestedMarkdownTarget.exit, CLIExit.success.rawValue)
+        let nestedTargetObject = try jsonObject(nestedMarkdownTarget.output)
+        XCTAssertEqual(nestedTargetObject["query"] as? [String], ["notes/status.md"])
+        let nestedTargetContracts = try XCTUnwrap(nestedTargetObject["contracts"] as? [[String: Any]])
+        XCTAssertEqual(
+            nestedTargetContracts.compactMap { $0["path"] as? [String] },
+            [["context"], ["comments", "list"], ["handoff", "list"]]
+        )
+        XCTAssertEqual(runSilently(["man", "../status.md"]), CLIExit.usage.rawValue)
         let commentsManual = try XCTUnwrap(MarginManual.page(for: "comments"))
         XCTAssertTrue(commentsManual.contains("--document --kind issue"))
         let commentsJSON = runCapturing(["man", "comments", "--json"])
@@ -296,6 +406,10 @@ final class CLICommandContractTests: XCTestCase {
             let topicJSON = runCapturing(["man", topic, "--json", "--pretty"])
             XCTAssertEqual(topicJSON.exit, CLIExit.success.rawValue, topic)
             XCTAssertLessThan(topicJSON.output.count, MarginManualEnvelope.maximumEncodedBytes, topic)
+            let topicObject = try jsonObject(topicJSON.output)
+            let topicContent = try XCTUnwrap(topicObject["content"] as? String)
+            XCTAssertFalse(topicContent.contains("--max-files 16"), topic)
+            XCTAssertFalse(topicContent.contains("--max-contributions 64"), topic)
         }
 
         let unknown = runCapturingError(["man", "unknown"])
@@ -588,9 +702,12 @@ final class CLICommandContractTests: XCTestCase {
 
         let emptyContext = runCapturing(["context", directory.path, "--max-files", "1"])
         XCTAssertEqual(emptyContext.exit, CLIExit.success.rawValue)
-        let emptyResult = try XCTUnwrap(
-            try jsonObject(emptyContext.output)["result"] as? [String: Any]
+        let emptyContextJSON = try jsonObject(emptyContext.output)
+        XCTAssertTrue(
+            (emptyContextJSON["notice"] as? String)?.contains("Act from workflowGuidance") == true
         )
+        XCTAssertTrue((emptyContextJSON["notice"] as? String)?.contains("before opening inbox") == true)
+        let emptyResult = try XCTUnwrap(emptyContextJSON["result"] as? [String: Any])
         let emptyFileAction = try XCTUnwrap(
             (emptyResult["fileActions"] as? [[String: Any]])?.first
         )
@@ -699,38 +816,98 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertEqual(guidance.first?["command"] as? String, "comments reply")
         XCTAssertEqual(
             guidance.first?["arguments"] as? [String],
-            [file.path, "ROOT_ID", "-m", "TEXT", "--id", "UUID", "--if-revision", "OBSERVED_ANNOTATION_REVISION"]
+            [
+                file.path, "urn:uuid:\(typedID)", "-m", "TEXT", "--id", "UUID",
+                "--if-revision", "1",
+            ]
         )
         XCTAssertEqual(guidance.first?["executable"] as? Bool, false)
         XCTAssertNil(guidance.first?["argv"])
         XCTAssertEqual(
             guidance.first?["requiredReplacements"] as? [String],
-            ["ROOT_ID", "TEXT", "UUID", "OBSERVED_ANNOTATION_REVISION"]
+            ["TEXT", "UUID"]
         )
-        XCTAssertTrue((guidance.first?["note"] as? String)?.contains("no source-range calculation") == true)
+        XCTAssertTrue((guidance.first?["note"] as? String)?.contains("root ID, and revision are exact") == true)
         let atomicReply = try XCTUnwrap(
             guidance.first {
-                ($0["purpose"] as? String) == "answer and close an existing open thread atomically"
+                ($0["purpose"] as? String) == "reply and close the first open durable thread atomically"
             }
         )
         XCTAssertEqual(atomicReply["command"] as? String, "comments reply")
         XCTAssertEqual(
             atomicReply["argvTemplate"] as? [String],
             [
-                "comments", "reply", file.path, "ROOT_ID", "-m", "TEXT", "--resolve",
-                "--id", "UUID", "--if-revision", "OBSERVED_ANNOTATION_REVISION",
+                "comments", "reply", file.path, "urn:uuid:\(typedID)", "-m", "TEXT",
+                "--resolve", "--id", "UUID", "--if-revision", "1",
             ]
         )
-        XCTAssertTrue((atomicReply["note"] as? String)?.contains("both are saved or neither is") == true)
-        let typedWork = try XCTUnwrap(guidance.first { ($0["command"] as? String) == "comments add" })
+        XCTAssertTrue((atomicReply["note"] as? String)?.contains("atomic") == true)
+        XCTAssertNil(guidance.first { ($0["command"] as? String) == "comments add" })
+
+        let followupHandoff = try XCTUnwrap(
+            guidance.first { ($0["purpose"] as? String) == "start a durable handoff" }
+        )
         XCTAssertEqual(
-            typedWork["arguments"] as? [String],
+            followupHandoff["argvTemplate"] as? [String],
             [
-                file.path, "--document", "--kind", "KIND", "-m", "TEXT", "--contribution-id", "UUID",
-                "--if-revision", "OBSERVED_ANNOTATION_REVISION",
+                "handoff", "add", file.path, "-m", "TEXT", "--next-actor", "ACTOR_ID",
+                "--contribution-id", "UUID", "--request-id", "UUID",
             ]
         )
-        XCTAssertTrue((typedWork["note"] as? String)?.contains("must not be incremented") == true)
+        let verifyHandoff = try XCTUnwrap(
+            guidance.first { ($0["purpose"] as? String) == "verify the new handoff" }
+        )
+        XCTAssertEqual(
+            verifyHandoff["argv"] as? [String],
+            ["handoff", "list", file.path]
+        )
+
+        let briefContext = runCapturing([
+            "context", file.path, "--json", "--brief", "--max-files", "1",
+        ])
+        XCTAssertEqual(briefContext.exit, CLIExit.success.rawValue)
+        XCTAssertLessThan(briefContext.output.count, context.output.count)
+        let briefJSON = try jsonObject(briefContext.output)
+        XCTAssertTrue((briefJSON["notice"] as? String)?.lowercased().contains("brief context") == true)
+        XCTAssertLessThanOrEqual(briefContext.output.count, 4 * 1_024)
+        let briefResult = try XCTUnwrap(briefJSON["result"] as? [String: Any])
+        XCTAssertNil(briefResult["actors"])
+        XCTAssertNil(briefResult["activity"])
+        XCTAssertNil(briefResult["availableActions"])
+        XCTAssertNil(briefResult["fileActions"])
+        XCTAssertNil(briefResult["cursor"])
+        XCTAssertNil(briefResult["pathSemantics"])
+        XCTAssertEqual(briefResult["cursorOmitted"] as? Bool, true)
+        let briefFiles = try XCTUnwrap(briefResult["files"] as? [[String: Any]])
+        XCTAssertEqual(briefFiles.first?["actionPath"] as? String, file.path)
+        XCTAssertEqual(briefFiles.first?["annotationRevision"] as? Int, 1)
+        XCTAssertEqual(briefFiles.first?["contributionCount"] as? Int, 1)
+        let briefWork = try XCTUnwrap(briefResult["work"] as? [[String: Any]])
+        XCTAssertEqual(briefWork.first?["kind"] as? String, "task")
+        XCTAssertEqual(briefWork.first?["actionPath"] as? String, file.path)
+        XCTAssertEqual(briefWork.first?["annotationRevision"] as? Int, 1)
+        let briefGuidance = try XCTUnwrap(
+            briefResult["workflowGuidance"] as? [[String: Any]]
+        )
+        XCTAssertLessThanOrEqual(briefGuidance.count, 5)
+        XCTAssertEqual(briefGuidance.count, 5)
+        XCTAssertNil(briefGuidance.first?["command"])
+        XCTAssertNil(briefGuidance.first?["arguments"])
+        XCTAssertNil(briefGuidance.first?["executable"])
+        XCTAssertNil(briefGuidance.first?["note"])
+        XCTAssertNotNil(briefGuidance.first?["argvTemplate"])
+        XCTAssertTrue(
+            briefGuidance.contains {
+                ($0["purpose"] as? String) == "start a durable handoff"
+                    && ($0["argvTemplate"] as? [String])?.first == "handoff"
+            }
+        )
+        XCTAssertTrue(
+            briefGuidance.contains {
+                ($0["purpose"] as? String) == "verify the new handoff"
+                    && ($0["argv"] as? [String]) == ["handoff", "list", file.path]
+            }
+        )
 
         let contextWithoutJSONFlag = runCapturing(["context", file.path, "--max-files", "1"])
         XCTAssertEqual(contextWithoutJSONFlag.exit, CLIExit.success.rawValue)
@@ -776,7 +953,27 @@ final class CLICommandContractTests: XCTestCase {
         )
         XCTAssertEqual(
             directoryGuidance.first?["arguments"] as? [String],
-            [file.path, "ROOT_ID", "-m", "TEXT", "--id", "UUID", "--if-revision", "OBSERVED_ANNOTATION_REVISION"]
+            [
+                file.path, "urn:uuid:\(typedID)", "-m", "TEXT", "--id", "UUID",
+                "--if-revision", "1",
+            ]
+        )
+        let directoryHandoff = try XCTUnwrap(
+            directoryGuidance.first { ($0["purpose"] as? String) == "start a durable handoff" }
+        )
+        XCTAssertEqual(
+            directoryHandoff["argvTemplate"] as? [String],
+            [
+                "handoff", "add", directory.path, "--path", "review.md", "-m", "TEXT",
+                "--next-actor", "ACTOR_ID", "--contribution-id", "UUID", "--request-id", "UUID",
+            ]
+        )
+        let directoryHandoffVerification = try XCTUnwrap(
+            directoryGuidance.first { ($0["purpose"] as? String) == "verify the new handoff" }
+        )
+        XCTAssertEqual(
+            directoryHandoffVerification["argv"] as? [String],
+            ["handoff", "list", directory.path, "--path", "review.md"]
         )
 
         XCTAssertEqual(
@@ -833,6 +1030,126 @@ final class CLICommandContractTests: XCTestCase {
                 "--status", "all",
             ]
         )
+
+        XCTAssertEqual(
+            runSilently(["comments", "resolve", file.path, typedID]),
+            CLIExit.success.rawValue
+        )
+        let resolvedInbox = runCapturing([
+            "inbox", file.path, "--kind", "task", "--status", "resolved",
+        ])
+        XCTAssertEqual(resolvedInbox.exit, CLIExit.success.rawValue)
+        let resolvedResult = try XCTUnwrap(
+            try jsonObject(resolvedInbox.output)["result"] as? [String: Any]
+        )
+        let resolvedGuidance = try XCTUnwrap(
+            resolvedResult["workflowGuidance"] as? [[String: Any]]
+        )
+        XCTAssertEqual(resolvedGuidance.count, 2)
+        XCTAssertEqual(
+            resolvedGuidance[0]["argv"] as? [String],
+            [
+                "comments", "list", file.path, "--thread", "urn:uuid:\(typedID)",
+                "--status", "all",
+            ]
+        )
+        XCTAssertEqual(
+            resolvedGuidance[1]["argvTemplate"] as? [String],
+            [
+                "comments", "reply", file.path, "urn:uuid:\(typedID)", "-m", "TEXT",
+                "--reopen", "--id", "UUID", "--if-revision", "2",
+            ]
+        )
+    }
+
+    func testConcurrentTypedContributionsConvergeWithoutAgentVisibleRetries() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("review.md")
+        let source = "# Concurrent review\n\nShared source remains stable.\n"
+        try Data(source.utf8).write(to: file)
+        let expectedContentSha256 = DocumentRevision(data: Data(source.utf8)).sha256
+
+        let null = try XCTUnwrap(FileHandle(forWritingAtPath: "/dev/null"))
+        let savedStandardOutput = dup(STDOUT_FILENO)
+        XCTAssertGreaterThanOrEqual(savedStandardOutput, 0)
+        XCTAssertGreaterThanOrEqual(dup2(null.fileDescriptor, STDOUT_FILENO), 0)
+        defer {
+            _ = dup2(savedStandardOutput, STDOUT_FILENO)
+            close(savedStandardOutput)
+            try? null.close()
+        }
+
+        let failures = NSLock()
+        var capturedErrors: [String] = []
+        DispatchQueue.concurrentPerform(iterations: 8) { index in
+            do {
+                try CollaborationCLI.addTypedContribution(
+                    file: file,
+                    fileArgument: file.path,
+                    message: "Independent issue \(index)",
+                    creator: MarginActor(
+                        id: "urn:test:agent:concurrent-\(index)",
+                        type: .software,
+                        name: "Concurrent Agent \(index)"
+                    ),
+                    kind: .issue,
+                    range: nil,
+                    assignee: nil,
+                    priority: .normal,
+                    audience: [],
+                    annotationID: String(
+                        format: "00000000-0000-4000-8000-%012d",
+                        80_000 + index
+                    ),
+                    requestID: nil,
+                    stageID: nil,
+                    expectedBaseContentSha256: expectedContentSha256,
+                    preconditions: CommentMutationPreconditions(),
+                    pretty: false
+                )
+            } catch {
+                failures.lock()
+                capturedErrors.append(error.localizedDescription)
+                failures.unlock()
+            }
+        }
+
+        XCTAssertTrue(capturedErrors.isEmpty, capturedErrors.joined(separator: "\n"))
+        let snapshot = try CommentService().list(at: file)
+        XCTAssertEqual(snapshot.comments.count, 8)
+        XCTAssertEqual(Set(snapshot.comments.map(\.annotation.creator.id)).count, 8)
+        XCTAssertTrue(snapshot.comments.allSatisfy {
+            string(in: $0.annotation.extensions, key: "margin:kind") == "issue"
+        })
+        XCTAssertThrowsError(
+            try CollaborationCLI.addTypedContribution(
+                file: file,
+                fileArgument: file.path,
+                message: "Must not bypass an explicit stale revision",
+                creator: MarginActor(
+                    id: "urn:test:agent:guarded",
+                    type: .software,
+                    name: "Guarded Agent"
+                ),
+                kind: .issue,
+                range: nil,
+                assignee: nil,
+                priority: .normal,
+                audience: [],
+                annotationID: "00000000-0000-4000-8000-000000089999",
+                requestID: nil,
+                stageID: nil,
+                expectedBaseContentSha256: expectedContentSha256,
+                preconditions: CommentMutationPreconditions(revision: 0),
+                pretty: false
+            )
+        ) { error in
+            XCTAssertEqual((error as? CollaborationError)?.code, "COLLABORATION_PRECONDITION_FAILED")
+        }
+        XCTAssertEqual(try CommentService().list(at: file).comments.count, 8)
+        let decoded = try EmbeddedCommentCodec().decode(Data(contentsOf: file))
+        XCTAssertEqual(String(data: decoded.bodyData, encoding: .utf8), source)
     }
 
     func testDirectoryContextReturnsReusablePerFilePathsAndNeverInventsRevisionZero() throws {
@@ -875,6 +1192,171 @@ final class CLICommandContractTests: XCTestCase {
             ]
         )
         XCTAssertTrue((add["note"] as? String)?.contains("fileActions") == true)
+    }
+
+    func testBriefContextKeepsSmallMultiFileWorkBelowTheFourKilobyteAgentBucket() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let files = ["architecture.md", "review.md", "handoff.md"].map {
+            directory.appendingPathComponent($0)
+        }
+        let headingCounts = [4, 3, 3]
+        for (file, count) in zip(files, headingCounts) {
+            let markdown = (1...count).map { "## Section \($0)\n\nConcise evidence \($0)." }
+                .joined(separator: "\n\n") + "\n"
+            try Data(markdown.utf8).write(to: file)
+        }
+        for (index, file) in files.enumerated() {
+            XCTAssertEqual(
+                runSilently([
+                    "comments", "add", file.path, "--document", "--kind", "task",
+                    "-m", "Review item \(index + 1)",
+                    "--id", String(format: "00000000-0000-4000-8000-%012d", 930 + index),
+                    "--actor-id", "urn:test:agent:author", "--actor-type", "software",
+                ]),
+                CLIExit.success.rawValue
+            )
+        }
+
+        let previousDirectory = FileManager.default.currentDirectoryPath
+        XCTAssertTrue(FileManager.default.changeCurrentDirectoryPath(directory.path))
+        defer { XCTAssertTrue(FileManager.default.changeCurrentDirectoryPath(previousDirectory)) }
+        let context = runCapturing([
+            "context", ".", "--json", "--brief", "--max-files", "3",
+        ])
+        XCTAssertEqual(context.exit, CLIExit.success.rawValue)
+        XCTAssertLessThanOrEqual(context.output.count, 4 * 1_024)
+        let result = try XCTUnwrap(try jsonObject(context.output)["result"] as? [String: Any])
+        XCTAssertNil(result["outlinePolicy"])
+        let contextFiles = try XCTUnwrap(result["files"] as? [[String: Any]])
+        XCTAssertEqual(contextFiles.count, 3)
+        XCTAssertTrue(contextFiles.allSatisfy { $0["outline"] == nil })
+        let work = try XCTUnwrap(result["work"] as? [[String: Any]])
+        XCTAssertEqual(work.count, 3)
+        XCTAssertTrue(work.allSatisfy { $0["path"] == nil })
+    }
+
+    func testBriefContextKeepsLongSourceAndOpenWorkBelowFourKilobytes() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("status.md")
+        let markdown = "# Status\n\n" + String(repeating: "A precise technical note. ", count: 180)
+        try Data(markdown.utf8).write(to: file)
+        XCTAssertEqual(
+            runSilently([
+                "comments", "add", file.path, "--document", "--kind", "task",
+                "-m", "Reply, resolve, and hand off the verified result.",
+                "--id", "00000000-0000-4000-8000-000000000940",
+                "--actor-id", "urn:test:agent:author", "--actor-type", "software",
+            ]),
+            CLIExit.success.rawValue
+        )
+
+        let context = runCapturing([
+            "context", directory.path, "--json", "--brief", "--max-files", "1",
+        ])
+        XCTAssertEqual(context.exit, CLIExit.success.rawValue)
+        XCTAssertLessThanOrEqual(context.output.count, 4 * 1_024)
+        let result = try XCTUnwrap(try jsonObject(context.output)["result"] as? [String: Any])
+        let files = try XCTUnwrap(result["files"] as? [[String: Any]])
+        XCTAssertEqual(files.first?["sourcePreviewTruncated"] as? Bool, true)
+        let guidance = try XCTUnwrap(result["workflowGuidance"] as? [[String: Any]])
+        XCTAssertEqual(guidance.count, 5)
+        XCTAssertEqual(guidance.first?["argv"] as? [String], ["read", file.path, "--json"])
+        XCTAssertTrue(guidance.allSatisfy { $0["note"] == nil })
+        XCTAssertTrue(
+            guidance.contains {
+                ($0["purpose"] as? String) == "start a durable handoff"
+                    && ($0["argvTemplate"] as? [String])?.first == "handoff"
+            }
+        )
+    }
+
+    func testBriefContextDefaultsKeepWideWorkspaceOrientationBounded() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let service = CommentService()
+        let actor = MarginActor(
+            id: "urn:test:agent:wide-context",
+            type: .software,
+            name: "Wide Context Agent"
+        )
+        for fileIndex in 1...8 {
+            let file = directory.appendingPathComponent("note-\(fileIndex).md")
+            let markdown = "# Note \(fileIndex)\n\n" + String(repeating: "Bounded context. ", count: 50)
+            try Data(markdown.utf8).write(to: file)
+            for commentIndex in 1...3 {
+                _ = try service.add(
+                    at: file,
+                    message: "Open item \(fileIndex).\(commentIndex)",
+                    creator: actor,
+                    anchor: .document,
+                    annotationID: String(
+                        format: "00000000-0000-4000-8000-%012d",
+                        10_000 + fileIndex * 10 + commentIndex
+                    )
+                )
+            }
+        }
+        let questionID = "00000000-0000-4000-8000-000000019999"
+        XCTAssertEqual(
+            runSilently([
+                "comments", "add", directory.appendingPathComponent("note-8.md").path,
+                "--document", "--kind", "question",
+                "-m", "Which bounded queue should the reviewer use?",
+                "--id", questionID,
+                "--actor-id", "urn:test:agent:wide-context", "--actor-type", "software",
+            ]),
+            CLIExit.success.rawValue
+        )
+
+        let context = runCapturing(["context", directory.path, "--json", "--brief"])
+        XCTAssertEqual(context.exit, CLIExit.success.rawValue)
+        XCTAssertLessThanOrEqual(context.output.count, 12 * 1_024)
+        let result = try XCTUnwrap(try jsonObject(context.output)["result"] as? [String: Any])
+        let files = try XCTUnwrap(result["files"] as? [[String: Any]])
+        let work = try XCTUnwrap(result["work"] as? [[String: Any]])
+        XCTAssertEqual(files.count, 4)
+        XCTAssertEqual(work.count, 4)
+        let truncation = try XCTUnwrap(result["truncation"] as? [String: Any])
+        XCTAssertEqual(truncation["isTruncated"] as? Bool, true)
+        XCTAssertEqual(truncation["hitFileLimit"] as? Bool, true)
+        XCTAssertEqual(truncation["omittedFileCountIsLowerBound"] as? Bool, true)
+        XCTAssertGreaterThan(truncation["omittedContributionCount"] as? Int ?? 0, 0)
+        XCTAssertTrue((try jsonObject(context.output)["notice"] as? String)?.contains(
+            "omittedFileCount is a lower bound"
+        ) == true)
+        XCTAssertEqual((result["workflowGuidance"] as? [[String: Any]])?.count, 5)
+
+        let fullInbox = runCapturing([
+            "inbox", directory.path, "--kind", "question", "--status", "open", "--json",
+        ])
+        XCTAssertEqual(fullInbox.exit, CLIExit.success.rawValue)
+        let fullResult = try XCTUnwrap(
+            try jsonObject(fullInbox.output)["result"] as? [String: Any]
+        )
+        XCTAssertNotNil(fullResult["cursor"] as? String)
+
+        let briefInbox = runCapturing([
+            "inbox", directory.path, "--kind", "question", "--status", "open", "--json",
+            "--brief",
+        ])
+        XCTAssertEqual(briefInbox.exit, CLIExit.success.rawValue)
+        XCTAssertLessThanOrEqual(briefInbox.output.count, 4 * 1_024)
+        let briefResult = try XCTUnwrap(
+            try jsonObject(briefInbox.output)["result"] as? [String: Any]
+        )
+        XCTAssertNil(briefResult["cursor"])
+        XCTAssertEqual(briefResult["cursorOmitted"] as? Bool, true)
+        let items = try XCTUnwrap(briefResult["items"] as? [[String: Any]])
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?["id"] as? String, "urn:uuid:\(questionID)")
+        XCTAssertEqual(items.first?["actionPath"] as? String, directory
+            .appendingPathComponent("note-8.md").path)
+        XCTAssertGreaterThan(items.first?["annotationRevision"] as? Int ?? 0, 0)
+        XCTAssertTrue((try jsonObject(briefInbox.output)["notice"] as? String)?.contains(
+            "omits the workspace cursor"
+        ) == true)
     }
 
     func testCommentsAddParentIsCanonicalReplyShorthand() throws {
@@ -974,14 +1456,14 @@ final class CLICommandContractTests: XCTestCase {
         )
         XCTAssertEqual(
             Array(suggestionGuidance.prefix(3)).compactMap { $0["command"] as? String },
-            ["suggest list", "suggest accept", "suggest reject"]
+            ["suggest accept", "suggest reject", "suggest list"]
         )
         XCTAssertEqual(suggestionGuidance[0]["executable"] as? Bool, true)
         XCTAssertNotNil(suggestionGuidance[0]["argv"])
-        XCTAssertEqual(suggestionGuidance[1]["executable"] as? Bool, false)
+        XCTAssertEqual(suggestionGuidance[1]["executable"] as? Bool, true)
         XCTAssertEqual(
-            suggestionGuidance[1]["requiredReplacements"] as? [String],
-            ["SUGGESTION_ID"]
+            suggestionGuidance[0]["arguments"] as? [String],
+            [file.path, "urn:uuid:\(rejectedUUID)"]
         )
         var changedRejectedAdd = rejectedAdd
         let suggestionMessageIndex = try XCTUnwrap(changedRejectedAdd.firstIndex(of: "Prefer gamma"))
@@ -1069,12 +1551,10 @@ final class CLICommandContractTests: XCTestCase {
                 "--contribution-id", handoffUUID,
                 "--actor-id", "urn:test:agent:current", "--actor-type", "software"
         ]
-        let commentGuard = runCapturingError(handoffAdd + ["--if-revision", "0"])
-        XCTAssertEqual(commentGuard.exit, CLIExit.usage.rawValue)
-        let guardMessage = String(decoding: commentGuard.output, as: UTF8.self)
-        XCTAssertTrue(guardMessage.contains("--starting-cursor MCUR1"))
-        XCTAssertTrue(try CommentService().list(at: file).comments.isEmpty)
-        let handoffCreate = runCapturing(handoffAdd)
+        let compatibleContributionVocabulary = handoffAdd + [
+            "--document", "--kind", "handoff", "--if-revision", "0",
+        ]
+        let handoffCreate = runCapturing(compatibleContributionVocabulary)
         XCTAssertEqual(handoffCreate.exit, CLIExit.success.rawValue)
         let handoffCreateJSON = try jsonObject(handoffCreate.output)
         let handoffActions = try XCTUnwrap(
@@ -1087,6 +1567,29 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertEqual(handoffActions.first?["arguments"] as? [String], [file.path])
         XCTAssertEqual(runSilently(handoffAdd), CLIExit.success.rawValue)
         XCTAssertEqual(try EmbeddedCommentCodec().decode(Data(contentsOf: file)).envelope?.revision, 1)
+        var conciseAlias = handoffAdd
+        conciseAlias[try XCTUnwrap(conciseAlias.firstIndex(of: "--next-actor"))] = "--to"
+        XCTAssertEqual(runSilently(conciseAlias), CLIExit.success.rawValue)
+        XCTAssertEqual(try EmbeddedCommentCodec().decode(Data(contentsOf: file)).envelope?.revision, 1)
+        let staleGuard = runCapturingError([
+            "handoff", "add", file.path, "-m", "A distinct stale handoff",
+            "--contribution-id", "00000000-0000-4000-8000-000000000904",
+            "--if-revision", "0",
+        ])
+        XCTAssertEqual(staleGuard.exit, CLIExit.temporaryFailure.rawValue)
+        XCTAssertTrue(String(decoding: staleGuard.output, as: UTF8.self).contains("Expected annotation revision 0"))
+        XCTAssertEqual(try EmbeddedCommentCodec().decode(Data(contentsOf: file)).envelope?.revision, 1)
+        XCTAssertEqual(
+            runSilently(handoffAdd + ["--kind", "comment"]),
+            CLIExit.usage.rawValue
+        )
+        let handoffContract = try XCTUnwrap(
+            CLICommandCatalog.commands.first { $0.path == ["handoff", "add"] }
+        )
+        XCTAssertTrue(handoffContract.options.contains { $0.names == ["--next-actor", "--to"] })
+        XCTAssertTrue(handoffContract.options.contains { $0.names == ["--if-revision"] })
+        XCTAssertTrue(handoffContract.options.contains { $0.names == ["--document"] })
+        XCTAssertTrue(handoffContract.options.contains { $0.names == ["--kind"] })
         XCTAssertEqual(
             runSilently(handoffAdd + ["--id", handoffUUID]),
             CLIExit.usage.rawValue
@@ -1161,7 +1664,7 @@ final class CLICommandContractTests: XCTestCase {
             try jsonObject(shown.output)["nextActions"] as? [[String: Any]]
         )
         XCTAssertEqual(showActions[2]["argv"] as? [String], [
-            "stage", "refresh", directory.path, stageID,
+            "stage", "refresh", directory.path, stageID, "--submit",
         ])
 
         let root = try CollaborationRootResolver().directory(at: directory)
@@ -1199,6 +1702,42 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertEqual(root["path"] as? String, directory.path)
         let result = try XCTUnwrap(envelope["result"] as? [String: Any])
         XCTAssertEqual((result["stages"] as? [[String: Any]])?.count, 0)
+
+        let mistakenStageID = runCapturingError([
+            "stage", "list", "urn:test:stage:not-a-root"
+        ])
+        XCTAssertEqual(mistakenStageID.exit, CLIExit.usage.rawValue)
+        let error = try XCTUnwrap(
+            try jsonObject(mistakenStageID.output)["error"] as? [String: Any]
+        )
+        XCTAssertEqual(error["code"] as? String, "USAGE")
+        XCTAssertTrue(
+            (error["message"] as? String)?.contains("not a stage id") == true
+        )
+        XCTAssertTrue(
+            (error["message"] as? String)?.contains("stage show ROOT STAGE_ID") == true
+        )
+
+        let missingStage = runCapturingError([
+            "stage", "show", directory.path, "urn:test:stage:missing"
+        ])
+        XCTAssertEqual(missingStage.exit, CLIExit.notFound.rawValue)
+        let missingError = try XCTUnwrap(
+            try jsonObject(missingStage.output)["error"] as? [String: Any]
+        )
+        XCTAssertEqual(missingError["code"] as? String, "STAGE_NOT_FOUND")
+        XCTAssertTrue(
+            (missingError["message"] as? String)?.contains("stage list ROOT") == true
+        )
+        let missingDetails = try XCTUnwrap(
+            missingError["details"] as? [String: Any]
+        )
+        XCTAssertEqual(missingDetails["requestedStageID"] as? String, "urn:test:stage:missing")
+        XCTAssertEqual(missingDetails["recoveryCommand"] as? String, "margin stage list ROOT")
+        XCTAssertEqual(missingDetails["recoveryRoot"] as? String, directory.path)
+        XCTAssertFalse(
+            (missingError["message"] as? String)?.contains("determine the size") == true
+        )
     }
 
     func testStageShowProvidesBoundedTypedReviewPreviews() throws {
@@ -1471,15 +2010,35 @@ final class CLICommandContractTests: XCTestCase {
         try assertStageRefreshGuidance(staleRefresh.output, stageID: firstRefreshID)
 
         let finalStageID = "urn:test:stage:refresh-final"
+        let refreshAndSubmitArguments = [
+            "stage", "refresh", directory.path, firstRefreshID,
+            "--id", finalStageID, "--submit",
+        ]
+        let finalSubmission = runCapturing(refreshAndSubmitArguments)
+        XCTAssertEqual(finalSubmission.exit, CLIExit.success.rawValue)
+        let finalEnvelope = try jsonObject(finalSubmission.output)
+        XCTAssertEqual(finalEnvelope["command"] as? String, "stage.refresh-submit")
+        let finalResult = try XCTUnwrap(finalEnvelope["result"] as? [String: Any])
+        let finalRefresh = try XCTUnwrap(finalResult["refresh"] as? [String: Any])
+        XCTAssertEqual(finalRefresh["priorStageID"] as? String, firstRefreshID)
+        XCTAssertEqual(finalRefresh["refreshedStageID"] as? String, finalStageID)
+        let finalSubmit = try XCTUnwrap(finalResult["submission"] as? [String: Any])
+        XCTAssertEqual(finalSubmit["stageRemoved"] as? Bool, true)
         XCTAssertEqual(
-            runSilently([
-                "stage", "refresh", directory.path, firstRefreshID, "--id", finalStageID
-            ]),
-            CLIExit.success.rawValue
+            (finalSubmit["transaction"] as? [String: Any])?["disposition"] as? String,
+            "applied"
         )
+
+        let exactRetry = runCapturing(refreshAndSubmitArguments)
+        XCTAssertEqual(exactRetry.exit, CLIExit.success.rawValue)
+        let retryResult = try XCTUnwrap(
+            try jsonObject(exactRetry.output)["result"] as? [String: Any]
+        )
+        let retrySubmit = try XCTUnwrap(retryResult["submission"] as? [String: Any])
+        XCTAssertEqual(retrySubmit["stageRemoved"] as? Bool, true)
         XCTAssertEqual(
-            runSilently(["stage", "submit", directory.path, finalStageID]),
-            CLIExit.success.rawValue
+            (retrySubmit["transaction"] as? [String: Any])?["disposition"] as? String,
+            "already-applied"
         )
         XCTAssertEqual(
             try CommentService().list(at: first).comments.filter {
@@ -1733,6 +2292,18 @@ final class CLICommandContractTests: XCTestCase {
             }
         }
     }
+
+    func testStaticBriefCapabilityProjectionEncodingPerformance() {
+        measure(metrics: [XCTClockMetric()]) {
+            for _ in 0..<100 {
+                let projection = CLICommandCatalog.capabilitiesBriefProjection(
+                    cliVersion: MarginCommand.version,
+                    workflow: .suggestions
+                )
+                _ = try! JSONEncoder().encode(projection)
+            }
+        }
+    }
 #endif
 
     private func runSilently(_ arguments: [String]) -> Int32 {
@@ -1768,7 +2339,9 @@ final class CLICommandContractTests: XCTestCase {
         precondition(savedStandardOutput >= 0)
         precondition(dup2(handle.fileDescriptor, fileDescriptor) >= 0)
         let exit = MarginCommand.run(arguments: arguments)
-        _ = fsync(handle.fileDescriptor)
+        // The command writes directly to this descriptor. Durability is not
+        // part of capture semantics, and fsync can stall for minutes on a
+        // Docker Desktop bind-backed /tmp even after the bytes are readable.
         _ = dup2(savedStandardOutput, fileDescriptor)
         close(savedStandardOutput)
         try? handle.close()
@@ -1859,7 +2432,13 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertEqual(details["stageRetained"] as? String, "true", file: file, line: line)
         XCTAssertEqual(
             details["recoveryCommand"] as? String,
-            "margin stage refresh ROOT STAGE_ID",
+            "margin stage refresh ROOT STAGE_ID --submit",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            details["recoveryStageID"] as? String,
+            stageID,
             file: file,
             line: line
         )

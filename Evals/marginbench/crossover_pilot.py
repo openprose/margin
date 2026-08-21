@@ -504,6 +504,11 @@ def _validate_job_outputs(
     run_live = cost.get("liveBudget") or {}
     wallet_value = summary.get("wallet") or {}
     observed = wallet_value.get("observedDebitUSD")
+    wallet_is_unattributed = (
+        wallet_value.get("observationScope") == "account-wide"
+        and wallet_value.get("debitAttribution") == "unattributed"
+    )
+    proxy_accounted_upper = live.get("reservedCostUpperBoundUSD")
     expected_policy = _expected_live_budget_policy(plan, job)
     expected_basis = _expected_bound_basis(plan, job)
     summary_episodes = summary.get("episodes") or []
@@ -545,7 +550,13 @@ def _validate_job_outputs(
         or isinstance(observed, bool)
         or not math.isfinite(observed)
         or observed < 0
-        or observed > job["liveProxyCapUSD"] + 0.000001
+        or (
+            not wallet_is_unattributed
+            and observed > job["liveProxyCapUSD"] + 0.000001
+        )
+        or not isinstance(proxy_accounted_upper, (int, float))
+        or isinstance(proxy_accounted_upper, bool)
+        or proxy_accounted_upper > job["liveProxyCapUSD"] + 0.000001
         or cost.get("currency") != "USD"
         or cost.get("hardAdmissionCap") != job["liveProxyCapUSD"]
         or cost.get("admissionBound") != job["liveProxyCapUSD"]
@@ -553,6 +564,13 @@ def _validate_job_outputs(
         or cost.get("liveBudgetCap") != job["liveProxyCapUSD"]
         or cost.get("boundBasis") != expected_basis
         or cost.get("observedWalletDebit") != observed
+        or (
+            wallet_is_unattributed
+            and (
+                cost.get("observedWalletDebitScope") != "account-wide"
+                or cost.get("observedWalletDebitAttribution") != "unattributed"
+            )
+        )
     ):
         raise PrimeStudyError("Completed crossover summary violates its cell contract or budget.")
     if not measurement.safety_passed or not measurement.source_preserved:
@@ -567,6 +585,18 @@ def _validate_job_outputs(
         "summary": {"sha256": summary_sha, "byteCount": len(summary_raw)},
         "run": {"sha256": run_sha, "byteCount": len(run_raw)},
         "observedWalletDebitUSD": round(float(observed), 6),
+        **(
+            {
+                "proxyAccountedCostUpperBoundUSD": round(
+                    float(proxy_accounted_upper),
+                    6,
+                ),
+                "walletObservationScope": "account-wide",
+                "walletDebitAttribution": "unattributed",
+            }
+            if wallet_is_unattributed
+            else {}
+        ),
         "reportedCostUSD": round(float(measurement.reported_cost_usd), 6),
         "modelCalls": measurement.model_calls,
         "safetyPassed": True,
@@ -729,6 +759,24 @@ def wait_until_paid_start_allowed(
         sleeper(remaining)
 
 
+def _cost_totals(receipts: list[dict[str, Any]]) -> tuple[float, float, bool]:
+    observed = round(sum(item["observedWalletDebitUSD"] for item in receipts), 6)
+    fully_attributed = all(
+        "proxyAccountedCostUpperBoundUSD" in item for item in receipts
+    )
+    accounted = round(
+        sum(
+            item.get(
+                "proxyAccountedCostUpperBoundUSD",
+                item["observedWalletDebitUSD"],
+            )
+            for item in receipts
+        ),
+        6,
+    )
+    return observed, accounted, fully_attributed
+
+
 def _finalize(
     plan: dict[str, Any],
     crossover_plan_path: Path,
@@ -767,7 +815,7 @@ def _finalize(
             raise PrimeStudyError("Existing crossover report differs from completed evidence.")
     else:
         _atomic_write(report_path, report_raw, 0o644)
-    observed = round(sum(item["observedWalletDebitUSD"] for item in receipts), 6)
+    observed, accounted, fully_attributed = _cost_totals(receipts)
     completion = {
         "schema": COMPLETION_SCHEMA,
         "completed": True,
@@ -775,6 +823,15 @@ def _finalize(
         "planID": plan["id"],
         "jobCount": len(receipts),
         "observedWalletDebitUSD": observed,
+        **(
+            {
+                "proxyAccountedCostUpperBoundUSD": accounted,
+                "walletObservationScope": "account-wide",
+                "walletDebitAttribution": "unattributed",
+            }
+            if fully_attributed
+            else {}
+        ),
         "reportedCostUSD": round(sum(item["reportedCostUSD"] for item in receipts), 6),
         "modelCalls": sum(item["modelCalls"] for item in receipts),
         "allSafe": report["allPairsSafe"],
@@ -913,9 +970,11 @@ def execute_study(
                 )
             receipts.append(receipt)
             new_jobs += 1
-            observed = round(sum(item["observedWalletDebitUSD"] for item in receipts), 6)
-            if observed > plan["budget"]["hardStudyCapUSD"] + 0.000001:
-                raise PrimeStudyError("Observed wallet debit exceeded the hard crossover cap.")
+            observed, accounted, fully_attributed = _cost_totals(receipts)
+            if accounted > plan["budget"]["hardStudyCapUSD"] + 0.000001:
+                raise PrimeStudyError(
+                    "Benchmark-attributable cost exceeded the hard crossover cap."
+                )
             progress = {
                 "schema": "urn:marginbench:crossover-prime-progress:v1",
                 "planID": plan["id"],
@@ -923,6 +982,15 @@ def execute_study(
                 "jobCount": plan["jobCount"],
                 "lastJobID": job["id"],
                 "observedWalletDebitUSD": observed,
+                **(
+                    {
+                        "proxyAccountedCostUpperBoundUSD": accounted,
+                        "walletObservationScope": "account-wide",
+                        "walletDebitAttribution": "unattributed",
+                    }
+                    if fully_attributed
+                    else {}
+                ),
             }
             print(canonical_json(progress).decode("utf-8"), file=sys.stderr, flush=True)
             if new_jobs >= arguments.max_new_jobs and len(receipts) < plan["jobCount"]:

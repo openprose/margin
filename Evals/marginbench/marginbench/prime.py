@@ -16,12 +16,13 @@ from verifiers.v1.runtimes import runtime_is_local
 from .binary import resolve_margin_binary
 from .controls import DEFAULT_CONTROL_PROFILE, planned_topology, require_implemented_profile
 from .entropy import PUBLIC_DEVELOPMENT_KEY
+from .event_summary import summarize_command_events
 from .phase_identity import PhaseIdentityController
 from .plain_gateway import PlainProvenanceLog, PlainWorkspaceGateway
 from .plain_prompts import plain_role_task
 from .plain_reference import apply_plain_harness_event
 from .runner import apply_harness_event
-from .scenarios import SCENARIO_IDS, generate_episode
+from .scenarios import AVAILABLE_SCENARIO_IDS, SCENARIO_IDS, generate_episode
 from .schema import Actor, EpisodeDefinition, RoleTask
 from .scorer import score_episode
 from .neutral import NeutralLedger
@@ -144,7 +145,7 @@ class MarginBenchTaskset(vf.Taskset[MarginBenchTask, MarginBenchTasksetConfig]):
         require_implemented_profile(data.control_profile)
         if data.control_profile != self.config.control_profile:
             raise ValueError("Wire task control profile does not match the environment.")
-        if data.scenario_id not in SCENARIO_IDS:
+        if data.scenario_id not in AVAILABLE_SCENARIO_IDS:
             raise ValueError(f"Unknown MarginBench scenario: {data.scenario_id}")
         episode = generate_episode(data.scenario_id, self._generation_key(), data.repetition)
         if data.fingerprint != episode.fingerprint or data.name != episode.public_id:
@@ -177,7 +178,7 @@ class MarginBenchTaskset(vf.Taskset[MarginBenchTask, MarginBenchTasksetConfig]):
         index = 0
         for repetition in repetitions:
             for scenario_id in self.config.scenario_ids:
-                if scenario_id not in SCENARIO_IDS:
+                if scenario_id not in AVAILABLE_SCENARIO_IDS:
                     raise ValueError(f"Unknown MarginBench scenario: {scenario_id}")
                 episode = generate_episode(scenario_id, key, repetition)
                 yield MarginBenchTask(
@@ -337,6 +338,7 @@ class MarginBenchEnv(vf.Env[MarginBenchEnvConfig]):
                 "sourcePreserved": result.source_preserved,
                 "commandCount": result.command_count,
                 "invalidCommandCount": result.invalid_command_count,
+                "eventSummary": summarize_command_events(result.events),
                 "durationMs": result.duration_ms,
                 "dimensions": result.dimensions,
                 "checks": result.checks,

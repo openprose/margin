@@ -9,8 +9,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from .gateway import ALLOWED_COMMANDS, BOOLEAN_OPTIONS, VALUE_OPTIONS
-from .scenarios import SCENARIO_IDS
+from .gateway import ALLOWED_COMMANDS, BOOLEAN_OPTIONS, VALUE_OPTIONS, event_command_path
+from .scenarios import AVAILABLE_SCENARIO_IDS
 
 
 TRACE_SHAPE_SCHEMA = "urn:marginbench:trace-shape-report:v1"
@@ -21,6 +21,13 @@ MAX_TRACES = 10_000
 MAX_TOOL_CALLS = 1_000_000
 MAX_SEQUENCE_LENGTH = 128
 MAX_COMMAND_SIGNATURES = 4_096
+RESULT_SIZE_BUCKETS = (
+    (1_024, "1-1024"),
+    (4_096, "1025-4096"),
+    (16_384, "4097-16384"),
+    (65_536, "16385-65536"),
+)
+RESULT_SIZE_OVERFLOW_BUCKET = "65537+"
 SAFE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 SAFE_SUBCOMMANDS = {
     "comments": frozenset({
@@ -31,6 +38,16 @@ SAFE_SUBCOMMANDS = {
     "stage": frozenset({"create", "discard", "list", "refresh", "show", "submit"}),
     "suggest": frozenset({"accept", "add", "list", "reject"}),
     "workspace": frozenset({"init", "show"}),
+}
+SAFE_MAN_TOPICS = {
+    "agent": "agents", "agents": "agents", "comment": "comments",
+    "comments": "comments", "handoff": "handoff", "handoffs": "handoff",
+    "margin": "agents", "merge": "merge", "overview": "agents",
+    "reconcile": "merge", "reconciliation": "merge", "review": "review",
+    "safety": "safety", "security": "safety", "stage": "staging",
+    "stages": "staging", "staging": "staging", "start": "agents",
+    "suggest": "suggestions", "suggestion": "suggestions",
+    "suggestions": "suggestions", "workflow": "agents", "workflows": "agents",
 }
 BOUNDARY_ERRORS = frozenset({
     "MARGINBENCH_ARGUMENT_LIMIT",
@@ -49,6 +66,30 @@ BOUNDARY_ERRORS = frozenset({
 WORKSPACE_ACTIONS = frozenset({"guide", "list", "read", "write"})
 KNOWN_FLAGS = VALUE_OPTIONS | BOOLEAN_OPTIONS | frozenset({
     "--contribution-id", "--max-source-bytes", "--parent",
+})
+WRITE_COMMANDS = frozenset({
+    "comments add",
+    "comments delete",
+    "comments edit",
+    "comments reanchor",
+    "comments reopen",
+    "comments reply",
+    "comments reply --resolve",
+    "comments resolve",
+    "handoff add",
+    "merge",
+    "reconcile",
+    "stage create",
+    "stage discard",
+    "stage refresh",
+    "stage refresh --submit",
+    "stage submit",
+    "suggest accept",
+    "suggest add",
+    "suggest reject",
+    "transact",
+    "workspace init",
+    "workspace write",
 })
 
 
@@ -75,7 +116,7 @@ def _sources(paths: list[Path]) -> list[Path]:
 
 
 def _safe_scenario(value: object) -> str:
-    return value if isinstance(value, str) and value in SCENARIO_IDS else "unknown"
+    return value if isinstance(value, str) and value in AVAILABLE_SCENARIO_IDS else "unknown"
 
 
 def _safe_seat(value: object) -> str:
@@ -99,6 +140,13 @@ def _safe_command(arguments: list[str]) -> tuple[str, bool]:
         )
         return ("missing-command" if missing_command else "unknown"), leading
     top = values[0]
+    if top == "man" and len(values) > 1 and values[1] in SAFE_MAN_TOPICS:
+        return f"man {SAFE_MAN_TOPICS[values[1]]}", leading
+    semantic = event_command_path(values)
+    if semantic in {"comments reply --resolve", "stage refresh --submit"}:
+        return semantic, leading
+    if semantic == "comments reply" and top == "comments":
+        return semantic, leading
     if top in SAFE_SUBCOMMANDS and len(values) > 1 and values[1] in SAFE_SUBCOMMANDS[top]:
         return f"{top} {values[1]}", leading
     return top, leading
@@ -149,6 +197,26 @@ def _tool_result(message: dict[str, Any]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _result_size_bucket(message: dict[str, Any]) -> str:
+    """Coarsen agent-visible result size without retaining an exact payload size."""
+    raw = message.get("content")
+    if isinstance(raw, str):
+        byte_count = len(raw.encode("utf-8"))
+    elif raw is None:
+        byte_count = 0
+    else:
+        byte_count = len(
+            json.dumps(raw, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+            .encode("utf-8")
+        )
+    if byte_count == 0:
+        return "0"
+    for maximum, name in RESULT_SIZE_BUCKETS:
+        if byte_count <= maximum:
+            return name
+    return RESULT_SIZE_OVERFLOW_BUCKET
+
+
 def _counts(counter: Counter[str], maximum: int = 256) -> list[dict[str, Any]]:
     return [
         {"name": name, "count": count}
@@ -156,10 +224,69 @@ def _counts(counter: Counter[str], maximum: int = 256) -> list[dict[str, Any]]:
     ]
 
 
+def _command_rows(values: dict[str, Counter[str]]) -> list[dict[str, Any]]:
+    return [
+        {"name": name, **dict(counts)}
+        for name, counts in sorted(
+            values.items(),
+            key=lambda item: (-item[1]["count"], item[0]),
+        )
+    ]
+
+
+def _command_bucket_rows(
+    values: dict[str, Counter[str]],
+) -> list[dict[str, Any]]:
+    return [
+        {"command": command, "buckets": _counts(buckets)}
+        for command, buckets in sorted(values.items())
+    ]
+
+
+def _sequence_rows(
+    values: Counter[tuple[str, ...]],
+    *,
+    maximum: int,
+) -> list[dict[str, Any]]:
+    return [
+        {"commands": list(sequence), "count": count}
+        for sequence, count in sorted(
+            values.items(),
+            key=lambda item: (-item[1], item[0]),
+        )[:maximum]
+    ]
+
+
+def _pre_write_bucket(call_count: int | None) -> str:
+    if call_count is None:
+        return "none"
+    if call_count == 0:
+        return "0"
+    if call_count <= 2:
+        return "1-2"
+    if call_count <= 4:
+        return "3-4"
+    if call_count <= 6:
+        return "5-6"
+    return "7+"
+
+
+def _write_latency(trace_count: int, write_attempt_count: int, buckets: Counter[str]) -> dict[str, Any]:
+    without_write = buckets.get("none", 0)
+    return {
+        "traceCount": trace_count,
+        "tracesWithWriteAttempt": trace_count - without_write,
+        "tracesWithoutWriteAttempt": without_write,
+        "writeAttemptCount": write_attempt_count,
+        "preWriteToolCallBuckets": _counts(buckets),
+    }
+
+
 def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
     sources = _sources(paths)
     source_receipts = []
     traces: list[dict[str, Any]] = []
+    candidate_margin_sha256s: set[str] = set()
     for path in sources:
         digest = hashlib.sha256()
         byte_count = 0
@@ -175,7 +302,22 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
                     raise TraceShapeError("Trace input must be UTF-8 JSONL.") from error
                 values = envelope.get("traces") if isinstance(envelope, dict) else None
                 if isinstance(values, list):
-                    traces.extend(value for value in values if isinstance(value, dict))
+                    for value in values:
+                        if not isinstance(value, dict):
+                            continue
+                        traces.append(value)
+                        info = value.get("info") if isinstance(value.get("info"), dict) else {}
+                        marginbench = (
+                            info.get("marginbench")
+                            if isinstance(info.get("marginbench"), dict)
+                            else {}
+                        )
+                        candidate_digest = marginbench.get("marginSha256")
+                        if (
+                            isinstance(candidate_digest, str)
+                            and re.fullmatch(r"[0-9a-f]{64}", candidate_digest)
+                        ):
+                            candidate_margin_sha256s.add(candidate_digest)
                 if len(traces) > MAX_TRACES:
                     raise TraceShapeError(f"Trace count exceeds {MAX_TRACES}.")
         source_receipts.append({
@@ -188,6 +330,9 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
     command_signature_errors: dict[
         tuple[str, tuple[str, ...]], Counter[str]
     ] = defaultdict(Counter)
+    command_signature_result_size_buckets: dict[
+        tuple[str, tuple[str, ...]], Counter[str]
+    ] = defaultdict(Counter)
     errors: Counter[str] = Counter()
     flags: Counter[str] = Counter()
     unanswered_commands: Counter[str] = Counter()
@@ -197,6 +342,23 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
     scenarios: dict[str, Counter[str]] = defaultdict(Counter)
     scenario_finish_reasons: dict[str, Counter[str]] = defaultdict(Counter)
     scenario_stop_conditions: dict[str, Counter[str]] = defaultdict(Counter)
+    scenario_commands: dict[str, dict[str, Counter[str]]] = defaultdict(
+        lambda: defaultdict(Counter)
+    )
+    scenario_errors: dict[str, Counter[str]] = defaultdict(Counter)
+    scenario_flags: dict[str, Counter[str]] = defaultdict(Counter)
+    scenario_unanswered_commands: dict[str, Counter[str]] = defaultdict(Counter)
+    scenario_sequences: dict[str, Counter[tuple[str, ...]]] = defaultdict(Counter)
+    result_size_buckets: Counter[str] = Counter()
+    command_result_size_buckets: dict[str, Counter[str]] = defaultdict(Counter)
+    scenario_result_size_buckets: dict[str, Counter[str]] = defaultdict(Counter)
+    scenario_command_result_size_buckets: dict[
+        str, dict[str, Counter[str]]
+    ] = defaultdict(lambda: defaultdict(Counter))
+    pre_write_tool_call_buckets: Counter[str] = Counter()
+    scenario_pre_write_tool_call_buckets: dict[str, Counter[str]] = defaultdict(Counter)
+    write_attempt_count = 0
+    scenario_write_attempt_count: Counter[str] = Counter()
     tool_calls = successes = failures = blocked = leading_count = 0
 
     for trace in traces:
@@ -218,6 +380,9 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
             scenario_stop_conditions[scenario_key][stop] += 1
         pending: dict[str, tuple[str, bool, list[str], str]] = {}
         sequence: list[str] = []
+        issued_before_first_write = 0
+        first_write_after: int | None = None
+        trace_write_attempt_count = 0
         nodes = trace.get("nodes") if isinstance(trace.get("nodes"), list) else []
         for node in nodes:
             message = node.get("message") if isinstance(node, dict) else None
@@ -231,6 +396,12 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
                     if len(pending) + tool_calls >= MAX_TOOL_CALLS:
                         raise TraceShapeError(f"Tool call count exceeds {MAX_TOOL_CALLS}.")
                     command, leading, command_flags, surface = _tool_descriptor(call)
+                    if command in WRITE_COMMANDS:
+                        trace_write_attempt_count += 1
+                        if first_write_after is None:
+                            first_write_after = issued_before_first_write
+                    elif first_write_after is None:
+                        issued_before_first_write += 1
                     identifier = call.get("id")
                     if isinstance(identifier, str) and len(identifier) <= 512:
                         pending[identifier] = (command, leading, command_flags, surface)
@@ -250,6 +421,7 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
                 raw_error = result["error"].get("code")
             error = None if ok else _safe_error(raw_error)
             is_blocked = error in BOUNDARY_ERRORS
+            size_bucket = _result_size_bucket(message)
             tool_calls += 1
             successes += int(ok)
             failures += int(not ok)
@@ -259,13 +431,23 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
             commands[command]["successCount"] += int(ok)
             commands[command]["failureCount"] += int(not ok)
             commands[command]["blockedCount"] += int(is_blocked)
+            scenario_commands[scenario_key][command]["count"] += 1
+            scenario_commands[scenario_key][command]["successCount"] += int(ok)
+            scenario_commands[scenario_key][command]["failureCount"] += int(not ok)
+            scenario_commands[scenario_key][command]["blockedCount"] += int(is_blocked)
             scenarios[scenario_key]["toolCallCount"] += 1
             scenarios[scenario_key]["failureCount"] += int(not ok)
             scenarios[scenario_key]["blockedCount"] += int(is_blocked)
             scenarios[scenario_key]["leadingLiteralMarginCount"] += int(leading)
+            result_size_buckets[size_bucket] += 1
+            command_result_size_buckets[command][size_bucket] += 1
+            scenario_result_size_buckets[scenario_key][size_bucket] += 1
+            scenario_command_result_size_buckets[scenario_key][command][size_bucket] += 1
             if error is not None:
                 errors[error] += 1
+                scenario_errors[scenario_key][error] += 1
             flags.update(command_flags)
+            scenario_flags[scenario_key].update(command_flags)
             signature_key = (command, tuple(command_flags))
             if signature_key not in command_signatures and len(command_signatures) >= MAX_COMMAND_SIGNATURES:
                 raise TraceShapeError(
@@ -275,29 +457,34 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
             command_signatures[signature_key]["successCount"] += int(ok)
             command_signatures[signature_key]["failureCount"] += int(not ok)
             command_signatures[signature_key]["blockedCount"] += int(is_blocked)
+            command_signature_result_size_buckets[signature_key][size_bucket] += 1
             if error is not None:
                 command_signature_errors[signature_key][error] += 1
             if len(sequence) < MAX_SEQUENCE_LENGTH:
                 sequence.append(command)
         if sequence:
             sequences[tuple(sequence)] += 1
+            scenario_sequences[scenario_key][tuple(sequence)] += 1
+        write_attempt_count += trace_write_attempt_count
+        scenario_write_attempt_count[scenario_key] += trace_write_attempt_count
+        pre_write_bucket = _pre_write_bucket(first_write_after)
+        pre_write_tool_call_buckets[pre_write_bucket] += 1
+        scenario_pre_write_tool_call_buckets[scenario_key][pre_write_bucket] += 1
         for command, _, _, _ in pending.values():
             unanswered_commands[command] += 1
+            scenario_unanswered_commands[scenario_key][command] += 1
             scenarios[scenario_key]["unansweredToolCallCount"] += 1
 
-    command_rows = [
-        {"name": name, **dict(values)}
-        for name, values in sorted(
-            commands.items(),
-            key=lambda item: (-item[1]["count"], item[0]),
-        )
-    ]
+    command_rows = _command_rows(commands)
     command_signature_rows = [
         {
             "command": command,
             "flags": list(signature_flags),
             **dict(values),
             "errors": _counts(command_signature_errors[(command, signature_flags)]),
+            "resultSizeBuckets": _counts(
+                command_signature_result_size_buckets[(command, signature_flags)]
+            ),
         }
         for (command, signature_flags), values in sorted(
             command_signatures.items(),
@@ -318,18 +505,27 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
             "leadingLiteralMarginCount": values["leadingLiteralMarginCount"],
             "finalFinishReasons": _counts(scenario_finish_reasons[key]),
             "stopConditions": _counts(scenario_stop_conditions[key]),
+            "commands": _command_rows(scenario_commands[key]),
+            "resultSizeBuckets": _counts(scenario_result_size_buckets[key]),
+            "commandResultSizeBuckets": _command_bucket_rows(
+                scenario_command_result_size_buckets[key]
+            ),
+            "errors": _counts(scenario_errors[key]),
+            "flags": _counts(scenario_flags[key]),
+            "unansweredCommands": _counts(scenario_unanswered_commands[key]),
+            "sequences": _sequence_rows(scenario_sequences[key], maximum=64),
+            "writeLatency": _write_latency(
+                values["traceCount"],
+                scenario_write_attempt_count[key],
+                scenario_pre_write_tool_call_buckets[key],
+            ),
         })
-    sequence_rows = [
-        {"commands": list(sequence), "count": count}
-        for sequence, count in sorted(
-            sequences.items(),
-            key=lambda item: (-item[1], item[0]),
-        )[:256]
-    ]
+    sequence_rows = _sequence_rows(sequences, maximum=256)
     return {
         "schema": TRACE_SHAPE_SCHEMA,
         "sourceCount": len(source_receipts),
         "sources": source_receipts,
+        "candidateMarginSha256s": sorted(candidate_margin_sha256s),
         "traceCount": len(traces),
         "toolCallCount": tool_calls,
         "successCount": successes,
@@ -342,10 +538,15 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
         "leadingLiteralMarginCount": leading_count,
         "commands": command_rows,
         "commandSignatures": command_signature_rows,
+        "resultSizeBuckets": _counts(result_size_buckets),
+        "commandResultSizeBuckets": _command_bucket_rows(command_result_size_buckets),
         "errors": _counts(errors),
         "flags": _counts(flags),
         "sequences": sequence_rows,
         "scenarios": scenario_rows,
+        "writeLatency": _write_latency(
+            len(traces), write_attempt_count, pre_write_tool_call_buckets
+        ),
         "privacy": {
             "rawArgumentsRetained": False,
             "stdinRetained": False,
@@ -356,5 +557,6 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
             "identifiersRetained": False,
             "pathsRetained": False,
             "sourcePathsRetained": False,
+            "exactResultSizesRetained": False,
         },
     }

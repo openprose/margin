@@ -316,25 +316,114 @@ recommendation, not a claim that those licenses already apply.
 
 ## Current evidence
 
-At the current development snapshot, all nine reference scenarios score 100 on
-macOS and in the packaged Linux x86-64 runtime. Margin 0.3.2 passes 164 macOS
-tests and 112 portable Linux tests. The Verifiers v1 adapter completes the whole
-nine-case fake-agent matrix at 100 with one exposed tool, both in process and
-through its real environment server. Public and freshly keyed private served
-rehearsals pass for both role-separated and continuing-agent topologies with no
-rejections or paid calls. The installable manylinux wheel and source archive
-pass clean-container verification. The system and Prime Python runtimes each
-pass all 71 benchmark contracts; the ordinary runtime has eight intentional
-Prime-only skips. The wheel bundles all 28 schemas.
+The published product baseline is Margin 0.4.0. The current post-release
+interface candidate passes 177 native tests. Both the system and Prime Python
+runtimes pass 198 MarginBench contracts, and the real nine-scenario reference
+study scores 100 with `paidModelsInvoked:false`. The isolated role server,
+neutral Markdown control, redacted publication audits, schema checks, and
+source-safety gates all pass.
 
-Real Qwen Flash runs now cover all six families. The earlier human-relay,
-handoff, concurrent-review, suggestion-decision, and stale multi-file runs
-produced useful interface failures as well as exact final states. The new
-directory workflow improved from 25.0 to 91.944444 and then 96.25 while holding
-the public case and model fixed; the final run had zero invalid Margin commands,
-but one sample is calibration evidence rather than a promotion result. A final
-$0.02-capped proxy smoke scored 96.25 and cost $0.001. The complete ledger now
-contains 17 attempts, 16 completed runs, 193 model calls, and $0.0374 observed
-wallet debit, leaving $199.9487. Exact artifacts and the historical cost-bound
-correction are kept in the tracked
-results and build ledger.
+The latest CLI cycle is intentionally narrower than a release claim. Concrete
+reply, atomic reply-and-resolve, thread verification, durable handoff, and
+handoff-verification actions improved one counter-ordered Luna handoff case
+from 92.5 to 96.25 and completed the required workflow. A subsequent
+filename-aware manual candidate tied that action-first version at 100 on one
+fresh case; the new filename redirect was not invoked, so that result proves
+safety on the sampled path rather than its benefit. Both are single matched
+pairs and neither meets the 20-pair promotion threshold.
+
+Privacy-safe trace evidence then showed that brief context repeatedly crossed
+the 4 KiB agent-response bucket. The next local candidate reduced a deliberately
+long, open-work context from 5,064 to 3,776 direct CLI bytes while retaining the
+exact executable workflow. Its 100-process help median is 5.674 ms versus 5.654
+ms for the published v0.4.0 binary, and its real brief-context median is 17.892
+ms versus 17.832 ms for the preceding candidate. These differences are below a
+meaningful speed claim and show no material regression.
+
+A frozen model-free probe exercised the actual wide-directory failure mode: 16
+Markdown files with four open items each. In a counterbalanced 20-round
+comparison, the previous brief view returned 52,383 bytes at 57.423 ms median;
+the bounded candidate returned 7,377 bytes at 22.015 ms median. Brief context
+now orients on four files, one work item and four headings per file, 2 MiB of
+discovered Markdown, and eight directory levels unless the caller explicitly
+overrides those limits. It reports omissions and points the caller to targeted
+follow-up commands. When discovery stops early, the response explicitly labels
+its observed omitted-file count as a lower bound rather than pretending it paid
+to count the whole tree. The probe validates deterministic fixture bytes,
+response stability, and source preservation under a public schema. This proves
+the size and latency mechanism locally; it does not yet prove better model
+performance.
+
+An opt-in `wide_directory_triage` task now turns that mechanism into a complete
+agent workflow without changing the historical nine-scenario default. Its
+model-free reference finds one typed question beyond the four-file overview,
+replies, resolves, and validates at 100 in five commands. A compact filtered
+inbox reduced that step from 11,440 to 3,215 bytes while retaining the exact
+action path and revision; no model was used, so this is a solvability and
+response-budget result rather than an agent-quality claim.
+
+Margin's built-in manual now teaches the same bounded path instead of silently
+overriding it with a 16-file read. The experimental oracle requires successful
+context before filtered inbox before mutation; merely issuing both commands in
+the wrong order no longer receives credit for the intended recovery behavior.
+
+Concurrent-work scoring also distinguishes waste from required recovery. The
+collision-free two-writer reference uses four calls; one genuine write collision
+adds a failed write and the required reread. That six-call path remains fully
+efficient because it is the protocol the task explicitly prescribes. A seventh
+unnecessary call begins the efficiency deduction. This boundary is covered by
+a synthetic collision regression and by running the Prime-compatible contract
+suite while another complete suite competes for the machine.
+
+The CLI candidate now removes that round trip when it can prove the merge is
+safe. A typed comment, question, issue, decision, task, or approval without an
+explicit revision guard may retry an annotation-only race up to eight times.
+The retry proceeds only while the logical Markdown digest is unchanged; source
+edits and explicit revision conditions still stop immediately. Eight concurrent
+writers converged in ten consecutive regression runs with every source byte and
+identity preserved. In a 200-case stress comparison, the frozen v0.4.0 binary
+surfaced 29 normal collisions and needed six agent-visible calls in those cases;
+the candidate surfaced none and used four calls in all 200. Both arms remained
+100 and safe, so this is evidence of coordination-cost removal rather than a
+quality-score gain. A counterbalanced 100-process help sample measured the final
+candidate at 5.617 ms median / 6.456 ms p95 versus 5.704 ms / 7.212 ms for the
+published binary. The difference is noise-sized and shows no startup regression.
+
+That comparison is now a public, schema-checked `concurrency-probe` rather than
+an ad hoc stress script. It starts both binaries at the same barrier, alternates
+submission order, retains only aggregate measurements, and never requires the
+baseline to collide. In the retained 1,000-pair run, stronger paired contention
+produced 719 visible baseline collisions and 5,438 total calls, versus zero
+visible candidate collisions and 4,000 calls. Every episode in both arms still
+scored 100, passed safety, and preserved source. The report is available at
+`Evals/marginbench/results/concurrency/v41-model-free.json`. This is mechanism
+evidence; real-model paired studies remain necessary for agent-quality claims.
+The gate requires both arms to be correct, safe, source-preserving, and free of
+invalid calls. Only the candidate must also eliminate visible contention and
+finish in the normal four calls.
+
+The macOS suite passes 177 tests. The separately pinned Linux gate passes 124
+portable core and CLI tests across 19 suites. Live LLDB capture identified the
+intermittent stall as the exact open swift-corelibs XCTest teardown deadlock:
+the main thread waits in `ppoll`, Foundation's run loop, XCTest expectation
+waiting, teardown, and `invokeTest`, with no active Margin frame. The runner now
+freezes a timed-out process and permits a bounded retry only when the captured
+stack proves that exact framework path. Assertions, crashes, debugger failures,
+product stacks, and ordinary timeouts remain fatal. In a 200-process stress
+sample it recovered four exact framework deadlocks; a forced 0.001-second
+ordinary timeout failed as designed. Four subsequent complete Linux gates
+passed, including three consecutive final runs with zero recoveries. See
+[swift-corelibs-xctest #504](https://github.com/swiftlang/swift-corelibs-xctest/issues/504).
+
+Paired studies now publish content-free trace shapes for both arms and bind
+each shape to its candidate identity. Diagnostics therefore remain correct when
+operational order is reversed or when two settings candidates share one binary.
+They also distinguish an incomplete role from a complete durable outcome that
+merely used its last turn on a successful tool call. Provider 429/5xx outcomes,
+budget uncertainty, and censored attempts remain infrastructure evidence, not
+model or product scores.
+
+The exact iteration ledger, cost accounting, candidate digests, and next paid
+gate are in [MARGINBENCH_PLAN.md](MARGINBENCH_PLAN.md). Current real-model
+evidence is mechanism-finding calibration only; no post-release candidate has
+earned statistical promotion.

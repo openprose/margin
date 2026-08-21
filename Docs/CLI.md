@@ -10,12 +10,17 @@ For exact grammar, use the executable itself:
 ```sh
 margin man
 margin man review
+margin man status.md
 margin COMMAND --help
 margin capabilities --json --for review
 ```
 
 `margin man` teaches safe workflows. Command help is the exact leaf syntax,
-and `capabilities` is the versioned machine-readable contract.
+and `capabilities` is the versioned machine-readable contract. Natural manual
+topics such as `directory`, `folder`, `workspace`, `context`, and `inbox` lead
+to the corresponding workflow. A simple relative Markdown filename leads to a
+bounded target-oriented page without opening or inspecting that file; unsafe,
+absolute, parent-traversing, or option-like strings still fail closed.
 
 ## Platform support
 
@@ -87,6 +92,11 @@ thread and anchor model. Mutations emit one JSON object on standard output.
 Errors leave standard output empty, emit structured details on standard error,
 and use stable codes with sysexits-compatible statuses.
 
+Independent typed additions without `--if-revision` retry a bounded number of
+annotation-only races inside one CLI call. Margin first proves that the logical
+Markdown has not changed. A source edit or an explicit revision guard still
+fails closed, so agents must reread rather than weakening the precondition.
+
 ## Directory collaboration
 
 A Markdown file is already a collaboration root. Initialize a directory only
@@ -94,10 +104,24 @@ when stable workspace identity and cross-file staging are useful:
 
 ```sh
 margin workspace init .
-margin context . --json --max-files 64 --pretty
-margin inbox . --status open --pretty
+margin context . --json --brief
+margin inbox . --status open --brief --pretty
 margin collaborators . --pretty
 ```
+
+`context --brief` is the normal agent entry point. It uses a 512-byte source
+preview by default and orients on at most four files, one work item per file,
+four headings per file, 2 MiB of discovered Markdown, and eight directory
+levels. It omits the cursor, activity history, repeated explanatory prose, and
+extended metadata while keeping concrete reply, resolve, verification,
+suggestion, and handoff actions. Truncation is explicit; use `inbox`, a targeted
+`--path`, or an explicit limit override for omitted work. Use full `context`
+only when the next operation needs its cursor, activity, or extended metadata.
+
+`inbox --brief` still filters across the normal bounded directory search; it
+only removes the large workspace cursor from the response. Each returned item
+keeps its exact action path and annotation revision. Use full `inbox` when the
+next operation specifically needs the cursor.
 
 An initialized workspace stores coordination data under `.margin/`. Comments
 and other document annotations remain embedded in their Markdown files and

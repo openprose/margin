@@ -101,6 +101,12 @@ PYTHONPATH=Evals/marginbench python3 -m marginbench.cli reference \
 PYTHONPATH=Evals/marginbench python3 -m marginbench.cli self-test \
   --margin-bin build/margin
 
+PYTHONPATH=Evals/marginbench python3 -m marginbench.cli wide-directory-probe \
+  --baseline-bin PATH_TO_BASELINE --candidate-bin build/margin
+
+PYTHONPATH=Evals/marginbench python3 -m marginbench.cli concurrency-probe \
+  --baseline-bin PATH_TO_BASELINE --candidate-bin build/margin --repetitions 100
+
 PYTHONPATH=Evals/marginbench python3 -m marginbench.cli neutral-feasibility
 
 PYTHONPATH=Evals/marginbench \
@@ -132,6 +138,39 @@ gateway, then validates exact facts, source integrity, historical all-or-none
 visibility, trusted attribution, read-before-action continuity, and required
 stale-write recovery. It lists agent efficiency as not evaluated because no
 model runs in this check.
+
+`wide-directory-probe` invokes no model. It creates byte-identical copies of a
+deterministic 16-document, 64-item workspace; alternates baseline and candidate
+process order after warmups; checks stable JSON shape and source preservation;
+requires nonempty files, work, guidance, action paths, roots, and revisions;
+and reports response bytes plus median and p95 elapsed time. Generated document
+IDs and timestamps are normalized, then every embedded comment block is
+validated before measurement. The result uses
+`urn:marginbench:wide-directory-probe:v1` and can be checked with
+`marginbench validate`. It is a mechanism gate, not evidence of improved model
+performance.
+
+`concurrency-probe` also invokes no model. It starts the published baseline and
+candidate together for each repeated two-writer review episode, counterbalances
+submission order, binds the generated case set by digest, and reports
+agent-visible conflicts plus recovery-command overhead. Success requires both
+arms to remain exact, safe, source-preserving, and free of invalid calls. The
+candidate must additionally use the normal four visible calls in every episode
+and surface no conflict. The baseline's collision count is descriptive: a run
+remains valid when scheduler luck produces no baseline collision. The
+schema-bound report is
+`urn:marginbench:concurrency-probe:v1` and can be checked with
+`marginbench validate`. Both retained model-free probe families are also part
+of `make marginbench-audit`, so a stale or hand-edited report fails the normal
+publication gate. The current 1,000-pair development result is
+`results/concurrency/v41-model-free.json`.
+
+`wide_directory_triage` is an opt-in experimental scenario rather than a tenth
+default family. It requires brief orientation, recovery through a filtered
+brief inbox, one exact reply-and-resolve write, and verification in a
+16-document/64-distractor workspace. Run it explicitly with
+`marginbench reference --scenario wide_directory_triage`; stable nine-family
+studies remain unchanged.
 
 The plain control has one Prime-served tool named `workspace`.
 It discloses `guide`, `list`, `read`, and compare-and-swap `write` progressively,

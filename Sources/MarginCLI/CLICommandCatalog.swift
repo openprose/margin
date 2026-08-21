@@ -244,9 +244,67 @@ struct CLICapabilitiesProjectionEnvelope: Encodable {
     let commands: [CLICommandContract]
 }
 
+struct CLICapabilityBriefCommand: Encodable {
+    let path: [String]
+    let availability: CLICommandAvailability
+    let summary: String
+    let usage: [String]
+    let sideEffects: String
+    let outputSchema: String?
+    let helpArgv: [String]
+
+    init(_ command: CLICommandContract) {
+        path = command.path
+        availability = command.availability
+        summary = command.summary
+        usage = command.usage
+        sideEffects = command.sideEffects
+        outputSchema = command.output.schema
+        helpArgv = command.path + ["--help"]
+    }
+}
+
+struct CLICapabilitiesBriefProjectionEnvelope: Encodable {
+    struct Bounds: Encodable {
+        let maxCommands = 24
+        let maxUsageFormsPerCommand = 4
+        let maxEncodedBytes = CLICapabilitiesBriefProjectionEnvelope.maximumEncodedBytes
+    }
+
+    struct Projection: Encodable {
+        let workflow: CLICapabilityWorkflow
+        let parentSchema = "urn:margin:capabilities-projection:v1"
+        let complete = false
+        let description: String
+    }
+
+    struct Protocols: Encodable {
+        let commandEnvelope = "urn:margin:cli:v1"
+        let networkRequired = false
+    }
+
+    struct Next: Encodable {
+        let manualArgv: [String]
+        let detailedCapabilitiesArgv: [String]
+    }
+
+    static let maximumEncodedBytes = 8_192
+
+    let schema = "urn:margin:capabilities-brief-projection:v1"
+    let ok = true
+    let command = "capabilities"
+    let contractVersion = 1
+    let cli: CLICapabilitiesEnvelope.CLIIdentity
+    let bounds = Bounds()
+    let projection: Projection
+    let protocols = Protocols()
+    let commands: [CLICapabilityBriefCommand]
+    let next: Next
+}
+
 enum CLICommandCatalog {
     private static let json = option("--json", description: "Emit one JSON object instead of human-readable text.")
-    private static let pretty = option("--pretty", description: "Pretty-print JSON output.")
+    private static let pretty = option("--pretty", description: "Indent JSON.")
     private static let commentJSON = option("--json", description: "Accepted for uniform invocation; comment commands always emit JSON.")
     private static let file = argument("FILE", kind: "markdown-file", description: "Existing Markdown file.")
     private static let commentID = argument("ID", kind: "annotation-id", description: "Bare UUID or full urn:uuid annotation identifier.")
@@ -341,7 +399,7 @@ enum CLICommandCatalog {
                 "man",
                 summary: "Teach Margin's safe human-agent workflows through concise progressive manual pages.",
                 usage: ["margin man [TOPIC] [--json [--pretty]]", "margin man COMMAND SUBCOMMAND [--json [--pretty]]", "margin man --list [--json [--pretty]]"],
-                arguments: [argument("TOPIC", kind: "manual-topic-or-command-path", required: false, description: "A workflow topic or an exact command/subcommand path.")],
+                arguments: [argument("TOPIC", kind: "manual-topic-command-or-markdown-target", required: false, description: "A workflow topic, exact command/subcommand path, or simple relative Markdown target.")],
                 options: [option("--list", description: "List canonical manual topics without loading a page."), json, pretty],
                 output: manualOutput
             ),
@@ -354,9 +412,9 @@ enum CLICommandCatalog {
             ),
             command(
                 "capabilities",
-                summary: "Emit the full bounded command contract or a small workflow projection without filesystem access.",
-                usage: ["margin capabilities --json [--pretty]", "margin capabilities --json --for WORKFLOW [--pretty]"],
-                options: [requiredOption("--json", description: "Emit the capabilities contract."), option("--for", value: "WORKFLOW", choices: CLICapabilityWorkflow.allCases.map(\.rawValue), description: "Return only commands relevant to review, staging, suggestions, handoff, or merge. Natural aliases such as comments, stage, and reconcile are accepted."), pretty],
+                summary: "Emit static contracts; ordinary agent work should prefer a brief projection.",
+                usage: ["margin capabilities --json --for WORKFLOW --brief [--pretty]", "margin capabilities --json --for WORKFLOW [--pretty]", "margin capabilities --json [--pretty]"],
+                options: [requiredOption("--json", description: "Emit the full integration catalog when --for is omitted."), option("--for", value: "WORKFLOW", choices: CLICapabilityWorkflow.allCases.map(\.rawValue), description: "Recommended for agent tasks. Select review, staging, suggestions, handoff, or merge; aliases are accepted."), option("--brief", description: "With --for, emit a compact command index and exact help paths."), pretty],
                 output: CLIOutputContract(
                     encoding: "json",
                     framing: "single-object-lf",
@@ -439,7 +497,7 @@ enum CLICommandCatalog {
             ),
             command(
                 "comments", "add",
-                summary: "Start a thread. --parent is reply shorthand; add --resolve to reply and close atomically.",
+                summary: "Start a thread. Independent typed additions retry annotation-only races; --parent is reply shorthand and --resolve closes atomically.",
                 usage: ["margin comments add FILE (-m TEXT | --message-file PATH | --stdin) ANCHOR [--kind KIND] [TYPED_OPTIONS] [MUTATION_OPTIONS]", "margin comments add FILE (-m TEXT | --message-file PATH | --stdin) --parent PARENT [--resolve] [MUTATION_OPTIONS]"],
                 arguments: [file],
                 options: messageOptions + anchorOptions + typedContributionOptions + [
@@ -583,6 +641,22 @@ enum CLICommandCatalog {
         )
     }
 
+    static func capabilitiesBriefProjection(
+        cliVersion: String,
+        workflow: CLICapabilityWorkflow
+    ) -> CLICapabilitiesBriefProjectionEnvelope {
+        let detailed = capabilitiesProjection(cliVersion: cliVersion, workflow: workflow)
+        return CLICapabilitiesBriefProjectionEnvelope(
+            cli: detailed.cli,
+            projection: .init(workflow: workflow, description: workflow.summary),
+            commands: detailed.commands.map(CLICapabilityBriefCommand.init),
+            next: .init(
+                manualArgv: ["man", workflow.rawValue],
+                detailedCapabilitiesArgv: ["capabilities", "--json", "--for", workflow.rawValue]
+            )
+        )
+    }
+
     static func localHelp(path: [String]) -> String? {
         guard let command = command(path: path) else { return nil }
         var sections: [String] = [command.displayPath.uppercased(), "", command.summary]
@@ -629,17 +703,28 @@ enum CLICommandCatalog {
             required: false,
             description: "Existing collaboration root; defaults to the current directory with workspace discovery."
         )
-        let presentation = [option("--json", description: "Accepted for uniform invocation; collaboration commands always emit JSON."), pretty]
-        let selection = [
-            option("--root", value: "DIRECTORY", description: "Use an explicit directory boundary instead of workspace discovery."),
-            option("--path", value: "RELATIVE_PATH", repeatable: true, description: "Select a root-relative Markdown path; repeat to select several."),
-            option("--max-files", value: "N", description: "Bound discovered Markdown files; defaults to 128."),
-            option("--max-bytes", value: "N", description: "Bound total discovered file bytes; defaults to 16777216."),
-            option("--max-depth", value: "N", description: "Bound directory traversal depth; defaults to 32."),
-            option("--max-headings", value: "N", description: "Bound headings returned per file; defaults to 32."),
-            option("--max-contributions", value: "N", description: "Bound contributions returned per file after command filters; defaults to 64."),
-            option("--max-preview-bytes", value: "N", description: "Bound each contribution body preview; defaults to 240 bytes."),
-            option("--max-source-bytes", value: "N", description: "Bound each Markdown source preview; defaults to 2048 bytes. Use read for the complete source.")
+        let presentation = [option("--json", description: "JSON output (always emitted)."), pretty]
+        let selectionBoundary = [
+            option("--root", value: "DIRECTORY", description: "Directory boundary."),
+            option("--path", value: "RELATIVE_PATH", repeatable: true, description: "Root-relative Markdown path; repeatable.")
+        ]
+        let selection = selectionBoundary + [
+            option("--max-files", value: "N", description: "File cap: 128."),
+            option("--max-bytes", value: "N", description: "Discovery-byte cap: 16777216."),
+            option("--max-depth", value: "N", description: "Depth cap: 32."),
+            option("--max-headings", value: "N", description: "Headings/file: 32."),
+            option("--max-contributions", value: "N", description: "Work items/file: 64."),
+            option("--max-preview-bytes", value: "N", description: "Body preview bytes; default 240."),
+            option("--max-source-bytes", value: "N", description: "Source preview bytes: 2048.")
+        ]
+        let contextSelection = selectionBoundary + [
+            option("--max-files", value: "N", description: "File cap: 128; brief 4."),
+            option("--max-bytes", value: "N", description: "Discovery-byte cap: 16777216; brief 2097152."),
+            option("--max-depth", value: "N", description: "Depth cap: 32; brief 8."),
+            option("--max-headings", value: "N", description: "Headings/file: 32; brief 4."),
+            option("--max-contributions", value: "N", description: "Work items/file: 64; brief 1."),
+            option("--max-preview-bytes", value: "N", description: "Body preview bytes; default 240."),
+            option("--max-source-bytes", value: "N", description: "Source preview bytes: 2048; brief 512.")
         ]
         let mutationTarget = [
             option("--root", value: "DIRECTORY", description: "Use an explicit directory collaboration boundary."),
@@ -678,10 +763,14 @@ enum CLICommandCatalog {
             ),
             command(
                 "context",
-                summary: "Return bounded source previews, root thread IDs, current revisions, exact available command paths, typed argv templates, and an mcur1 cursor.",
-                usage: ["margin context TARGET [--json] [SELECTION_OPTIONS] [--pretty]"],
+                summary: "Return bounded collaboration context and executable guidance; --brief is the compact agent view.",
+                usage: ["margin context TARGET [--json] [--brief] [SELECTION_OPTIONS] [--pretty]"],
                 arguments: [target],
-                options: selection + [option("--json", description: "Accepted for uniform invocation; context always emits JSON."), pretty],
+                options: contextSelection + [
+                    option("--brief", description: "Omit cursor, activity, and extended metadata for compact orientation."),
+                    option("--json", description: "Accepted for uniform invocation; context always emits JSON."),
+                    pretty,
+                ],
                 sideEffects: "reads-selected-files",
                 output: output
             ),
@@ -697,9 +786,9 @@ enum CLICommandCatalog {
             command(
                 "inbox",
                 summary: "Filter contribution work first, then return bounded items with reusable action paths, revisions, and workflow guidance.",
-                usage: ["margin inbox TARGET [--status open|resolved|all] [--kind KIND ...] [SELECTION_OPTIONS] [--pretty]"],
+                usage: ["margin inbox TARGET [--status open|resolved|all] [--kind KIND ...] [--brief] [SELECTION_OPTIONS] [--pretty]"],
                 arguments: [target],
-                options: [option("--status", value: "STATUS", choices: ["open", "resolved", "all"], description: "Filter by root thread status; defaults to open."), option("--kind", value: "KIND", repeatable: true, choices: CollaborationContributionKind.allCases.map(\.rawValue), description: "Filter by typed contribution kind."), option("--actor", value: "ID", description: "Filter by creator actor id."), option("--assignee", value: "ID", description: "Filter by assignee actor id.")] + selection + presentation,
+                options: [option("--status", value: "STATUS", choices: ["open", "resolved", "all"], description: "Filter by root thread status; defaults to open."), option("--kind", value: "KIND", repeatable: true, choices: CollaborationContributionKind.allCases.map(\.rawValue), description: "Filter by typed contribution kind."), option("--actor", value: "ID", description: "Filter by creator actor id."), option("--assignee", value: "ID", description: "Filter by assignee actor id."), option("--brief", description: "Omit the cursor; keep action paths and revisions.")] + selection + presentation,
                 sideEffects: "reads-selected-files",
                 output: output
             )
@@ -717,7 +806,7 @@ enum CLICommandCatalog {
                 summary: "Capture one current cursor and turn a small intent plan into a canonical immutable change set.",
                 usage: ["margin stage create ROOT --operations-file PLAN_JSON_OR_- [ACTOR_OPTIONS] [IDENTITY_OPTIONS] [--pretty]", "margin stage create ROOT --change-set-file CHANGESET_JSON_OR_- [--pretty]"],
                 arguments: [root],
-                options: [option("--operations-file", value: "PLAN_JSON_OR_-", description: "Primary one-of input: versioned intent-plan JSON path, or - for standard input."), option("--change-set-file", value: "CHANGESET_JSON_OR_-", description: "Advanced one-of input: import a complete serialized CollaborationChangeSet instead."), option("--id", value: "ID", description: "Change-set identity; otherwise derived from request id.")] + actorOptions + identities + presentation,
+                options: [option("--operations-file", value: "PLAN_JSON_OR_-", description: "Primary one-of input: versioned intent-plan JSON path, or - to read inline JSON from standard input. Do not pass JSON as a positional argument."), option("--change-set-file", value: "CHANGESET_JSON_OR_-", description: "Advanced one-of input: import a complete serialized CollaborationChangeSet instead."), option("--id", value: "ID", description: "Change-set identity; otherwise derived from request id.")] + actorOptions + identities + presentation,
                 sideEffects: "creates-immutable-stage",
                 output: output
             ),
@@ -741,11 +830,11 @@ enum CLICommandCatalog {
             ),
             command(
                 "stage", "refresh",
-                summary: "Create a new immutable stage against current metadata while preserving the prior stage and exact operation payloads.",
-                usage: ["margin stage refresh ROOT STAGE_ID [--id NEW_STAGE_ID] [--pretty]"],
+                summary: "Create a new immutable stage against current metadata while preserving the prior stage and exact operation payloads; optionally submit it atomically.",
+                usage: ["margin stage refresh ROOT STAGE_ID [--id NEW_STAGE_ID] [--submit] [--pretty]"],
                 arguments: [root, argument("STAGE_ID", kind: "identifier", description: "Prior immutable stage; retained unchanged.")],
-                options: [option("--id", value: "NEW_STAGE_ID", description: "Caller-selected new immutable id; otherwise derived deterministically from the prior stage and current cursor.")] + presentation,
-                sideEffects: "creates-new-immutable-stage-and-preserves-prior",
+                options: [option("--id", value: "NEW_STAGE_ID", description: "Caller-selected new immutable id, recommended when another collaborator supplied the id; otherwise derived deterministically."), option("--submit", description: "Immediately submit the refreshed stage as one atomic retry. Safe to repeat; the prior stage remains available for audit.")] + presentation,
+                sideEffects: "creates-new-immutable-stage-and-preserves-prior; --submit-also-mutates-selected-files-atomically",
                 output: output
             ),
             command(
@@ -820,7 +909,7 @@ enum CLICommandCatalog {
                     "margin handoff add DIRECTORY --path RELATIVE_FILE -m TEXT --next-actor ACTOR_ID --contribution-id UUID --request-id UUID",
                 ],
                 arguments: [target],
-                options: mutationTarget + [option("--starting-cursor", value: "MCUR1", description: "Whole-root concurrency guard for this handoff; use this instead of comment-only --if-revision/--if-content-sha. Omit it to capture the current cursor automatically."), option("--finishing-cursor", value: "MCUR1", description: "Optional finishing cursor."), option("--touched", value: "ID", repeatable: true, description: "Touched annotation id."), option("--unresolved", value: "ID", repeatable: true, description: "Unresolved contribution or issue id."), option("--next-actor", value: "ID", repeatable: true, description: "Intended next actor id."), option("--audience", value: "ID", repeatable: true, description: "Intended audience actor id."), option("--id", "--contribution-id", value: "ID", description: "Aliases for one stable handoff contribution/retry identity; use either spelling, never both.")] + messageOptions + actorOptions + identities + presentation,
+                options: mutationTarget + preconditionOptions + [option("--document", description: "Accepted for contribution-command symmetry; handoffs are always document-level."), option("--kind", value: "handoff", choices: ["handoff"], description: "Accepted for contribution-command symmetry; may be omitted."), option("--starting-cursor", value: "MCUR1", description: "Whole-root concurrency guard. Omit it to capture the current root automatically; target-file --if-revision/--if-content-sha guards may be added."), option("--finishing-cursor", value: "MCUR1", description: "Optional finishing cursor."), option("--touched", value: "ID", repeatable: true, description: "Touched annotation id."), option("--unresolved", value: "ID", repeatable: true, description: "Unresolved contribution or issue id."), option("--next-actor", "--to", value: "ID", repeatable: true, description: "Intended next actor id; --to is the concise alias."), option("--audience", value: "ID", repeatable: true, description: "Intended audience actor id."), option("--id", "--contribution-id", value: "ID", description: "Aliases for one stable handoff contribution/retry identity; use either spelling, never both.")] + messageOptions + actorOptions + identities + presentation,
                 sideEffects: "mutates-file-metadata",
                 output: output
             ),

@@ -39,6 +39,12 @@ marginbench-test: release
 	$(MAKE) marginbench-audit
 
 marginbench-audit:
+	@for probe in "$(PROJECT_DIR)"/Evals/marginbench/results/wide-directory/*.json \
+		"$(PROJECT_DIR)"/Evals/marginbench/results/concurrency/*.json; do \
+		[ -f "$$probe" ] || continue; \
+		PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(PROJECT_DIR)/Evals/marginbench" \
+			python3 -m marginbench.cli validate "$$probe" > /dev/null || exit $$?; \
+	done
 	@for bundle in "$(PROJECT_DIR)"/Evals/marginbench/results/crossover/v*; do \
 		[ -d "$$bundle" ] || continue; \
 		PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(PROJECT_DIR)/Evals/marginbench" \

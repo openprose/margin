@@ -22,9 +22,34 @@ SUPPORTED_INPUTS = {
     "urn:marginbench:reference-run:v1",
     "urn:marginbench:prime-run-summary:v1",
     "urn:marginbench:run:v1",
+    "urn:marginbench:trace-shape-report:v1",
 }
-INTEGRITY_CHECKS = {"source_expected", "valid_documents", "all_or_none"}
+INTEGRITY_CHECKS = {
+    "source_expected",
+    "valid_documents",
+    "all_or_none",
+    "workspace_expected_paths",
+}
 SAFETY_CHECKS = INTEGRITY_CHECKS | {"workspace_policy"}
+HEAVY_RESULT_BUCKETS = frozenset({"4097-16384", "16385-65536", "65537+"})
+MAX_SUPPLEMENTARY_TOOL_CALLS = 10_000_000
+COMPLETION_CHECKS = frozenset({
+    "all_expected_annotations",
+    "annotation_identity",
+    "annotation_body",
+    "annotation_kind",
+    "annotation_status",
+    "annotation_thread",
+    "annotation_properties",
+    "minimum_annotations",
+    "committed_all",
+    "no_unexpected_annotations",
+})
+BUDGET_RELEVANT_CHECKS = COMPLETION_CHECKS | {
+    "required_commands",
+    "required_recovery_observed",
+    "valid_command_use",
+}
 
 
 class DiagnosticError(ValueError):
@@ -62,11 +87,13 @@ def _normalized_snake(result: dict[str, Any]) -> dict[str, Any]:
         "score": float(result["score"]),
         "safety": bool(result["safety_passed"]),
         "source": bool(result["source_preserved"]),
+        "marginSha256": str(result["margin_sha256"]),
         "commands": int(result["command_count"]),
         "invalid": int(result["invalid_command_count"]),
         "checks": dict(result["checks"]),
         "dimensions": {str(key): float(value) for key, value in result["dimensions"].items()},
         "events": list(result.get("events", ())),
+        "eventSummary": None,
         "stops": [],
     }
 
@@ -76,6 +103,7 @@ def _normalized_camel(
     *,
     candidate: str,
     identifier_key: str,
+    margin_sha256: str | None = None,
 ) -> dict[str, Any]:
     identifier = str(episode[identifier_key])
     role_runs = episode.get("roleRuns")
@@ -103,6 +131,7 @@ def _normalized_camel(
         "score": float(episode["score"]),
         "safety": bool(episode["safetyPassed"]),
         "source": episode.get("sourcePreserved"),
+        "marginSha256": str(episode.get("marginSha256") or margin_sha256 or ""),
         "commands": int(episode["commandCount"]),
         "invalid": int(episode["invalidCommandCount"]),
         "checks": dict(episode["checks"]),
@@ -110,11 +139,22 @@ def _normalized_camel(
             str(key): float(value) for key, value in episode["dimensions"].items()
         },
         "events": [],
+        "eventSummary": episode.get("eventSummary"),
         "stops": stops,
     }
 
 
 def _episodes(payload: Any, schema: str) -> list[dict[str, Any]]:
+    if schema == "urn:marginbench:prime-run-summary:v1" and payload.get("status") != "completed":
+        raise DiagnosticError(
+            "Infrastructure-error Prime runs are not product evidence. "
+            "Inspect their content-free trace shape, then rerun the cell."
+        )
+    if schema == "urn:marginbench:run:v1" and payload.get("status") != "completed":
+        raise DiagnosticError(
+            "Infrastructure-error run manifests are not product evidence. "
+            "Inspect their content-free trace shape, then rerun the cell."
+        )
     if schema == "urn:marginbench:result:v1":
         return [_normalized_snake(payload)]
     if schema == "urn:marginbench:result-set:v1":
@@ -124,7 +164,12 @@ def _episodes(payload: Any, schema: str) -> list[dict[str, Any]]:
         return [_normalized_snake(value) for value in payload["results"]]
     if schema == "urn:marginbench:prime-run-summary:v1":
         return [
-            _normalized_camel(value, candidate=str(payload["candidate"]), identifier_key="episodeID")
+            _normalized_camel(
+                value,
+                candidate=str(payload["candidate"]),
+                identifier_key="episodeID",
+                margin_sha256=payload.get("marginSha256"),
+            )
             for value in payload["episodes"]
         ]
     if schema == "urn:marginbench:run:v1":
@@ -133,6 +178,7 @@ def _episodes(payload: Any, schema: str) -> list[dict[str, Any]]:
                 value,
                 candidate=str(payload["candidate"]["id"]),
                 identifier_key="id",
+                margin_sha256=payload["candidate"].get("marginSha256"),
             )
             for value in payload["episodes"]
         ]
@@ -172,6 +218,20 @@ def _source_failed(episode: dict[str, Any]) -> bool:
     return episode["source"] is False or not episode["checks"].get("source_expected", True)
 
 
+def _unfinished_after_stop(episode: dict[str, Any]) -> bool:
+    stopped_early = any(
+        value not in {"agent_completed", "completed"} for value in episode["stops"]
+    )
+    if not stopped_early:
+        return False
+    if episode["dimensions"].get("outcome") != 100.0:
+        return True
+    return any(
+        name in BUDGET_RELEVANT_CHECKS and not passed
+        for name, passed in episode["checks"].items()
+    )
+
+
 def _finding(
     identifier: str,
     severity: str,
@@ -206,7 +266,129 @@ def _finding(
     }
 
 
-def _findings(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _command_response_buckets(
+    reports: list[dict[str, Any]],
+    command: str,
+    *,
+    required_flag: str | None = None,
+) -> Counter[str]:
+    buckets: Counter[str] = Counter()
+    signature_details_available = False
+    if required_flag is not None:
+        for report in reports:
+            for item in report.get("commandSignatures", ()):
+                if item.get("command") != command or "resultSizeBuckets" not in item:
+                    continue
+                signature_details_available = True
+                if required_flag not in item.get("flags", ()):
+                    continue
+                for bucket in item.get("resultSizeBuckets", ()):
+                    buckets[str(bucket["name"])] += int(bucket["count"])
+        if signature_details_available:
+            if sum(buckets.values()) > MAX_SUPPLEMENTARY_TOOL_CALLS:
+                raise DiagnosticError(
+                    "Supplementary trace evidence exceeds the diagnostic call limit."
+                )
+            return buckets
+    for report in reports:
+        for item in report.get("commandResultSizeBuckets", ()):
+            if item.get("command") != command:
+                continue
+            for bucket in item.get("buckets", ()):
+                buckets[str(bucket["name"])] += int(bucket["count"])
+    if sum(buckets.values()) > MAX_SUPPLEMENTARY_TOOL_CALLS:
+        raise DiagnosticError(
+            "Supplementary trace evidence exceeds the diagnostic call limit."
+        )
+    return buckets
+
+
+def _context_response_evidence(
+    reports: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    buckets = _command_response_buckets(reports, "context", required_flag="--brief")
+    result_count = sum(buckets.values())
+    heavy_count = sum(
+        count for name, count in buckets.items() if name in HEAVY_RESULT_BUCKETS
+    )
+    if heavy_count < 2 or heavy_count * 4 < result_count:
+        return None
+    return {
+        "command": "context",
+        "resultCount": result_count,
+        "largerThan4096Count": heavy_count,
+        "buckets": _counter(buckets),
+    }
+
+
+def _capability_response_evidence(
+    reports: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    buckets = _command_response_buckets(
+        reports, "capabilities", required_flag="--brief"
+    )
+    result_count = sum(buckets.values())
+    heavy_count = sum(
+        count for name, count in buckets.items() if name in HEAVY_RESULT_BUCKETS
+    )
+    very_heavy_count = sum(
+        buckets.get(name, 0) for name in ("16385-65536", "65537+")
+    )
+    # One 16 KiB+ discovery response consumes a meaningful part of an agent
+    # turn. For 4-16 KiB responses, require a repeated pattern affecting at
+    # least half of capability lookups.
+    if very_heavy_count < 1 and (heavy_count < 2 or heavy_count * 2 < result_count):
+        return None
+    return {
+        "command": "capabilities",
+        "resultCount": result_count,
+        "largerThan4096Count": heavy_count,
+        "buckets": _counter(buckets),
+    }
+
+
+def _write_latency_evidence(
+    reports: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    trace_count = 0
+    with_write = 0
+    without_write = 0
+    write_attempt_count = 0
+    buckets: Counter[str] = Counter()
+    for report in reports:
+        latency = report.get("writeLatency")
+        if not isinstance(latency, dict):
+            continue
+        trace_count += int(latency["traceCount"])
+        with_write += int(latency["tracesWithWriteAttempt"])
+        without_write += int(latency["tracesWithoutWriteAttempt"])
+        write_attempt_count += int(latency["writeAttemptCount"])
+        for row in latency["preWriteToolCallBuckets"]:
+            buckets[str(row["name"])] += int(row["count"])
+    if trace_count > MAX_SUPPLEMENTARY_TOOL_CALLS:
+        raise DiagnosticError(
+            "Supplementary trace evidence exceeds the diagnostic trace limit."
+        )
+    delayed = buckets.get("5-6", 0) + buckets.get("7+", 0)
+    if with_write == 0 or delayed == 0 or delayed * 2 < with_write:
+        return None
+    return {
+        "traceCount": trace_count,
+        "tracesWithWriteAttempt": with_write,
+        "tracesWithoutWriteAttempt": without_write,
+        "writeAttemptCount": write_attempt_count,
+        "fiveOrMorePreWriteCount": delayed,
+        "preWriteToolCallBuckets": _counter(buckets),
+    }
+
+
+def _findings(
+    episodes: list[dict[str, Any]],
+    *,
+    context_response_evidence: dict[str, Any] | None = None,
+    capability_response_evidence: dict[str, Any] | None = None,
+    write_latency_evidence: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     integrity, _ = _affected(
         episodes,
@@ -263,15 +445,9 @@ def _findings(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
             ),
         ))
 
-    completion_checks = {
-        "all_expected_annotations",
-        "minimum_annotations",
-        "committed_all",
-        "no_unexpected_annotations",
-    }
     completion, _ = _affected(
         episodes,
-        lambda item: any(not item["checks"].get(name, True) for name in completion_checks),
+        lambda item: any(not item["checks"].get(name, True) for name in COMPLETION_CHECKS),
     )
     if completion:
         findings.append(_finding(
@@ -279,7 +455,7 @@ def _findings(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "high",
             "Agents did not leave the complete durable result",
             completion,
-            failed_checks=completion_checks,
+            failed_checks=set(COMPLETION_CHECKS),
             surfaces=["mutation receipts", "next actions", "workflow help"],
             experiment=(
                 "Clarify the smallest missing completion step in CLI receipts or task-specific "
@@ -363,6 +539,71 @@ def _findings(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         episodes,
         lambda item: item["dimensions"].get("efficiency", 100.0) < 100.0,
     )
+    redundant_discovery, _ = _affected(
+        episodes,
+        lambda item: not item["checks"].get("avoided_redundant_initial_reads", True),
+    )
+    if redundant_discovery:
+        findings.append(_finding(
+            "redundant-discovery",
+            "medium",
+            "Agents opened overlapping directory views before acting",
+            redundant_discovery,
+            failed_checks={"avoided_redundant_initial_reads"},
+            surfaces=["bounded context", "inbox guidance", "first-action defaults"],
+            experiment=(
+                "Keep task limits fixed and make one initial view sufficient; require each role "
+                "to choose context or inbox, then compare response-size buckets and model input."
+            ),
+        ))
+    if write_latency_evidence is not None:
+        finding = _finding(
+            "long-path-to-first-write",
+            "medium",
+            "Agents spend too many interactions orienting before their first write",
+            episodes,
+            failed_checks=set(),
+            surfaces=["context next actions", "workflow guidance", "mutation receipts"],
+            experiment=(
+                "Keep tasks and model fixed, return a safe concrete next-action template in the "
+                "first bounded context view, and compare pre-write buckets, completion, commands, "
+                "and invalid-command count against the frozen candidate."
+            ),
+        )
+        finding["evidence"]["writeLatencyEvidence"] = write_latency_evidence
+        findings.append(finding)
+    if capability_response_evidence is not None:
+        finding = _finding(
+            "oversized-capability-responses",
+            "medium",
+            "Task discovery responses are larger than progressive orientation needs",
+            episodes,
+            failed_checks=set(),
+            surfaces=["workflow capability projection", "command-local help", "progressive disclosure"],
+            experiment=(
+                "Keep tasks and model fixed, expose a smaller task capability index that points "
+                "to exact command-local help, and compare response-size buckets, model input, "
+                "commands, and correctness against the detailed workflow projection."
+            ),
+        )
+        finding["evidence"]["responseSizeEvidence"] = capability_response_evidence
+        findings.append(finding)
+    if context_response_evidence is not None:
+        finding = _finding(
+            "heavy-context-responses",
+            "medium",
+            "Context responses are repeatedly larger than a compact orientation view",
+            episodes,
+            failed_checks=set(),
+            surfaces=["bounded context", "compact projection", "progressive disclosure"],
+            experiment=(
+                "Keep tasks and model fixed, expose a compact context projection through the "
+                "candidate's own help, and compare response-size buckets, model input, commands, "
+                "and correctness against the full projection."
+            ),
+        )
+        finding["evidence"]["responseSizeEvidence"] = context_response_evidence
+        findings.append(finding)
     if inefficient:
         findings.append(_finding(
             "interaction-efficiency",
@@ -379,7 +620,7 @@ def _findings(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     unfinished_stops, _ = _affected(
         episodes,
-        lambda item: any(value not in {"agent_completed", "completed"} for value in item["stops"]),
+        _unfinished_after_stop,
     )
     if unfinished_stops:
         findings.append(_finding(
@@ -408,7 +649,7 @@ def _findings(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "collaboration pressure without changing the model or limits."
             ),
         ))
-    return findings
+    return findings[:10]
 
 
 def _group_summary(values: list[dict[str, Any]], name_key: str, name: str) -> dict[str, Any]:
@@ -451,6 +692,8 @@ def diagnose_artifacts(
 
     artifacts: list[dict[str, Any]] = []
     episodes: list[dict[str, Any]] = []
+    trace_reports: list[dict[str, Any]] = []
+    trace_source_hashes: set[str] = set()
     for path in inputs:
         raw = _read(path)
         receipt = validate_bytes(raw)
@@ -466,7 +709,16 @@ def diagnose_artifacts(
             "sha256": receipt["sha256"],
             "byteCount": receipt["byteCount"],
         })
-        episodes.extend(_episodes(payload, schema))
+        if schema == "urn:marginbench:trace-shape-report:v1":
+            current_sources = {str(item["sha256"]) for item in payload["sources"]}
+            if trace_source_hashes.intersection(current_sources):
+                raise DiagnosticError(
+                    "Trace shape inputs overlap the same private trace source."
+                )
+            trace_source_hashes.update(current_sources)
+            trace_reports.append(payload)
+        else:
+            episodes.extend(_episodes(payload, schema))
         if len(episodes) > MAX_EPISODES:
             raise DiagnosticError(f"Diagnostics exceed the {MAX_EPISODES}-episode limit.")
     if not episodes:
@@ -496,12 +748,22 @@ def diagnose_artifacts(
     stops = Counter()
     for episode in episodes:
         stops.update(episode["stops"])
-        for event in episode["events"]:
-            if event.get("error_code"):
-                error_codes[str(event["error_code"])] += 1
-            if int(event.get("exit_code", 0)) != 0:
-                failing_commands[str(event.get("command", "unknown"))] += 1
-            blocked += bool(event.get("blocked", False))
+        event_summary = episode.get("eventSummary")
+        if isinstance(event_summary, dict):
+            for item in event_summary.get("errors", ()):
+                error_codes[str(item["name"])] += int(item["count"])
+            for item in event_summary.get("commands", ()):
+                failure_count = int(item["failureCount"])
+                if failure_count:
+                    failing_commands[str(item["name"])] += failure_count
+            blocked += int(event_summary.get("blockedCount", 0))
+        else:
+            for event in episode["events"]:
+                if event.get("error_code"):
+                    error_codes[str(event["error_code"])] += 1
+                if int(event.get("exit_code", 0)) != 0:
+                    failing_commands[str(event.get("command", "unknown"))] += 1
+                blocked += bool(event.get("blocked", False))
 
     candidates: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
     scenarios: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -527,7 +789,53 @@ def diagnose_artifacts(
     if focus_candidate not in candidates:
         raise DiagnosticError("The focus candidate is absent from the diagnostic inputs.")
     focus_episodes = candidates[focus_candidate]
-    findings = _findings(focus_episodes)
+    focus_trace_reports = trace_reports
+    if trace_reports:
+        candidate_digests = {
+            candidate_id: {item["marginSha256"] for item in candidate_episodes}
+            for candidate_id, candidate_episodes in candidates.items()
+        }
+        focus_trace_reports = []
+        for report in trace_reports:
+            report_candidate_ids = report.get("candidateIDs")
+            report_digests = set(report.get("candidateMarginSha256s", ()))
+            if report_candidate_ids is not None:
+                matches = list(report_candidate_ids)
+                if len(matches) != 1 or matches[0] not in candidates:
+                    raise DiagnosticError(
+                        "Supplementary trace evidence must name exactly one input candidate."
+                    )
+                if report_digests and report_digests != candidate_digests[matches[0]]:
+                    raise DiagnosticError(
+                        "Supplementary trace evidence disagrees with its candidate digest."
+                    )
+            else:
+                if not report_digests:
+                    if len(candidates) == 1:
+                        matches = [next(iter(candidates))]
+                    else:
+                        raise DiagnosticError(
+                            "Multi-candidate diagnostics require trace evidence linked by "
+                            "candidate ID or digest."
+                        )
+                else:
+                    matches = [
+                        candidate_id
+                        for candidate_id, digests in candidate_digests.items()
+                        if report_digests == digests
+                    ]
+            if len(matches) != 1:
+                raise DiagnosticError(
+                    "Supplementary trace evidence must belong to exactly one input candidate."
+                )
+            if matches[0] == focus_candidate:
+                focus_trace_reports.append(report)
+    findings = _findings(
+        focus_episodes,
+        context_response_evidence=_context_response_evidence(focus_trace_reports),
+        capability_response_evidence=_capability_response_evidence(focus_trace_reports),
+        write_latency_evidence=_write_latency_evidence(focus_trace_reports),
+    )
     safety_failures = sum(_is_unsafe(episode) for episode in episodes)
     source_failures = sum(_source_failed(episode) for episode in episodes)
     focus_summary = _group_summary(focus_episodes, "candidateID", focus_candidate)
@@ -587,5 +895,6 @@ def diagnose_artifacts(
             "promptsRetained": False,
             "rawTracesRequired": False,
             "artifactPathsRetained": False,
+            "exactResultSizesRetained": False,
         },
     }

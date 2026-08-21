@@ -24,6 +24,8 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 sys.dont_write_bytecode = True
 PACKAGE_ROOT = Path(__file__).resolve().parent
@@ -38,7 +40,7 @@ from marginbench.controls import (  # noqa: E402
     require_implemented_profile,
 )
 from marginbench.provenance import implementation_sha256  # noqa: E402
-from marginbench.scenarios import SCENARIO_IDS, generate_episode  # noqa: E402
+from marginbench.scenarios import AVAILABLE_SCENARIO_IDS, generate_episode  # noqa: E402
 from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY  # noqa: E402
 from marginbench.keys import read_holdout_key  # noqa: E402
 from marginbench.validation import MAX_ARTIFACT_BYTES, validate_bytes  # noqa: E402
@@ -49,8 +51,15 @@ HARD_MAX_COST_USD = 15.0
 BENCHMARK_VERSION = "0.1.0"
 DEFAULT_PRIME_INFERENCE_URL = "https://api.pinference.ai/api/v1"
 PROXY_API_KEY_ENV = "MARGINBENCH_PROXY_TOKEN"
+WALLET_OBSERVATION_SCOPE = "account-wide"
+WALLET_DEBIT_ATTRIBUTION = "unattributed"
 MAX_PRIME_CONFIG_BYTES = 1024 * 1024
-DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE = 8
+# Prime/Qwen reports hidden reasoning tokens inside ``completion_tokens`` even
+# when the requested visible generation stays below ``max_tokens``. Keep this
+# separately priced accounting allowance at the proxy's validated maximum; it
+# never increases the model's requested generation limit or the run's dollar
+# cap. A provider response above this additional bound still fails closed.
+DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE = 4096
 PLAIN_CONTROL_PROFILE = "role-separated-plain-markdown-v1"
 
 
@@ -281,19 +290,77 @@ def estimate_maximum_cost(
     return round(value, 6)
 
 
-def wallet(prime: Path) -> dict[str, Any]:
-    completed = subprocess.run(
-        [str(prime), "--plain", "wallet", "--limit", "5", "--output", "json"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=True,
-        timeout=30,
-    )
-    payload = json.loads(completed.stdout)
+PRIME_WALLET_URL = "https://api.primeintellect.ai/api/v1/billing/wallet"
+MAX_WALLET_RESPONSE_BYTES = 1024 * 1024
+
+
+def _wallet_fields(payload: object) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("Prime wallet response must be a JSON object.")
+    balance = payload.get("balance_usd")
+    billings = payload.get("total_billings")
+    if isinstance(balance, bool) or not isinstance(balance, (int, float)):
+        raise ValueError("Prime wallet balance is invalid.")
+    if not math.isfinite(float(balance)) or float(balance) < 0:
+        raise ValueError("Prime wallet balance is invalid.")
+    if isinstance(billings, bool) or not isinstance(billings, int) or billings < 0:
+        raise ValueError("Prime wallet billing count is invalid.")
     return {
-        "balanceUSD": float(payload["balance_usd"]),
-        "totalBillings": int(payload["total_billings"]),
+        "balanceUSD": float(balance),
+        "totalBillings": billings,
     }
+
+
+def _wallet_from_api() -> dict[str, Any]:
+    _, api_key, team_id = load_prime_inference_credentials()
+    query: dict[str, str | int] = {"limit": 5}
+    if team_id is not None:
+        query["teamId"] = team_id
+    request = Request(
+        f"{PRIME_WALLET_URL}?{urlencode(query)}",
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            raw = response.read(MAX_WALLET_RESPONSE_BYTES + 1)
+    except Exception as error:
+        raise RuntimeError("Prime wallet API is unavailable.") from error
+    if len(raw) > MAX_WALLET_RESPONSE_BYTES:
+        raise RuntimeError("Prime wallet response exceeds its size limit.")
+    try:
+        payload = json.loads(raw)
+        return _wallet_fields(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        raise RuntimeError("Prime wallet API returned an invalid response.") from error
+
+
+def wallet(prime: Path) -> dict[str, Any]:
+    """Read the wallet through either supported Prime client generation.
+
+    Prime Agent 0.7 removed the legacy ``wallet --output json`` command. Try it
+    first for older installations, then use Prime's documented authenticated
+    wallet endpoint. Neither failure path includes command output or credentials.
+    """
+    try:
+        completed = subprocess.run(
+            [str(prime), "--plain", "wallet", "--limit", "5", "--output", "json"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        completed = None
+    if completed is not None and completed.returncode == 0:
+        try:
+            return _wallet_fields(json.loads(completed.stdout))
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            pass
+    return _wallet_from_api()
 
 
 def load_prime_inference_credentials() -> tuple[str, str, str | None]:
@@ -461,6 +528,7 @@ def _summarize_traces(output: Path) -> dict[str, Any]:
             "sourcePreserved": marginbench.get("sourcePreserved"),
             "commandCount": marginbench.get("commandCount"),
             "invalidCommandCount": marginbench.get("invalidCommandCount"),
+            "eventSummary": marginbench.get("eventSummary"),
             "durationMs": marginbench.get("durationMs"),
             "marginSha256": marginbench.get("marginSha256"),
             "checks": marginbench.get("checks"),
@@ -638,6 +706,37 @@ def _execution_status(
     return "completed" if completed else "infrastructure_error"
 
 
+def _infrastructure_codes(
+    log_text: str,
+    live_budget_report: dict[str, Any],
+    *,
+    timed_out: bool,
+) -> list[str]:
+    """Return every independently observed infrastructure cause.
+
+    Provider throttling can cause retries that later exhaust the local budget.
+    Retaining both signals keeps the original cause visible instead of reporting
+    only the final protective stop.
+    """
+    codes: list[str] = []
+    if live_budget_report.get("providerBoundViolationCount", 0):
+        codes.append("PROVIDER_USAGE_BOUND_VIOLATION")
+    if "upstream 429" in log_text or "rate_limit" in log_text:
+        codes.append("PROVIDER_RATE_LIMIT")
+    if "BUDGET_PROXY_COST_LIMIT" in log_text:
+        codes.append("LIVE_BUDGET_EXHAUSTED")
+    for proxy_code, infrastructure_code in (
+        ("BUDGET_PROXY_REQUEST_LIMIT", "LIVE_REQUEST_SIZE_LIMIT"),
+        ("BUDGET_PROXY_OUTPUT_LIMIT", "LIVE_OUTPUT_LIMIT"),
+        ("BUDGET_PROXY_UPSTREAM", "LIVE_PROXY_UPSTREAM_ERROR"),
+    ):
+        if proxy_code in log_text:
+            codes.append(infrastructure_code)
+    if timed_out:
+        codes.append("WALL_TIMEOUT")
+    return codes
+
+
 def _run_manifest(
     arguments: argparse.Namespace,
     trace_summary: dict[str, Any],
@@ -666,6 +765,11 @@ def _run_manifest(
             "sourcePreserved": episode["sourcePreserved"],
             "commandCount": episode["commandCount"],
             "invalidCommandCount": episode["invalidCommandCount"],
+            **(
+                {"eventSummary": episode["eventSummary"]}
+                if episode.get("eventSummary") is not None
+                else {}
+            ),
             "durationMs": episode["durationMs"],
             "marginSha256": episode["marginSha256"],
             "checks": episode["checks"],
@@ -818,6 +922,8 @@ def _run_manifest(
             "currency": "USD",
             "traceReported": trace_reported,
             "observedWalletDebit": observed_wallet_debit,
+            "observedWalletDebitScope": WALLET_OBSERVATION_SCOPE,
+            "observedWalletDebitAttribution": WALLET_DEBIT_ATTRIBUTION,
             "unreconciled": round(abs(observed_wallet_debit - trace_reported), 6),
             "admissionBound": admission_bound,
             **(
@@ -1048,6 +1154,8 @@ def _neutral_run_manifest(
             "currency": "USD",
             "traceReported": trace_reported,
             "observedWalletDebit": observed_wallet_debit,
+            "observedWalletDebitScope": WALLET_OBSERVATION_SCOPE,
+            "observedWalletDebitAttribution": WALLET_DEBIT_ATTRIBUTION,
             "unreconciled": round(abs(observed_wallet_debit - trace_reported), 6),
             "admissionBound": admission_bound,
             **(
@@ -1120,6 +1228,8 @@ def _neutral_execution_summary(
             "before": wallet_before,
             "after": wallet_after,
             "observedDebitUSD": observed_wallet_debit,
+            "observationScope": WALLET_OBSERVATION_SCOPE,
+            "debitAttribution": WALLET_DEBIT_ATTRIBUTION,
         },
         "estimatedMaximumCostUSD": estimated_maximum_cost,
         "contractMaximumCostUSD": contract_maximum_cost,
@@ -1155,7 +1265,12 @@ def main() -> int:
         help="required for Margin controls and forbidden for the plain-Markdown control",
     )
     parser.add_argument("--model", required=True)
-    parser.add_argument("--scenario", action="append", choices=SCENARIO_IDS, required=True)
+    parser.add_argument(
+        "--scenario",
+        action="append",
+        choices=AVAILABLE_SCENARIO_IDS,
+        required=True,
+    )
     parser.add_argument("--repetitions", type=int, default=1)
     parser.add_argument(
         "--repetition-id",
@@ -1170,8 +1285,8 @@ def main() -> int:
         type=int,
         default=DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE,
         help=(
-            "small, priced allowance for provider-reported wrapper tokens beyond the "
-            "requested generation limit"
+            "priced accounting allowance for provider-reported hidden reasoning or "
+            "wrapper tokens beyond the requested visible generation limit"
         ),
     )
     parser.add_argument("--max-turns", type=int, default=12)
@@ -1595,25 +1710,17 @@ def main() -> int:
         else _summarize_traces(output)
     )
     log_text = (output / "runner.log").read_text(encoding="utf-8", errors="replace")
-    infrastructure_codes = []
-    if live_budget_report.get("providerBoundViolationCount", 0):
-        infrastructure_codes.append("PROVIDER_USAGE_BOUND_VIOLATION")
-    elif "BUDGET_PROXY_COST_LIMIT" in log_text:
-        infrastructure_codes.append("LIVE_BUDGET_EXHAUSTED")
-    elif "upstream 429" in log_text or "rate_limit" in log_text:
-        infrastructure_codes.append("PROVIDER_RATE_LIMIT")
-    for proxy_code, infrastructure_code in (
-        ("BUDGET_PROXY_REQUEST_LIMIT", "LIVE_REQUEST_SIZE_LIMIT"),
-        ("BUDGET_PROXY_OUTPUT_LIMIT", "LIVE_OUTPUT_LIMIT"),
-        ("BUDGET_PROXY_UPSTREAM", "LIVE_PROXY_UPSTREAM_ERROR"),
-    ):
-        if proxy_code in log_text:
-            infrastructure_codes.append(infrastructure_code)
-    if timed_out:
-        infrastructure_codes.append("WALL_TIMEOUT")
+    infrastructure_codes = _infrastructure_codes(
+        log_text,
+        live_budget_report,
+        timed_out=timed_out,
+    )
     status = _execution_status(exit_code, trace_summary, infrastructure_codes)
     duration_ms = round((time.perf_counter() - started) * 1000)
-    observed_wallet_debit = round(before["balanceUSD"] - after["balanceUSD"], 6)
+    observed_wallet_debit = round(
+        max(0.0, before["balanceUSD"] - after["balanceUSD"]),
+        6,
+    )
     summary = (
         _neutral_execution_summary(
             arguments,
@@ -1646,6 +1753,8 @@ def main() -> int:
                 "before": before,
                 "after": after,
                 "observedDebitUSD": observed_wallet_debit,
+                "observationScope": WALLET_OBSERVATION_SCOPE,
+                "debitAttribution": WALLET_DEBIT_ATTRIBUTION,
             },
             "estimatedMaximumCostUSD": estimate,
             "contractMaximumCostUSD": contract_estimate,

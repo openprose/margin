@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from .gateway import MarginGateway, ToolPolicy
-from .scenarios import SCENARIO_IDS, generate_episode
+from .scenarios import (
+    AVAILABLE_SCENARIO_IDS,
+    EXPERIMENTAL_SCENARIO_IDS,
+    SCENARIO_IDS,
+    generate_episode,
+)
 from .schema import EpisodeDefinition, EpisodeResult, RoleTask
 from .scorer import score_episode
 
@@ -17,6 +22,8 @@ __all__ = [
     "MarginGateway",
     "RoleTask",
     "SCENARIO_IDS",
+    "EXPERIMENTAL_SCENARIO_IDS",
+    "AVAILABLE_SCENARIO_IDS",
     "ToolPolicy",
     "generate_episode",
     "score_episode",

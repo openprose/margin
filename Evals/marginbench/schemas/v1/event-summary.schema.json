@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://margin.tools/schemas/marginbench/v1/event-summary.schema.json",
+  "title": "MarginBench bounded content-free command outcome summary v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "commandCount", "successCount", "failureCount", "blockedCount",
+    "commands", "errors", "isTruncated"
+  ],
+  "properties": {
+    "commandCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+    "successCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+    "failureCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+    "blockedCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+    "commands": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "count", "successCount", "failureCount", "blockedCount"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(?:[ -][a-z0-9-]+)*$"
+          },
+          "count": {"type": "integer", "minimum": 1, "maximum": 1000000},
+          "successCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+          "failureCount": {"type": "integer", "minimum": 0, "maximum": 1000000},
+          "blockedCount": {"type": "integer", "minimum": 0, "maximum": 1000000}
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "count"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,127}$"},
+          "count": {"type": "integer", "minimum": 1, "maximum": 1000000}
+        }
+      }
+    },
+    "isTruncated": {"type": "boolean"}
+  }
+}

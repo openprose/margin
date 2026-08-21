@@ -32,9 +32,31 @@ public struct CollaborationDiscoveryResult: Codable, Hashable, Sendable {
     public let paths: [String]
     public let bytes: Int
     public let omittedFileCount: Int
+    /// True means discovery stopped at a safety bound, so this count proves at
+    /// least this many files were omitted without paying to enumerate the rest.
+    /// Optional so older encoded values remain decodable.
+    public let omittedFileCountIsLowerBound: Bool?
     public let hitFileLimit: Bool
     public let hitByteLimit: Bool
     public let hitDepthLimit: Bool
+
+    public init(
+        paths: [String],
+        bytes: Int,
+        omittedFileCount: Int,
+        hitFileLimit: Bool,
+        hitByteLimit: Bool,
+        hitDepthLimit: Bool,
+        omittedFileCountIsLowerBound: Bool = false
+    ) {
+        self.paths = paths
+        self.bytes = bytes
+        self.omittedFileCount = omittedFileCount
+        self.omittedFileCountIsLowerBound = omittedFileCountIsLowerBound
+        self.hitFileLimit = hitFileLimit
+        self.hitByteLimit = hitByteLimit
+        self.hitDepthLimit = hitDepthLimit
+    }
 
     public var isTruncated: Bool {
         omittedFileCount > 0 || hitFileLimit || hitByteLimit || hitDepthLimit
@@ -386,7 +408,8 @@ public struct CollaborationCursorService: Sendable {
             omittedFileCount: omitted,
             hitFileLimit: hitFiles,
             hitByteLimit: hitBytes,
-            hitDepthLimit: hitDepth
+            hitDepthLimit: hitDepth,
+            omittedFileCountIsLowerBound: hitFiles || hitBytes || hitDepth
         )
     }
 

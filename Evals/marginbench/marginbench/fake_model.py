@@ -233,7 +233,11 @@ def scripted_stage_author(prompt: str, tools: list[dict]) -> dict | None:
 
 
 def scripted_stage_reviewer(prompt: str, tools: list[dict]) -> dict | None:
-    match = re.search(r"refresh it against current files as (urn:uuid:[0-9a-f-]+)", prompt)
+    match = re.search(
+        r"refresh it against current files(?: as| using the exact new stage id\s+)"
+        r"(urn:uuid:[0-9a-f-]+)",
+        prompt,
+    )
     if match is None:
         raise ValueError("Fake preflight could not parse the staged-reviewer brief.")
     refreshed = match.group(1)
@@ -244,8 +248,7 @@ def scripted_stage_reviewer(prompt: str, tools: list[dict]) -> dict | None:
     commands = (
         ["stage", "show", ".", original],
         ["stage", "submit", ".", original],
-        ["stage", "refresh", ".", original, "--id", refreshed],
-        ["stage", "submit", ".", refreshed],
+        ["stage", "refresh", ".", original, "--id", refreshed, "--submit"],
         ["comments", "validate", "review.md"],
         ["comments", "validate", "notes/decision.md"],
     )
@@ -275,7 +278,7 @@ def scripted_directory_author(prompt: str, tools: list[dict]) -> dict | None:
         handoff_body,
     ) = match.groups()
     if not tools:
-        return _invocation(["context", ".", "--json"])
+        return _invocation(["context", ".", "--json", "--brief"])
     if len(tools) == 1:
         return _invocation(["comments", "list", tradeoff_path, "--status", "all"])
     human_root, revision = _first_comment(_stdout(tools[1]))
@@ -294,7 +297,8 @@ def scripted_directory_author(prompt: str, tools: list[dict]) -> dict | None:
         return _invocation([
             "handoff", "add", status_path, "-m", handoff_body.strip(),
             "--id", handoff_id, "--request-id", request_id,
-            "--next-actor", next_actor,
+            "--to", next_actor, "--document", "--kind", "handoff",
+            "--if-revision", "0",
         ])
     if len(tools) == 5:
         return _invocation(["handoff", "list", ".", "--json"])
@@ -327,12 +331,49 @@ def scripted_directory_reviewer(prompt: str, tools: list[dict]) -> dict | None:
             "--if-revision", str(_stdout(tools[2])["revision"]),
         ])
     commands = (
-        ["context", ".", "--json"],
+        ["context", ".", "--json", "--brief"],
         ["comments", "validate", "architecture/tradeoffs.md"],
         ["comments", "validate", status_path],
     )
     offset = len(tools) - 4
     return _invocation(commands[offset]) if offset < len(commands) else None
+
+
+def scripted_wide_directory_triage(prompt: str, tools: list[dict]) -> dict | None:
+    match = re.search(
+        r"exactly this Markdown body:\n(.+?)\nUse mutation id ([0-9a-f-]+)\.",
+        prompt,
+        re.DOTALL,
+    )
+    if match is None:
+        raise ValueError("Fake preflight could not parse the wide-directory brief.")
+    body, identifier = match.group(1).strip(), match.group(2)
+    if not tools:
+        return _invocation(["context", ".", "--json", "--brief"])
+    if len(tools) == 1:
+        return _invocation([
+            "inbox", ".", "--kind", "question", "--status", "open", "--json", "--brief",
+        ])
+    inbox = (_stdout(tools[1]).get("result") or {}).get("items") or []
+    if len(inbox) != 1:
+        raise ValueError("Fake preflight did not find exactly one wide-directory question.")
+    item = inbox[0]
+    path = item["actionPath"]
+    root = item["rootID"]
+    if len(tools) == 2:
+        return _invocation([
+            "comments", "reply", path, root, "-m", body,
+            "--id", identifier,
+            "--if-revision", str(item["annotationRevision"]),
+            "--resolve",
+        ])
+    if len(tools) == 3:
+        return _invocation([
+            "comments", "list", path, "--thread", root, "--status", "all",
+        ])
+    if len(tools) == 4:
+        return _invocation(["comments", "validate", path])
+    return None
 
 
 def scripted_parallel_shard(prompt: str, tools: list[dict]) -> dict | None:
@@ -492,6 +533,8 @@ def scripted_response(messages: list[dict]) -> dict | None:
         return scripted_directory_author(prompt, tools)
     if "Use a bounded directory-wide inbox or handoff" in prompt:
         return scripted_directory_reviewer(prompt, tools)
+    if "The workspace contains many Markdown documents" in prompt:
+        return scripted_wide_directory_triage(prompt, tools)
     if "A human left one open thread" in prompt:
         return scripted_human_relay(prompt, tools)
     if "Create one typed handoff" in prompt:

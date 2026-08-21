@@ -374,7 +374,9 @@ public struct CollaborationContextService: Sendable {
                 omittedFileCount: omittedFiles,
                 hitFileLimit: initial.truncation.discovery.hitFileLimit,
                 hitByteLimit: initial.truncation.discovery.hitByteLimit,
-                hitDepthLimit: initial.truncation.discovery.hitDepthLimit
+                hitDepthLimit: initial.truncation.discovery.hitDepthLimit,
+                omittedFileCountIsLowerBound:
+                    initial.truncation.discovery.omittedFileCountIsLowerBound == true
             )
             return CollaborationContextSnapshot(
                 root: initial.root,
@@ -835,7 +837,43 @@ public struct CollaborationStageStore: Sendable {
     public func load(stageID: String, root: CollaborationRoot) throws -> CollaborationChangeSet {
         try CollaborationValidation.identifier(stageID, field: "stage id")
         let url = try stageURL(id: stageID, root: root, createDirectory: false)
-        let data = try CollaborationPathResolver.readBounded(url, maximumBytes: Self.maximumCanonicalBytes)
+        do {
+            switch try CollaborationPathResolver.kind(of: url) {
+            case .regularFile:
+                break
+            case .symbolicLink:
+                throw CollaborationError.symlinkNotAllowed(url.path)
+            default:
+                throw CollaborationError.invalidChangeSet(
+                    "The stage storage entry is not a regular file."
+                )
+            }
+        } catch let error as CollaborationError {
+            if case .io(let message) = error, message.hasPrefix("ENOENT:") {
+                throw CollaborationError.stageNotFound(stageID)
+            }
+            throw error
+        }
+        let data: Data
+        do {
+            data = try CollaborationPathResolver.readBounded(
+                url,
+                maximumBytes: Self.maximumCanonicalBytes
+            )
+        } catch let error as CollaborationError {
+            // The file can disappear between the lstat above and this read.
+            // Reinspect it with the same errno-aware primitive so a genuine
+            // permission or I/O failure is never mislabeled as "not found".
+            do {
+                _ = try CollaborationPathResolver.kind(of: url)
+            } catch let inspectionError as CollaborationError {
+                if case .io(let message) = inspectionError,
+                   message.hasPrefix("ENOENT:") {
+                    throw CollaborationError.stageNotFound(stageID)
+                }
+            }
+            throw error
+        }
         let changeSet = try CollaborationCanonicalJSON.decode(CollaborationChangeSet.self, from: data)
         try changeSet.validate()
         guard changeSet.root == root, changeSet.stageID == stageID,

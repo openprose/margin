@@ -16,6 +16,9 @@
     "planID": {"$ref": "#/$defs/prefixedSha256"},
     "jobCount": {"type": "integer", "minimum": 2, "maximum": 1000},
     "observedWalletDebitUSD": {"type": "number", "minimum": 0},
+    "proxyAccountedCostUpperBoundUSD": {"type": "number", "minimum": 0},
+    "walletObservationScope": {"const": "account-wide"},
+    "walletDebitAttribution": {"const": "unattributed"},
     "traceReportedCostUSD": {"type": "number", "minimum": 0},
     "modelCalls": {"type": "integer", "minimum": 0},
     "allSafe": {"type": "boolean"},
@@ -33,6 +36,17 @@
     },
     "verified": {"const": true},
     "output": {"type": "string", "minLength": 1, "maxLength": 4096}
+  },
+  "dependentRequired": {
+    "proxyAccountedCostUpperBoundUSD": [
+      "walletObservationScope", "walletDebitAttribution"
+    ],
+    "walletObservationScope": [
+      "proxyAccountedCostUpperBoundUSD", "walletDebitAttribution"
+    ],
+    "walletDebitAttribution": [
+      "proxyAccountedCostUpperBoundUSD", "walletObservationScope"
+    ]
   },
   "$defs": {
     "prefixedSha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}

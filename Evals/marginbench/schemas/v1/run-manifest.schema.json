@@ -72,6 +72,7 @@
           "sourcePreserved": {"type": "boolean"},
           "commandCount": {"type": "integer", "minimum": 0},
           "invalidCommandCount": {"type": "integer", "minimum": 0},
+          "eventSummary": {"$ref": "https://margin.tools/schemas/marginbench/v1/event-summary.schema.json"},
           "durationMs": {"type": "number", "minimum": 0},
           "marginSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
           "checks": {"type": "object", "additionalProperties": {"type": "boolean"}},
@@ -118,6 +119,8 @@
         "currency": {"const": "USD"},
         "traceReported": {"type": "number", "minimum": 0},
         "observedWalletDebit": {"type": "number", "minimum": 0},
+        "observedWalletDebitScope": {"const": "account-wide"},
+        "observedWalletDebitAttribution": {"const": "unattributed"},
         "unreconciled": {"type": "number", "minimum": 0},
         "admissionBound": {"type": "number", "minimum": 0},
         "contractBound": {"type": "number", "minimum": 0},
@@ -146,6 +149,10 @@
             "billingOverheadUSDPerCall": {"type": "number", "minimum": 0}
           }
         }
+      },
+      "dependentRequired": {
+        "observedWalletDebitScope": ["observedWalletDebitAttribution"],
+        "observedWalletDebitAttribution": ["observedWalletDebitScope"]
       }
     },
     "privacy": {
