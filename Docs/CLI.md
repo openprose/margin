@@ -132,16 +132,12 @@ remain portable when those files are copied elsewhere.
 Suggestions propose source changes without applying them:
 
 ```sh
-printf '%s' '{
-  "schema":"urn:margin:suggestion-batch:v1",
-  "version":1,
-  "items":[
+printf '%s' '[
     {"id":"UUID-1","exact":"at least once","replacement":"exactly once",
      "body":"Make the delivery guarantee explicit"},
     {"id":"UUID-2","exact":"best effort","replacement":"bounded retry",
      "body":"Name the actual recovery behavior"}
-  ]
-}' | margin suggest add architecture.md --items-file -
+]' | margin suggest batch architecture.md
 
 margin suggest add architecture.md \
   --quote "at least once" \

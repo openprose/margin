@@ -3020,8 +3020,8 @@ class MarginBenchCoreTests(unittest.TestCase):
                 "content": json.dumps({
                     "exitCode": 0,
                     "stdout": (
-                        "send {\"schema\":\"urn:margin:suggestion-batch:v1\"} "
-                        "to margin suggest add FILE --items-file -; "
+                        "run margin suggest batch FILE and send a bare JSON array "
+                        "through standard input; "
                         "margin suggest wait FILE ID..."
                     ),
                 }),
@@ -3029,13 +3029,11 @@ class MarginBenchCoreTests(unittest.TestCase):
             invocation = scripted_response(messages)
             self.assertEqual(
                 invocation["arguments"],
-                ["suggest", "add", "review.md", "--items-file", "-"],
+                ["suggest", "batch", "review.md"],
             )
             batch = json.loads(invocation["stdin"])
-            self.assertEqual(batch["schema"], "urn:margin:suggestion-batch:v1")
-            self.assertEqual(batch["version"], 1)
             self.assertEqual(
-                batch["items"],
+                batch,
                 episode.oracle["reference"]["assignments"][role.actor.id],
             )
             messages.append({

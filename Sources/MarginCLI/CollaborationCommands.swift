@@ -811,7 +811,7 @@ enum CollaborationCLI {
         let pretty = cursor.takeFlag("--pretty")
         _ = cursor.takeFlag("--json")
         let explicitRoot = try cursor.takeValue("--root")
-        let input = try requiredValue("--items-file", cursor: &cursor)
+        let input = try cursor.takeValue("--items-file") ?? "-"
         let requestedBatchID = try cursor.takeValue("--batch-id").map(MarginID.annotation)
         let requestedRequestID = try cursor.takeValue("--request-id").map(MarginID.annotation)
         guard requestedBatchID == nil || requestedRequestID == nil else {
@@ -1810,12 +1810,19 @@ enum CollaborationCLI {
                 )
             } catch let error as CLIError where error.code == "NOT_FOUND" {
                 throw CLIError.notFound(
-                    "\(error.message) For inline batch JSON, use --items-file - and send the JSON through standard input."
+                    "\(error.message) For inline batch JSON, omit --items-file and send the JSON through standard input."
                 )
             }
         }
         do {
-            let plan = try JSONDecoder().decode(SuggestionBatchPlan.self, from: data)
+            let decoded = try JSONDecoder().decode(SuggestionBatchInput.self, from: data)
+            let plan: SuggestionBatchPlan
+            switch decoded {
+            case let .envelope(value):
+                plan = value
+            case let .items(items):
+                plan = SuggestionBatchPlan(schema: nil, version: 1, items: items)
+            }
             guard plan.version == 1,
                   plan.schema == nil || plan.schema == "urn:margin:suggestion-batch:v1",
                   (1...maximumSuggestionBatchItems).contains(plan.items.count) else {
@@ -3699,6 +3706,20 @@ private struct SuggestionBatchPlan: Decodable {
     let schema: String?
     let version: Int
     let items: [SuggestionBatchItem]
+}
+
+private enum SuggestionBatchInput: Decodable {
+    case envelope(SuggestionBatchPlan)
+    case items([SuggestionBatchItem])
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let envelope = try? container.decode(SuggestionBatchPlan.self) {
+            self = .envelope(envelope)
+        } else {
+            self = .items(try container.decode([SuggestionBatchItem].self))
+        }
+    }
 }
 
 private struct SuggestionBatchItem: Decodable {

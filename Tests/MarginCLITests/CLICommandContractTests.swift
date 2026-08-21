@@ -98,10 +98,10 @@ final class CLICommandContractTests: XCTestCase {
         )
         let suggestionGuidance = try XCTUnwrap(suggestionAdd.guidance)
         XCTAssertEqual(suggestionGuidance.count, 5)
-        XCTAssertTrue(suggestionGuidance[0].contains("choose the first usage"))
-        XCTAssertTrue(suggestionGuidance[0].contains("urn:margin:suggestion-batch:v1"))
-        XCTAssertTrue(suggestionGuidance[0].contains("margin suggest add FILE --items-file -"))
-        XCTAssertTrue(suggestionGuidance[0].contains("\"exact\":\"current text\""))
+        XCTAssertTrue(suggestionGuidance[0].contains("margin suggest batch FILE"))
+        XCTAssertTrue(suggestionGuidance[0].contains("standard input"))
+        XCTAssertTrue(suggestionGuidance[0].contains("[{\"id\":\"UUID\""))
+        XCTAssertTrue(suggestionGuidance[0].contains("\"exact\":\"old\""))
         XCTAssertTrue(suggestionGuidance[1].contains("add directly"))
         XCTAssertTrue(suggestionGuidance[1].contains("validate the source atomically"))
         XCTAssertTrue(suggestionGuidance[3].contains("suggest wait FILE ID..."))
@@ -113,6 +113,7 @@ final class CLICommandContractTests: XCTestCase {
         let batchGuidance = try XCTUnwrap(suggestionBatch.guidance)
         XCTAssertEqual(batchGuidance.count, 4)
         XCTAssertTrue(batchGuidance[0].contains("urn:margin:suggestion-batch:v1"))
+        XCTAssertTrue(batchGuidance[0].contains("Default standard input"))
         XCTAssertTrue(batchGuidance[1].contains("rejects the whole batch"))
         let suggestionWait = try XCTUnwrap(
             suggestions.commands.first { $0.path == ["suggest", "wait"] }
@@ -1303,6 +1304,46 @@ final class CLICommandContractTests: XCTestCase {
         )
         XCTAssertEqual(try Data(contentsOf: file), pristine)
 
+        let standardInputFile = directory.appendingPathComponent("standard-input.md")
+        let standardInputSource = "One stays.\n\nTwo stays.\n"
+        try Data(standardInputSource.utf8).write(to: standardInputFile)
+        let standardInputItems: [[String: Any]] = [
+            [
+                "id": "00000000-0000-4000-8000-000000095021",
+                "exact": "One stays.",
+                "replacement": "One improves.",
+                "body": "Improve one.",
+            ],
+            [
+                "id": "00000000-0000-4000-8000-000000095022",
+                "exact": "Two stays.",
+                "replacement": "Two improves.",
+                "body": "Improve two.",
+            ],
+        ]
+        let standardInput = try JSONSerialization.data(
+            withJSONObject: standardInputItems,
+            options: [.sortedKeys]
+        )
+        let standardInputResult = runCapturing(
+            [
+                "suggest", "batch", standardInputFile.path,
+                "--actor-id", "urn:test:agent:standard-input",
+                "--actor-type", "software",
+            ],
+            standardInput: standardInput
+        )
+        XCTAssertEqual(standardInputResult.exit, CLIExit.success.rawValue)
+        let standardInputSnapshot = try CommentService().list(at: standardInputFile)
+        XCTAssertEqual(standardInputSnapshot.comments.count, 2)
+        let standardInputDecoded = try EmbeddedCommentCodec().decode(
+            Data(contentsOf: standardInputFile)
+        )
+        XCTAssertEqual(
+            String(data: standardInputDecoded.bodyData, encoding: .utf8),
+            standardInputSource
+        )
+
         let items: [[String: Any]] = [
             [
                 "id": "00000000-0000-4000-8000-000000095011",
@@ -1447,23 +1488,22 @@ final class CLICommandContractTests: XCTestCase {
     func testSuggestionAndHandoffHelpExplainContentionSafety() throws {
         let parent = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest"]))
         XCTAssertTrue(parent.contains("Several exact assignments"))
-        XCTAssertTrue(parent.contains("urn:margin:suggestion-batch:v1"))
-        XCTAssertTrue(parent.contains("margin suggest add FILE --items-file -"))
+        XCTAssertTrue(parent.contains("margin suggest batch FILE"))
+        XCTAssertTrue(parent.contains("standard input"))
         XCTAssertTrue(parent.contains("margin suggest wait FILE ID... --timeout 20"))
 
         let add = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "add"]))
-        XCTAssertTrue(add.contains("metadata races retry internally"))
+        XCTAssertTrue(add.contains("Metadata races retry internally"))
         XCTAssertTrue(add.contains("source drift fails closed"))
-        XCTAssertTrue(add.contains("matching success or already-applied is conclusive"))
+        XCTAssertTrue(add.contains("already-applied receipt is conclusive"))
         XCTAssertTrue(add.contains("--quote \"current text\" --expect \"current text\""))
         XCTAssertTrue(add.contains("EXACT-ASSIGNMENT FAST PATH"))
-        let batchUsage = try XCTUnwrap(add.range(of: "margin suggest add FILE --items-file"))
+        let batchUsage = try XCTUnwrap(add.range(of: "margin suggest batch FILE"))
         let singleUsage = try XCTUnwrap(add.range(of: "margin suggest add TARGET (--quote"))
         XCTAssertLessThan(batchUsage.lowerBound, singleUsage.lowerBound)
-        XCTAssertTrue(add.contains("choose the first usage"))
-        XCTAssertTrue(add.contains("urn:margin:suggestion-batch:v1"))
-        XCTAssertTrue(add.contains("margin suggest add FILE --items-file -"))
-        XCTAssertTrue(add.contains("\"replacement\":\"proposed text\""))
+        XCTAssertTrue(add.contains("margin suggest batch FILE"))
+        XCTAssertTrue(add.contains("standard input"))
+        XCTAssertTrue(add.contains("\"replacement\":\"new\""))
         XCTAssertTrue(add.contains("add directly"))
         XCTAssertTrue(add.contains("validate the source atomically"))
         XCTAssertTrue(add.contains("suggest wait FILE ID... --timeout 20"))
@@ -1472,7 +1512,9 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertFalse(add.contains("read FILE --json once and confirm every quoted passage"))
 
         let batch = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "batch"]))
-        XCTAssertTrue(batch.contains("margin suggest batch FILE --items-file"))
+        XCTAssertTrue(batch.contains("margin suggest batch FILE [--batch-id ID]"))
+        XCTAssertTrue(batch.contains("omit to read standard input"))
+        XCTAssertTrue(batch.contains("Bare array or v1 envelope"))
         XCTAssertTrue(batch.contains("urn:margin:suggestion-batch:v1"))
         XCTAssertTrue(batch.contains("rejects the whole batch"))
         XCTAssertTrue(batch.contains("source drift fails closed"))
@@ -1548,7 +1590,8 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertLessThan(exactPath.lowerBound, discoveryPath.lowerBound)
         XCTAssertTrue(manual.contains("For one suggestion, add it directly"))
         XCTAssertTrue(manual.contains("submit one atomic batch"))
-        XCTAssertTrue(manual.contains("urn:margin:suggestion-batch:v1"))
+        XCTAssertTrue(manual.contains("margin suggest batch FILE"))
+        XCTAssertTrue(manual.contains("bounded array through standard input"))
         XCTAssertTrue(manual.contains("One bad item rejects"))
         XCTAssertTrue(manual.contains("--expect \"current text\""))
         XCTAssertTrue(manual.contains("validate the source in the same operation"))
@@ -2733,6 +2776,26 @@ final class CLICommandContractTests: XCTestCase {
 
     private func runCapturing(_ arguments: [String]) -> (exit: Int32, output: Data) {
         runCapturing(arguments, fileDescriptor: STDOUT_FILENO)
+    }
+
+    private func runCapturing(
+        _ arguments: [String],
+        standardInput: Data
+    ) -> (exit: Int32, output: Data) {
+        let inputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MarginCLIInput-\(UUID().uuidString)")
+        try! standardInput.write(to: inputURL)
+        let handle = FileHandle(forReadingAtPath: inputURL.path)!
+        let savedStandardInput = dup(STDIN_FILENO)
+        precondition(savedStandardInput >= 0)
+        precondition(dup2(handle.fileDescriptor, STDIN_FILENO) >= 0)
+        defer {
+            _ = dup2(savedStandardInput, STDIN_FILENO)
+            close(savedStandardInput)
+            try? handle.close()
+            try? FileManager.default.removeItem(at: inputURL)
+        }
+        return runCapturing(arguments)
     }
 
     private func runCapturingError(_ arguments: [String]) -> (exit: Int32, output: Data) {

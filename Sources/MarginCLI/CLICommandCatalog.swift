@@ -881,7 +881,7 @@ enum CLICommandCatalog {
                 summary: "Create, list, await, accept, or reject source replacement suggestions.",
                 usage: ["margin suggest COMMAND ..."],
                 guidance: [
-                    "Several exact assignments for one file: send {\"schema\":\"urn:margin:suggestion-batch:v1\",\"version\":1,\"items\":[{\"id\":\"UUID\",\"exact\":\"current text\",\"replacement\":\"proposed text\",\"body\":\"Why\"}]} to margin suggest add FILE --items-file - for one atomic all-or-none write.",
+                    "Several exact assignments: margin suggest batch FILE reads a bare item array from standard input and writes atomically.",
                     "One exact assignment: use margin suggest add FILE --quote EXACT --expect EXACT --replacement TEXT -m MESSAGE --id UUID.",
                     "For a complete public id set, use margin suggest wait FILE ID... --timeout 20 once instead of polling; this confirms ids, not presence.",
                 ],
@@ -890,39 +890,39 @@ enum CLICommandCatalog {
             ),
             command(
                 "suggest", "add",
-                summary: "Add one exact proposal or atomically add several from bounded JSON; matching success or already-applied is conclusive. Independent metadata races retry internally, while source drift fails closed.",
+                summary: "Add one exact proposal; use atomic batch for several. Metadata races retry internally; source drift fails closed.",
                 usage: [
-                    "margin suggest add FILE --items-file BATCH_JSON_OR_- [--batch-id ID] [OPTIONS]",
+                    "margin suggest batch FILE [--batch-id ID] [OPTIONS]",
                     "margin suggest add TARGET (--quote EXACT [--prefix P --suffix S] [--occurrence N] | --range START:END | --from LINE:COL --to LINE:COL) [--expect TEXT] --replacement TEXT -m MESSAGE [OPTIONS]",
                     "margin suggest add FILE --quote \"current text\" --expect \"current text\" --replacement \"proposed text\" -m \"Why\" --id UUID",
                 ],
                 guidance: [
-                    "For several supplied exact assignments, choose the first usage: send {\"schema\":\"urn:margin:suggestion-batch:v1\",\"version\":1,\"items\":[{\"id\":\"UUID\",\"exact\":\"current text\",\"replacement\":\"proposed text\",\"body\":\"Why\"}]} to margin suggest add FILE --items-file - for one atomic all-or-none write.",
+                    "Pass several supplied [{\"id\":\"UUID\",\"exact\":\"old\",\"replacement\":\"new\",\"body\":\"why\"}] items unchanged to margin suggest batch FILE on standard input.",
                     "For one supplied exact assignment, add directly; --quote plus --expect validate the source atomically.",
                     "Add each independent item with --quote, --expect, --replacement, -m, and a stable --id; a matching success or already-applied receipt is conclusive.",
                     "For a complete collaborator id set, run margin suggest wait FILE ID... --timeout 20 once; otherwise run margin suggest list FILE once. Run margin read FILE --json once only when literal-source verification is required.",
                     "Skip preliminary context, inspect, review, list, and read calls unless the assignment is incomplete, a command reports drift, or an external edit is known.",
                 ],
                 arguments: [target],
-                options: mutationTarget + [option("--items-file", value: "BATCH_JSON_OR_-", description: "Choose atomic multi-item add: bounded v1 batch JSON path, or - for standard input; maximum 1 MiB and 256 items."), option("--batch-id", value: "ID", description: "Optional stable atomic-group identity for --items-file; otherwise derived from sorted item ids. Mutually exclusive with --request-id."), option("--quote", value: "EXACT", description: "Resolve a unique exact passage without coordinate arithmetic."), option("--prefix", value: "TEXT", description: "Text immediately before --quote for disambiguation."), option("--suffix", value: "TEXT", description: "Text immediately after --quote for disambiguation."), option("--occurrence", value: "N", description: "One-based duplicate quote occurrence."), option("--range", value: "START:END", description: "Half-open Unicode-scalar range."), option("--from", value: "LINE:COL", description: "One-based grapheme start; requires --to."), option("--to", value: "LINE:COL", description: "One-based grapheme end; requires --from."), option("--expect", value: "TEXT", description: "Optional exact-match precondition; derived from the resolved passage when omitted."), option("--replacement", value: "TEXT", description: "Required replacement logical Markdown for a single item; omit with --items-file."), option("--id", "--contribution-id", value: "ID", description: "Stable contribution and retry identity."), option("--audience", value: "ACTOR_ID", repeatable: true, description: "Intended actor audience.")] + messageOptions + actorOptions + identities + presentation,
+                options: mutationTarget + [option("--items-file", value: "BATCH_JSON_OR_-", description: "Atomic multi-item JSON path or -; bare array or v1 envelope, maximum 1 MiB/256 items."), option("--batch-id", value: "ID", description: "Optional stable atomic-group identity for --items-file; otherwise derived from sorted item ids. Mutually exclusive with --request-id."), option("--quote", value: "EXACT", description: "Resolve a unique exact passage without coordinate arithmetic."), option("--prefix", value: "TEXT", description: "Text immediately before --quote for disambiguation."), option("--suffix", value: "TEXT", description: "Text immediately after --quote for disambiguation."), option("--occurrence", value: "N", description: "One-based duplicate quote occurrence."), option("--range", value: "START:END", description: "Half-open Unicode-scalar range."), option("--from", value: "LINE:COL", description: "One-based grapheme start; requires --to."), option("--to", value: "LINE:COL", description: "One-based grapheme end; requires --from."), option("--expect", value: "TEXT", description: "Optional exact-match precondition; derived from the resolved passage when omitted."), option("--replacement", value: "TEXT", description: "Required replacement logical Markdown for a single item; omit with --items-file."), option("--id", "--contribution-id", value: "ID", description: "Stable contribution and retry identity."), option("--audience", value: "ACTOR_ID", repeatable: true, description: "Intended actor audience.")] + messageOptions + actorOptions + identities + presentation,
                 sideEffects: "mutates-file-metadata",
                 output: output
             ),
             command(
                 "suggest", "batch",
-                summary: "Atomically add 1 to 256 exact same-file suggestions from bounded JSON; annotation-only races retry internally and source drift fails closed.",
+                summary: "Atomically add 1 to 256 same-file suggestions; metadata races retry and source drift fails closed.",
                 usage: [
-                    "margin suggest batch FILE --items-file BATCH_JSON_OR_- [--batch-id ID] [ACTOR_OPTIONS] [IDENTITY_OPTIONS] [--pretty]",
-                    "margin suggest batch FILE --items-file - --batch-id ID",
+                    "margin suggest batch FILE [--batch-id ID] [ACTOR_OPTIONS] [IDENTITY_OPTIONS] [--pretty]",
+                    "margin suggest batch FILE --items-file BATCH_JSON_OR_- [--batch-id ID] [OPTIONS]",
                 ],
                 guidance: [
-                    "Input schema: {\"schema\":\"urn:margin:suggestion-batch:v1\",\"version\":1,\"items\":[{\"id\":\"UUID\",\"exact\":\"current text\",\"replacement\":\"proposed text\",\"body\":\"Why\"}]}",
+                    "Default standard input: [{\"id\":\"UUID\",\"exact\":\"old\",\"replacement\":\"new\",\"body\":\"why\"}]. The urn:margin:suggestion-batch:v1 envelope also works.",
                     "Each exact value is both the quote and expected-text guard; one missing or changed passage rejects the whole batch without a partial write.",
                     "Stable item ids derive a deterministic retry identity; --batch-id may name the atomic group explicitly. Do not combine it with advanced --request-id. Matching replay returns already-applied.",
                     "After success, wait once for a supplied complete collaborator id set or list once; read literal source once only when the assigned outcome requires it.",
                 ],
                 arguments: [argument("FILE", kind: "markdown-file", description: "Existing Markdown file receiving every suggestion in the batch.")],
-                options: [requiredOption("--items-file", value: "BATCH_JSON_OR_-", description: "Bounded v1 batch JSON path, or - for standard input; maximum 1 MiB and 256 items."), option("--batch-id", value: "ID", description: "Optional stable atomic-group identity; otherwise derived from the sorted item ids. Mutually exclusive with --request-id."), option("--root", value: "DIRECTORY", description: "Use an explicit directory collaboration boundary.")] + actorOptions + identities + presentation,
+                options: [option("--items-file", value: "BATCH_JSON_OR_-", description: "Optional JSON path or -; omit to read standard input. Bare array or v1 envelope; maximum 1 MiB/256 items."), option("--batch-id", value: "ID", description: "Optional stable atomic-group identity; otherwise derived from the sorted item ids. Mutually exclusive with --request-id."), option("--root", value: "DIRECTORY", description: "Use an explicit directory collaboration boundary.")] + actorOptions + identities + presentation,
                 sideEffects: "atomically-mutates-one-file-metadata",
                 output: output
             ),

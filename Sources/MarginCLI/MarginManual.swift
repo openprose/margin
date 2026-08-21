@@ -293,14 +293,13 @@ enum MarginManual {
       replacement, explanation, and stable id.
 
       1. For several suggestions in one file, submit one atomic batch:
-         margin suggest add FILE --items-file - --batch-id UUID
-         Standard input uses this bounded shape:
-         {"schema":"urn:margin:suggestion-batch:v1","version":1,
-          "items":[{"id":"UUID","exact":"current text",
-          "replacement":"proposed text","body":"Why this is better"}]}
+         margin suggest batch FILE
+         Send this bounded array through standard input:
+         [{"id":"UUID","exact":"current text",
+           "replacement":"proposed text","body":"Why this is better"}]
          Every exact value is also the source precondition. One bad item rejects
-         the entire batch; matching replay returns already-applied. The older
-         `suggest batch` spelling remains an exact alias.
+         the entire batch; matching replay returns already-applied. Use
+         --items-file PATH for a saved array or versioned v1 envelope.
       2. For one suggestion, add it directly:
          margin suggest add FILE --quote "current text" \\
            --expect "current text" --replacement "proposed text" \\

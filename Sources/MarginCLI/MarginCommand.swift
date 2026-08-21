@@ -1197,7 +1197,7 @@ private extension MarginCommand {
       margin stage create . --operations-file plan.json
       margin suggest add architecture.md --quote "# Design" \
         --replacement "# Architecture" -m "Use the established term"
-      margin suggest add architecture.md --items-file suggestions.json
+      margin suggest batch architecture.md --items-file suggestions.json
       margin suggest wait architecture.md UUID UUID --timeout 20
       margin capabilities --json --for review --brief
       margin man

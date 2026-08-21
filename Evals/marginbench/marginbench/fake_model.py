@@ -243,17 +243,28 @@ def scripted_suggestion_contention(prompt: str, tools: list[dict]) -> dict | Non
     if not tools:
         return _invocation(["suggest", "add", "--help"])
     first_help = _stdout_text(tools[0])
-    batch_available = (
+    short_batch_available = (
+        _tool_payload(tools[0]).get("exitCode") == 0
+        and "margin suggest batch FILE" in first_help
+        and "standard input" in first_help
+    )
+    legacy_batch_available = (
         _tool_payload(tools[0]).get("exitCode") == 0
         and "urn:margin:suggestion-batch:v1" in first_help
         and "margin suggest add FILE --items-file -" in first_help
     )
+    batch_available = short_batch_available or legacy_batch_available
     wait_available = (
         _tool_payload(tools[0]).get("exitCode") == 0
         and "margin suggest wait FILE ID..." in first_help
     )
     if batch_available:
         if len(tools) == 1:
+            if short_batch_available:
+                return _invocation(
+                    ["suggest", "batch", "review.md"],
+                    json.dumps(assignments, sort_keys=True, separators=(",", ":")),
+                )
             plan = {
                 "schema": "urn:margin:suggestion-batch:v1",
                 "version": 1,

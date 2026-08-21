@@ -744,6 +744,27 @@ input through the agent tool boundary. Both supported Python environments pass
 224 tests, including privacy and semantic-tamper checks. No paid request was
 made for v66.
 
+v67 changes the cost of expressing the operation rather than adding another
+instruction. `margin suggest batch FILE` now reads standard input by default
+and accepts the exact bare assignment array already present in the benchmark
+brief. An agent no longer has to add a schema/version envelope or choose
+`--items-file -`. Saved files and the versioned envelope still work, as does the
+unified-add compatibility spelling. All paths reach the same bounded atomic
+engine: every anchor is checked against one source snapshot, one bad item writes
+nothing, annotation-only races retry internally, source drift fails closed, and
+stable IDs make matching replay conclusive.
+
+The change remains off the startup path. The signed CLI is 2,842,800 bytes, 16
+bytes larger than v62. Suggestion capabilities encode to 20,303 bytes compact
+and 32,346 bytes pretty, within the 32 KiB contract; focused add and batch help
+are 3,471 and 1,992 bytes. In 500 counterbalanced launches per arm, v67 minus
+frozen v62 median differences were -0.004 ms for global help, -0.036 ms for add
+help, and -0.049 ms for batch help. These are scheduling-scale differences, not
+speed claims, and show no regression. All 189 Swift tests, both 224-test Python
+suites, the nine-scenario reference, isolated agent controls, signed release,
+and retained publication audits pass. No paid request was made while building
+or validating v67.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a

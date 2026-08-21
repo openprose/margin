@@ -344,6 +344,14 @@ teaching and trusted their wait; the only split was atomic-batch adoption. The
 reports preserve fixed command categories and counts, never private arguments,
 document text, paths, identifiers, prompts, or tool results.
 
+The next candidate therefore shortens the operation rather than expanding its
+instructions. `margin suggest batch FILE` accepts the supplied item array
+unchanged on standard input; no schema wrapper or file/stdin flag is needed.
+This is a compatible front door to the existing bounded atomic engine, not a
+weaker write path. The old envelope and file form continue to work. Full free
+gates and counterbalanced process timings show no launch regression; real-model
+adoption remains a hypothesis until a fresh matched pair is admitted.
+
 The latest CLI cycle is intentionally narrower than a release claim. Concrete
 reply, atomic reply-and-resolve, thread verification, durable handoff, and
 handoff-verification actions improved one counter-ordered Luna handoff case
