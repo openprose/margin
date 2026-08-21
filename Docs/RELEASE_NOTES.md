@@ -9,6 +9,10 @@
 - Added the same atomic operation as `margin suggest add --items-file`, placed
   first in add help and parent suggestion help, while retaining `suggest batch`
   as a compatible alias.
+- Made `margin suggest add FILE` itself read the bare multi-item array from
+  standard input when no single-item selector flags are present. Agents that
+  start from focused add help can now remain on the same verb for one atomic
+  batch; single-item invocations remain unchanged.
 - Taught focused help, the progressive manual, machine-readable capabilities,
   and MarginBench about the batch path without adding background work or a new
   dependency. The ordinary `suggest add --help` page includes the complete

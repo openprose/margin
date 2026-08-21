@@ -71,6 +71,12 @@ PATH_VALUE_OPTIONS = frozenset({
     "--app", "--change-set-file", "--exclude", "--include", "--items-file", "--merged-body",
     "--message-file", "--operations-file", "--output", "--path", "--root",
 })
+SINGLE_SUGGESTION_OPTIONS = frozenset({
+    "--quote", "--prefix", "--suffix", "--occurrence", "--range", "--from",
+    "--to", "--expect", "--replacement", "-m", "--message", "--body",
+    "--message-file", "--stdin", "--id", "--contribution-id", "--audience",
+    "--path",
+})
 
 
 @dataclass(frozen=True)
@@ -456,10 +462,16 @@ def event_command_path(arguments: list[str]) -> str:
             if "--resolve" in _option_names(arguments)
             else "comments reply"
         )
-    if path == "suggest add" and "--items-file" in _option_names(arguments):
-        # Multi-item add is the ergonomic spelling of the same atomic batch
-        # operation. Telemetry scores semantics rather than public aliases.
-        return "suggest batch"
+    if path == "suggest add":
+        options = _option_names(arguments)
+        if (
+            "--items-file" in options
+            or "--batch-id" in options
+            or options.isdisjoint(SINGLE_SUGGESTION_OPTIONS)
+        ):
+            # Multi-item add is the ergonomic spelling of the same atomic batch
+            # operation. Telemetry scores semantics rather than public aliases.
+            return "suggest batch"
     return path
 
 

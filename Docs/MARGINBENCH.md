@@ -344,13 +344,23 @@ teaching and trusted their wait; the only split was atomic-batch adoption. The
 reports preserve fixed command categories and counts, never private arguments,
 document text, paths, identifiers, prompts, or tool results.
 
-The next candidate therefore shortens the operation rather than expanding its
-instructions. `margin suggest batch FILE` accepts the supplied item array
-unchanged on standard input; no schema wrapper or file/stdin flag is needed.
-This is a compatible front door to the existing bounded atomic engine, not a
-weaker write path. The old envelope and file form continue to work. Full free
-gates and counterbalanced process timings show no launch regression; real-model
-adoption remains a hypothesis until a fresh matched pair is admitted.
+The next candidate shortened the operation rather than expanding its
+instructions. `margin suggest batch FILE` accepted the supplied item array
+unchanged on standard input. One fresh private pair then showed a coherent but
+small gain: 97.5→98.333, 21→18 commands, 23→20 model calls, 44,394 fewer prompt
+tokens, 17.198 seconds less wall time, and $0.0058→$0.0044 trace-reported cost.
+Both arms stayed exact and safe. This is one matched case, not promotion
+evidence. Its content-free trace showed why adoption was incomplete: the author
+opened the workflow page and batched; the reviewer stayed on focused add help
+and made four individual writes.
+
+The current local candidate therefore removes that measured verb switch.
+`margin suggest add FILE` reads the bare item array from standard input when no
+single-item flags are present, while all existing one-item syntax and the batch
+alias remain unchanged. Full native, dual-Python, isolation, privacy, audit,
+reference, and signed-release gates pass. Counterbalanced process timings show
+no material startup movement. Real-model improvement remains a hypothesis until
+a wholly fresh matched pair tests whether both roles adopt the same atomic form.
 
 The latest CLI cycle is intentionally narrower than a release claim. Concrete
 reply, atomic reply-and-resolve, thread verification, durable handoff, and

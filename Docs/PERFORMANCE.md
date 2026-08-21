@@ -224,3 +224,24 @@ measured 5.339 / 5.972 ms versus 5.375 / 5.973 ms; and wait help measured 5.355
 / 6.031 ms versus 5.406 / 6.055 ms. These sub-0.1 ms differences are flat
 scheduler noise, not a speedup claim. The v62 release digest is
 `7c2df67830f9a99de5f764b2092f3876ae69198f7b64943e4370537e69a6c358`.
+
+### Same-verb suggestion batch follow-up
+
+The v73 candidate changes only the invoked suggestion dispatcher and static
+teaching. It adds no daemon, file scan, network work, or dependency. The
+stripped signed CLI remains **2,842,800 bytes**.
+
+A same-machine comparison used five warmups and 500 counterbalanced measured
+launches per arm and path. The baseline was the exact frozen v67 release binary.
+
+| Static path | v67 median | v73 median | Median delta | v67 p95 | v73 p95 |
+|---|---:|---:|---:|---:|---:|
+| Global help | 5.334 ms | 5.340 ms | +0.006 ms | 6.157 ms | 6.082 ms |
+| Suggestion-add help | 5.469 ms | 5.427 ms | -0.042 ms | 6.083 ms | 6.228 ms |
+| Suggestion-batch help | 5.425 ms | 5.403 ms | -0.022 ms | 5.981 ms | 6.006 ms |
+| Suggestion capabilities | 6.413 ms | 6.453 ms | +0.040 ms | 6.886 ms | 6.937 ms |
+
+These sub-0.15 ms movements are scheduler noise, not a speedup claim, and show
+no material startup regression. The suggestion projection is 20,536 bytes
+compact and 32,579 bytes pretty, within its 32 KiB contract. The measured v73
+digest is `6ef13fccb2dc8fdea4465d7d01e8a9e97c2d7fb5043903920073b3653ad72985`.

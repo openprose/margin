@@ -794,6 +794,67 @@ remains outstanding, and the full conservative first-call bound remains
 charged. Both supported Python environments pass 227 tests. No further paid
 request was made while implementing this hardening.
 
+v70 re-established the one-request provider contract after that hardening. The
+fresh probe completed with 17 prompt tokens, 181 completion tokens including
+175 reasoning tokens, no retry, no rejected request, no uncertainty, and no
+outstanding reservation. The account-wide wallet moved $0.0001. Its receipt
+digest was frozen into a wholly new private study rather than being reused to
+resume the censored attempt.
+
+v71 then produced the first complete v62-versus-v67 comparison. Both arms were
+exact, safe, source-preserving, and free of invalid commands. The bare-array
+candidate improved 97.5 to 98.333, reduced commands from 21 to 18 and model
+calls from 23 to 20, finished 17.198 seconds sooner, used 44,394 fewer prompt
+tokens, and reduced trace-reported cost from $0.0058 to $0.0044. This is one
+matched private case against a 20-pair promotion requirement, so it is useful
+mechanism evidence rather than a release or population claim.
+
+The content-free role trace explains the gain and its limit. The candidate
+author opened the suggestion workflow, passed all four supplied assignments to
+one atomic batch, waited once, and stopped after the required source read. The
+candidate reviewer opened only focused single-add and wait help, then issued
+four individual additions and rechecked after waiting. Thus both roles saw
+relevant teaching, but only the role that reached the parent workflow adopted
+the bare batch. More instruction is not the next experiment: the atomic form
+should instead become the lowest-friction interpretation of `suggest add`
+itself. The verified submission id is `sha256:042a1394…`; it publishes no raw
+trace, prompt, path, identifier, document content, or key. Both private-key
+copies were overwritten and deleted after verification.
+
+The run also exposed an operator-path bug. The first publication location
+overlapped the controller's private redacted-job directory, so completed jobs
+could not be finalized there. The controller correctly resumed without another
+model call when finalization moved to a sibling directory, but its error was too
+late and too generic. v72 now rejects any publication location that overlaps
+raw, redacted, or frozen inputs before it creates work state, reads the wallet,
+claims a paid start, or launches a child. A collision regression and the normal
+pause/resume/replay path both pass.
+
+v73 removes the remaining verb switch on the reviewer’s actual discovery path.
+When `margin suggest add FILE` receives no single-item selector flags, it now
+reads the supplied bare item array from standard input and uses the same bounded
+atomic engine as `suggest batch`. Any quote/range, replacement, message, stable
+item id, audience, or explicit target path continues to select the existing
+one-item form. Missing-target mistakes fail before stdin is read. The legacy
+batch spelling and saved/versioned input remain exact aliases, so this is a
+smaller front door rather than a new mutation protocol.
+
+The benchmark gateway records that no-flag add form as one semantic batch, and
+the model-free agent rehearsal now starts from the focused add page and stays on
+the add verb. Both its in-process and environment-server paths pass on the
+suggestion-contention case. The full gate passes 189 native tests, 228 tests in
+each supported Python runtime, the nine-scenario reference at 100, neutral
+production isolation, signed release, privacy checks, and retained-publication
+audits. The CLI is still 2,842,800 bytes. Suggestion capabilities are 20,536
+bytes compact and 32,579 pretty, under the 32 KiB contract.
+
+In 500 counterbalanced launches per arm and path against the frozen v67 binary,
+candidate-minus-baseline median deltas were +0.006 ms for global help, -0.042
+ms for add help, -0.022 ms for batch help, and +0.040 ms for suggestion
+capabilities. P95 deltas ranged from -0.075 to +0.145 ms. These are scheduler-
+scale movements and show no startup regression. The exact signed candidate
+digest is `6ef13fccb2dc8fdea4465d7d01e8a9e97c2d7fb5043903920073b3653ad72985`.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a

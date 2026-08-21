@@ -13,7 +13,11 @@ from marginbench.binary import resolve_margin_binary
 from marginbench.candidates import CandidateManifest
 from marginbench.controls import DEFAULT_CONTROL_PROFILE
 from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY
-from marginbench.prime_study import build_prime_study_plan, describe_censored_evidence
+from marginbench.prime_study import (
+    PrimeStudyError,
+    build_prime_study_plan,
+    describe_censored_evidence,
+)
 from marginbench.provenance import implementation_sha256
 from marginbench.runner import ReferenceDriver, run_episode
 from marginbench.scenarios import generate_episode
@@ -286,6 +290,30 @@ class PairedPrimeControllerTests(unittest.TestCase):
         self.assertEqual(len(cooldowns), 1)
         self.assertEqual(cooldowns[0][1], 90.0)
         self.assertTrue(cooldowns[0][0].name.endswith(".receipt.json"))
+
+    def test_controller_rejects_publication_overlapping_private_evidence_before_paid_work(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="marginbench-paired-publication-") as temporary:
+            root = Path(temporary)
+            arguments, plan = self._fixture(root)
+            arguments.publication_dir = arguments.work_dir / "redacted"
+
+            with self.assertRaisesRegex(
+                PrimeStudyError,
+                "Publication directory must not overlap",
+            ):
+                execute_study(
+                    arguments,
+                    plan,
+                    wallet_reader=lambda _: self.fail("must reject before wallet access"),
+                    child_runner=lambda *_args, **_kwargs: self.fail(
+                        "must reject before starting a child"
+                    ),
+                    start_claimer=lambda *_, **__: self.fail(
+                        "must reject before claiming a paid start"
+                    ),
+                )
+
+            self.assertFalse(arguments.work_dir.exists())
 
     def test_paired_plan_prices_provider_wrapper_tokens_without_expanding_sampling(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-paired-wrapper-budget-") as temporary:

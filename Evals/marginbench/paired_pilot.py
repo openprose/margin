@@ -292,6 +292,27 @@ def _safe_relative(root: Path, relative: str) -> Path:
     return resolved
 
 
+def _paths_overlap(left: Path, right: Path) -> bool:
+    """Return true when either resolved path contains the other."""
+    left = left.resolve()
+    right = right.resolve()
+    return left == right or left in right.parents or right in left.parents
+
+
+def _validate_publication_location(work: Path, publication: Path) -> None:
+    """Keep final publication replacement away from private controller state."""
+    reserved = (
+        work / "raw",
+        work / "redacted",
+        work / "frozen-inputs",
+    )
+    if any(_paths_overlap(publication, path) for path in reserved):
+        raise PrimeStudyError(
+            "Publication directory must not overlap the controller's private "
+            "raw, redacted, or frozen-input directories."
+        )
+
+
 def _job_paths(work: Path, job: dict[str, Any]) -> dict[str, Any]:
     stem = f"{job['ordinal']:04d}-{job['id'].split(':', 1)[1][:16]}"
     return {
@@ -686,6 +707,7 @@ def execute_study(
     prime_resolver: Callable[[str], str | None] = shutil.which,
 ) -> dict[str, Any]:
     work = arguments.work_dir
+    _validate_publication_location(work, arguments.publication_dir)
     if work.exists() and (not work.is_dir() or work.is_symlink()):
         raise PrimeStudyError("Work path must be a real directory.")
     if not work.exists():

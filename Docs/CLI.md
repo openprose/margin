@@ -137,7 +137,7 @@ printf '%s' '[
      "body":"Make the delivery guarantee explicit"},
     {"id":"UUID-2","exact":"best effort","replacement":"bounded retry",
      "body":"Name the actual recovery behavior"}
-]' | margin suggest batch architecture.md
+]' | margin suggest add architecture.md
 
 margin suggest add architecture.md \
   --quote "at least once" \
@@ -153,9 +153,10 @@ margin suggest accept architecture.md SUGGESTION_ID \
   --actor-type person --actor-name reviewer
 ```
 
-Use `suggest add --items-file` when one collaborator already has several exact
-assignments for one file. Margin validates every quoted passage first, then
-commits all 1 to 256 proposals in one document revision. One missing or changed
+Use bare standard input or `suggest add --items-file` when one collaborator
+already has several exact assignments for one file. Margin validates every
+quoted passage first, then commits all 1 to 256 proposals in one document
+revision. One missing or changed
 passage rejects the whole batch. Stable item IDs make exact replay safe, and
 literal Markdown is never changed by creation. `suggest batch` remains an exact
 alias. Use directory staging instead when one all-or-none decision spans files.

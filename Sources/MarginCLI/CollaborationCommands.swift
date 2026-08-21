@@ -25,6 +25,12 @@ enum CollaborationCLICommand: String, CaseIterable {
 enum CollaborationCLI {
     private static let maximumCommutativeAttempts = 32
     private static let maximumSuggestionBatchItems = 256
+    private static let singleSuggestionOptions: Set<String> = [
+        "--quote", "--prefix", "--suffix", "--occurrence", "--range",
+        "--from", "--to", "--expect", "--replacement", "-m", "--message",
+        "--body", "--message-file", "--stdin", "--id", "--contribution-id",
+        "--audience", "--path",
+    ]
     private static let rootResolver = CollaborationRootResolver()
     private static let cursorService = CollaborationCursorService()
     private static let contextService = CollaborationContextService()
@@ -792,7 +798,10 @@ enum CollaborationCLI {
         let subcommand = try cursor.require("suggest subcommand")
         switch subcommand {
         case "add":
-            if cursor.values.contains("--items-file") {
+            let optionNames = Set(cursor.values.filter { $0.hasPrefix("-") })
+            if optionNames.contains("--items-file")
+                || optionNames.contains("--batch-id")
+                || optionNames.isDisjoint(with: singleSuggestionOptions) {
                 try suggestBatch(&cursor)
             } else {
                 try suggestAdd(&cursor)
@@ -814,10 +823,14 @@ enum CollaborationCLI {
         let input = try cursor.takeValue("--items-file") ?? "-"
         let requestedBatchID = try cursor.takeValue("--batch-id").map(MarginID.annotation)
         let requestedRequestID = try cursor.takeValue("--request-id").map(MarginID.annotation)
+        let requestedStageID = try cursor.takeValue("--stage-id").map(MarginID.annotation)
         guard requestedBatchID == nil || requestedRequestID == nil else {
             throw CLIError.usage("Use --batch-id or --request-id, not both.")
         }
         let actor = try takeActor(cursor: &cursor)
+        let targetArgument = try cursor.require("Markdown file")
+        let target = try PathResolver.existingFile(targetArgument)
+        try cursor.rejectRemaining()
         let plan = try readSuggestionBatchPlan(input)
         guard plan.items.allSatisfy({ !$0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
             throw CLIError(
@@ -841,13 +854,8 @@ enum CollaborationCLI {
         let requestID = requestedRequestID ?? batchID
         let identities = RequestIdentities(
             requestID: requestID,
-            stageID: MarginID.annotation(
-                try cursor.takeValue("--stage-id") ?? "\(requestID)#stage"
-            )
+            stageID: requestedStageID ?? MarginID.annotation("\(requestID)#stage")
         )
-        let targetArgument = try cursor.require("Markdown file")
-        let target = try PathResolver.existingFile(targetArgument)
-        try cursor.rejectRemaining()
         let selection = try resolveMutationSelection(
             target: target,
             explicitRoot: explicitRoot,

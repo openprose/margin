@@ -194,7 +194,7 @@ class SuggestionContentionWaitDriver:
             "items": assignments,
         }, sort_keys=True, separators=(",", ":"))
         response = gateway.call(
-            ["suggest", "add", "review.md", "--items-file", "-"],
+            ["suggest", "add", "review.md"],
             stdin=plan,
         )
         if response.exit_code != 0:
@@ -273,6 +273,19 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(
             event_command_path(["suggest", "add", "review.md", "--items-file", "-"]),
             "suggest batch",
+        )
+        self.assertEqual(
+            event_command_path([
+                "suggest", "add", "review.md", "--actor-id", "urn:test:agent",
+            ]),
+            "suggest batch",
+        )
+        self.assertEqual(
+            event_command_path([
+                "suggest", "add", "review.md", "--quote", "exact",
+                "--replacement", "new", "-m", "why", "--id", "stable",
+            ]),
+            "suggest add",
         )
 
     def test_command_rendezvous_releases_participants_together_and_only_once(self) -> None:
@@ -3130,8 +3143,9 @@ class MarginBenchCoreTests(unittest.TestCase):
                 "content": json.dumps({
                     "exitCode": 0,
                     "stdout": (
-                        "run margin suggest batch FILE and send a bare JSON array "
-                        "through standard input; "
+                        "run margin suggest add FILE [--batch-id ID] and send a "
+                        "bare JSON array through standard input; "
+                        "margin suggest batch FILE is an exact alias; "
                         "margin suggest wait FILE ID..."
                     ),
                 }),
@@ -3139,7 +3153,7 @@ class MarginBenchCoreTests(unittest.TestCase):
             invocation = scripted_response(messages)
             self.assertEqual(
                 invocation["arguments"],
-                ["suggest", "batch", "review.md"],
+                ["suggest", "add", "review.md"],
             )
             batch = json.loads(invocation["stdin"])
             self.assertEqual(

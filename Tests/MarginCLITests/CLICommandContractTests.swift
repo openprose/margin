@@ -98,7 +98,8 @@ final class CLICommandContractTests: XCTestCase {
         )
         let suggestionGuidance = try XCTUnwrap(suggestionAdd.guidance)
         XCTAssertEqual(suggestionGuidance.count, 5)
-        XCTAssertTrue(suggestionGuidance[0].contains("margin suggest batch FILE"))
+        XCTAssertTrue(suggestionGuidance[0].contains("margin suggest add FILE"))
+        XCTAssertTrue(suggestionGuidance[0].contains("suggest batch is an exact alias"))
         XCTAssertTrue(suggestionGuidance[0].contains("standard input"))
         XCTAssertTrue(suggestionGuidance[0].contains("[{\"id\":\"UUID\""))
         XCTAssertTrue(suggestionGuidance[0].contains("\"exact\":\"old\""))
@@ -1265,6 +1266,12 @@ final class CLICommandContractTests: XCTestCase {
     func testSuggestionBatchIsAtomicReplaySafeAndSourcePreserving() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let missingTarget = runCapturing(
+            ["suggest", "add"],
+            standardInput: Data()
+        )
+        XCTAssertEqual(missingTarget.exit, CLIExit.usage.rawValue)
+
         let file = directory.appendingPathComponent("batch.md")
         let source = "Alpha remains.\n\nBeta remains.\n\nGamma remains.\n"
         try Data(source.utf8).write(to: file)
@@ -1327,7 +1334,7 @@ final class CLICommandContractTests: XCTestCase {
         )
         let standardInputResult = runCapturing(
             [
-                "suggest", "batch", standardInputFile.path,
+                "suggest", "add", standardInputFile.path,
                 "--actor-id", "urn:test:agent:standard-input",
                 "--actor-type", "software",
             ],
@@ -1488,7 +1495,8 @@ final class CLICommandContractTests: XCTestCase {
     func testSuggestionAndHandoffHelpExplainContentionSafety() throws {
         let parent = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest"]))
         XCTAssertTrue(parent.contains("Several exact assignments"))
-        XCTAssertTrue(parent.contains("margin suggest batch FILE"))
+        XCTAssertTrue(parent.contains("margin suggest add FILE"))
+        XCTAssertTrue(parent.contains("suggest batch is an exact alias"))
         XCTAssertTrue(parent.contains("standard input"))
         XCTAssertTrue(parent.contains("margin suggest wait FILE ID... --timeout 20"))
 
@@ -1498,10 +1506,10 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertTrue(add.contains("already-applied receipt is conclusive"))
         XCTAssertTrue(add.contains("--quote \"current text\" --expect \"current text\""))
         XCTAssertTrue(add.contains("EXACT-ASSIGNMENT FAST PATH"))
-        let batchUsage = try XCTUnwrap(add.range(of: "margin suggest batch FILE"))
+        let batchUsage = try XCTUnwrap(add.range(of: "margin suggest add FILE [--batch-id ID]"))
         let singleUsage = try XCTUnwrap(add.range(of: "margin suggest add TARGET (--quote"))
         XCTAssertLessThan(batchUsage.lowerBound, singleUsage.lowerBound)
-        XCTAssertTrue(add.contains("margin suggest batch FILE"))
+        XCTAssertTrue(add.contains("suggest batch is an exact alias"))
         XCTAssertTrue(add.contains("standard input"))
         XCTAssertTrue(add.contains("\"replacement\":\"new\""))
         XCTAssertTrue(add.contains("add directly"))
