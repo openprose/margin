@@ -2235,14 +2235,30 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             for group_size in group_sizes
         }
         expected_episode_count = len(expected_keys) * repetitions
-        if family_names != [
+        legacy_family_names = [
             "typed-add",
             "suggestion-add",
             "suggestion-reject",
             "suggestion-accept",
             "handoff-add",
-        ]:
+        ]
+        batch_family_names = [
+            "typed-add",
+            "suggestion-add",
+            "suggestion-batch",
+            "suggestion-reject",
+            "suggestion-accept",
+            "handoff-add",
+        ]
+        if tuple(family_names) not in {
+            tuple(legacy_family_names), tuple(batch_family_names),
+        }:
             errors.append("contention family catalog is inconsistent")
+        if family_names == batch_family_names:
+            if method.get("suggestionsPerBatch") != 4:
+                errors.append("contention suggestion batch size is inconsistent")
+        elif "suggestionsPerBatch" in method:
+            errors.append("legacy contention catalog unexpectedly declares a batch size")
         if group_sizes != sorted(set(group_sizes)):
             errors.append("contention group sizes are not unique and increasing")
         if payload["fixture"]["caseCountPerArm"] != len(expected_keys) * repetitions:
@@ -2341,6 +2357,7 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 if case["family"] in {
                     "typed-add",
                     "suggestion-add",
+                    "suggestion-batch",
                     "suggestion-reject",
                 }:
                     expected_case_completion = all(

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
 from marginbench.binary import resolve_margin_binary
 from marginbench.contention_matrix import (
     ContentionMatrixLimits,
+    _run_episode,
     run_contention_matrix,
 )
 from marginbench.schema import canonical_json
@@ -48,19 +50,21 @@ class ContentionMatrixTests(unittest.TestCase):
         )
         self.assertTrue(report["passed"])
         self.assertFalse(report["paidModelsInvoked"])
-        self.assertEqual(report["fixture"]["caseCountPerArm"], 5)
+        self.assertEqual(report["fixture"]["caseCountPerArm"], 6)
         self.assertEqual(
             report["fixture"]["caseSetSha256"],
-            "dd728214dc3da6fd20cec745eb8ef97425f8a8918bfa0e77aa0b3db8f2098206",
+            "21d2c6c0960ca4e294950ce8881f6ebafc6456044dd6044296d5360ea03669f9",
         )
+        self.assertEqual(report["method"]["suggestionsPerBatch"], 4)
         self.assertFalse(report["method"]["rawArgumentsRetained"])
         self.assertFalse(report["method"]["pathsBodiesAndIdentifiersRetained"])
         for arm in report["arms"].values():
             self.assertTrue(arm["passed"])
-            self.assertEqual(arm["episodeCount"], 5)
+            self.assertEqual(arm["episodeCount"], 6)
             cases = {item["family"]: item for item in arm["cases"]}
             self.assertEqual(cases["typed-add"]["finalSuccessCount"], 2)
             self.assertEqual(cases["suggestion-add"]["finalSuccessCount"], 2)
+            self.assertEqual(cases["suggestion-batch"]["finalSuccessCount"], 2)
             self.assertEqual(cases["suggestion-reject"]["finalSuccessCount"], 2)
             self.assertEqual(cases["suggestion-accept"]["finalSuccessCount"], 1)
             self.assertGreaterEqual(cases["handoff-add"]["finalSuccessCount"], 1)
@@ -88,6 +92,7 @@ class ContentionMatrixTests(unittest.TestCase):
         tampered_case["checks"]["completionPassed"] = False
         tampered_case["checks"]["noUnexpectedFailures"] = False
         tampered["fixture"]["caseSetSha256"] = "0" * 64
+        tampered["method"]["suggestionsPerBatch"] = 5
         tampered["passed"] = False
         receipt = validate_bytes(canonical_json(tampered))
         self.assertFalse(receipt["valid"])
@@ -97,7 +102,38 @@ class ContentionMatrixTests(unittest.TestCase):
         self.assertTrue(any("case completion flag" in error for error in receipt["errors"]))
         self.assertTrue(any("unexpected-failure flag" in error for error in receipt["errors"]))
         self.assertTrue(any("case digest" in error for error in receipt["errors"]))
+        self.assertTrue(any("batch size" in error for error in receipt["errors"]))
         self.assertTrue(any("pass flag" in error for error in receipt["errors"]))
+
+    def test_legacy_five_family_report_remains_valid(self) -> None:
+        legacy = (
+            ROOT / "Evals" / "marginbench" / "results" / "contention"
+            / "v45-model-free.json"
+        )
+        if not legacy.is_file():
+            self.skipTest("Retained legacy contention report unavailable")
+        receipt = validate_bytes(legacy.read_bytes())
+        self.assertTrue(receipt["valid"], receipt)
+
+    def test_atomic_batch_verification_exceeds_default_list_bound(self) -> None:
+        binary = available_binary()
+        if binary is None:
+            self.skipTest("Margin binary unavailable")
+        limits = ContentionMatrixLimits(repetitions=1, group_sizes=(17,))
+        with tempfile.TemporaryDirectory(prefix="marginbench-batch-bound-") as temporary:
+            measurement = _run_episode(
+                binary,
+                Path(temporary),
+                family="suggestion-batch",
+                repetition=0,
+                group_size=17,
+                limits=limits,
+            )
+        self.assertEqual(measurement.final_success_count, 17)
+        self.assertTrue(measurement.document_valid)
+        self.assertTrue(measurement.source_check_passed)
+        self.assertTrue(measurement.graph_integrity_passed)
+        self.assertTrue(measurement.completion_passed)
 
     def test_baseline_safety_is_required_even_when_completion_is_descriptive(self) -> None:
         binary = available_binary()

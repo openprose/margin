@@ -195,8 +195,8 @@ def main(argv: list[str] | None = None) -> int:
     contention_matrix = subparsers.add_parser(
         "contention-matrix",
         help=(
-            "compare operation-aware contention for typed work, suggestions, "
-            "decisions, and handoffs"
+            "compare operation-aware contention for typed work, individual and "
+            "batched suggestions, decisions, and handoffs"
         ),
     )
     contention_matrix.add_argument("--baseline-bin", required=True)

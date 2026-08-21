@@ -374,6 +374,13 @@ is now a specific measurable hypothesis rather than a generic efficiency label,
 but it is still only one observation. No receipt or help change is justified
 until the pattern repeats on matched cases.
 
+The free contention matrix now also matches that real workload rather than only
+testing one suggestion per writer. A capability-matched 2/4/8/16/32-writer run
+submitted 248 four-item batches per binary. Both batch-capable versions retained
+all 992 suggestions in one visible call per batch, with unchanged source, valid
+graphs, and no visible conflict. This guards the new fast path without turning a
+model-free stress result into an agent-performance claim.
+
 The latest CLI cycle is intentionally narrower than a release claim. Concrete
 reply, atomic reply-and-resolve, thread verification, durable handoff, and
 handoff-verification actions improved one counter-ordered Luna handoff case

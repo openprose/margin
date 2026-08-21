@@ -890,6 +890,25 @@ copy experiment. Both supported Python runtimes pass 229 tests. No private text,
 argument, path, identifier, or tool result entered the report, and no further
 model request was made.
 
+v76 extends the model-free contention matrix to the operation agents now use:
+four anchored suggestions submitted as one atomic batch. The family is an
+optional backward-compatible extension of the v1 report, records its batch size,
+uses the common explicit-stdin spelling, and verifies up to 256 suggestions so
+the 32-writer case cannot be mistaken for truncation at the normal 64-item UI
+default. A regression exercises 17 simultaneous batches—68 suggestions—above
+that default bound.
+
+The first large rehearsal found two benchmark problems rather than product
+problems. The installed public release predates atomic batches, so its unknown
+command was not a meaningful concurrency baseline. The verifier also initially
+listed only the default contribution window. After using the first batch-capable
+checkpoint and an explicit bounded verification read, the 240-episode matrix
+passed. Each arm completed 248 synchronized batches containing 992 suggestions,
+with zero visible conflicts, one visible mutation call per batch, unchanged
+logical Markdown, valid documents, and exact graphs. The candidate therefore has
+no measured atomic-batch concurrency regression. This was entirely local and
+model-free.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a

@@ -24,7 +24,7 @@
       "required": ["caseSetSha256", "caseCountPerArm"],
       "properties": {
         "caseSetSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "caseCountPerArm": {"type": "integer", "minimum": 5, "maximum": 4000}
+        "caseCountPerArm": {"type": "integer", "minimum": 5, "maximum": 4800}
       }
     },
     "method": {
@@ -46,7 +46,7 @@
         "families": {
           "type": "array",
           "minItems": 5,
-          "maxItems": 5,
+          "maxItems": 6,
           "uniqueItems": true,
           "items": {
             "type": "object",
@@ -57,6 +57,7 @@
                 "enum": [
                   "typed-add",
                   "suggestion-add",
+                  "suggestion-batch",
                   "suggestion-reject",
                   "suggestion-accept",
                   "handoff-add"
@@ -76,6 +77,7 @@
         },
         "repetitionsPerCase": {"type": "integer", "minimum": 1, "maximum": 100},
         "maximumRecoveryRounds": {"type": "integer", "minimum": 0, "maximum": 8},
+        "suggestionsPerBatch": {"type": "integer", "minimum": 2, "maximum": 256},
         "writerStartsSynchronized": {"const": true},
         "armOrderCounterbalanced": {"const": true},
         "baselineCompletionRequired": {"const": false},
@@ -96,7 +98,7 @@
     "comparison": {
       "type": "array",
       "minItems": 5,
-      "maxItems": 40,
+      "maxItems": 48,
       "items": {"$ref": "#/$defs/comparison"}
     }
   },
@@ -166,6 +168,7 @@
           "enum": [
             "typed-add",
             "suggestion-add",
+            "suggestion-batch",
             "suggestion-reject",
             "suggestion-accept",
             "handoff-add"
@@ -203,14 +206,14 @@
       ],
       "properties": {
         "binarySha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "episodeCount": {"type": "integer", "minimum": 5, "maximum": 4000},
+        "episodeCount": {"type": "integer", "minimum": 5, "maximum": 4800},
         "safetyPassed": {"type": "boolean"},
         "completionPassed": {"type": "boolean"},
         "passed": {"type": "boolean"},
         "cases": {
           "type": "array",
           "minItems": 5,
-          "maxItems": 40,
+          "maxItems": 48,
           "items": {"$ref": "#/$defs/case"}
         }
       }
@@ -234,6 +237,7 @@
           "enum": [
             "typed-add",
             "suggestion-add",
+            "suggestion-batch",
             "suggestion-reject",
             "suggestion-accept",
             "handoff-add"

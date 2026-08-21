@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import statistics
 import tempfile
@@ -29,10 +30,12 @@ VISIBLE_CONFLICTS = frozenset({
 FAMILIES = (
     "typed-add",
     "suggestion-add",
+    "suggestion-batch",
     "suggestion-reject",
     "suggestion-accept",
     "handoff-add",
 )
+SUGGESTIONS_PER_BATCH = 4
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,8 @@ class _WriterPlan:
     identifier: str
     gateway: MarginGateway
     arguments: list[str]
+    stdin: str | None = None
+    annotation_identifiers: tuple[str, ...] = ()
     anchor: str | None = None
     replacement: str | None = None
 
@@ -105,6 +110,11 @@ def _document(maximum_writers: int) -> str:
             f"Anchor {index:02d} retains original value {index:02d}.",
             "",
         ])
+        for item in range(SUGGESTIONS_PER_BATCH):
+            lines.extend([
+                f"Batch {index:02d} item {item:02d} retains its original value.",
+                "",
+            ])
     return "\n".join(lines)
 
 
@@ -170,7 +180,7 @@ def _simultaneous(plans: list[_WriterPlan]) -> list[GatewayResponse]:
 
     def execute(plan: _WriterPlan) -> GatewayResponse:
         barrier.wait()
-        return plan.gateway.call(plan.arguments)
+        return plan.gateway.call(plan.arguments, stdin=plan.stdin)
 
     with ThreadPoolExecutor(max_workers=len(plans)) as pool:
         futures = [pool.submit(execute, plan) for plan in plans]
@@ -180,7 +190,7 @@ def _simultaneous(plans: list[_WriterPlan]) -> list[GatewayResponse]:
 def _recovery_read(plan: _WriterPlan, family: str) -> GatewayResponse:
     if family == "typed-add":
         arguments = ["comments", "list", "review.md", "--status", "all"]
-    elif family == "suggestion-add":
+    elif family in {"suggestion-add", "suggestion-batch"}:
         arguments = ["read", "review.md", "--json"]
     elif family == "suggestion-reject":
         arguments = ["suggest", "list", "review.md"]
@@ -289,9 +299,9 @@ def _listed_comment_ids(gateway: MarginGateway) -> set[str]:
 
 
 def _listed_suggestions(gateway: MarginGateway) -> dict[str, dict[str, Any]]:
-    suggestions = _result(gateway.call(["suggest", "list", "review.md"])).get(
-        "suggestions"
-    )
+    suggestions = _result(gateway.call([
+        "suggest", "list", "review.md", "--max-contributions", "256",
+    ])).get("suggestions")
     if not isinstance(suggestions, list):
         raise RuntimeError("Margin suggestion list omitted its suggestion array.")
     return {
@@ -342,6 +352,50 @@ def _suggestion_plans(
     return plans
 
 
+def _suggestion_batch_plans(
+    binary: Path,
+    workspace: Path,
+    family: str,
+    repetition: int,
+    group_size: int,
+    policy: ToolPolicy,
+) -> list[_WriterPlan]:
+    plans: list[_WriterPlan] = []
+    for writer in range(group_size):
+        identifiers = tuple(
+            _identifier(family, repetition, writer, f"contribution-{item}")
+            for item in range(SUGGESTIONS_PER_BATCH)
+        )
+        items = []
+        for item, identifier in enumerate(identifiers):
+            anchor = f"Batch {writer:02d} item {item:02d} retains its original value."
+            items.append({
+                "id": identifier,
+                "exact": anchor,
+                "replacement": (
+                    f"Batch {writer:02d} item {item:02d} records its proposed value."
+                ),
+                "body": (
+                    f"Atomic batch {writer:02d} keeps item {item:02d} independently reviewable."
+                ),
+            })
+        batch_id = _identifier(family, repetition, writer, "batch")
+        plans.append(_WriterPlan(
+            index=writer,
+            identifier=batch_id,
+            gateway=_gateway(binary, workspace, family, repetition, writer, policy),
+            arguments=[
+                "suggest", "batch", "review.md", "--items-file", "-",
+                "--batch-id", batch_id,
+            ],
+            stdin=json.dumps(
+                items, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            ),
+            annotation_identifiers=identifiers,
+        ))
+    return plans
+
+
 def _prepare_suggestions(plans: list[_WriterPlan]) -> None:
     for plan in plans:
         response = plan.gateway.call(plan.arguments)
@@ -377,6 +431,10 @@ def _plans_for_family(
         ]
     if family == "suggestion-add":
         return _suggestion_plans(
+            binary, workspace, family, repetition, group_size, policy
+        )
+    if family == "suggestion-batch":
+        return _suggestion_batch_plans(
             binary, workspace, family, repetition, group_size, policy
         )
     if family in {"suggestion-reject", "suggestion-accept"}:
@@ -432,13 +490,20 @@ def _verify_episode(
     validation = _validation(gateway)
     document_valid = validation.get("valid") is True
     body = _read_body(gateway)
+
+    def annotation_ids(plan: _WriterPlan) -> tuple[str, ...]:
+        return plan.annotation_identifiers or (plan.identifier,)
+
     expected_ids = {
-        _annotation_id(plan.identifier) for plan in plans
+        _annotation_id(identifier)
+        for plan in plans
+        for identifier in annotation_ids(plan)
     }
     successful_ids = {
-        _annotation_id(plan.identifier)
+        _annotation_id(identifier)
         for plan in plans
         if plan.index in mutation.final_successes
+        for identifier in annotation_ids(plan)
     }
 
     if family == "typed-add":
@@ -448,7 +513,7 @@ def _verify_episode(
             and validation.get("annotationCount") == len(successful_ids)
         )
         completion = mutation.final_successes == frozenset(range(len(plans)))
-    elif family == "suggestion-add":
+    elif family in {"suggestion-add", "suggestion-batch"}:
         listed = _listed_suggestions(gateway)
         source_check = body == original_body
         graph_integrity = (
@@ -526,7 +591,9 @@ def _run_episode(
     )
     recovery_rounds = (
         limits.recovery_rounds
-        if family in {"typed-add", "suggestion-add", "suggestion-reject"}
+        if family in {
+            "typed-add", "suggestion-add", "suggestion-batch", "suggestion-reject",
+        }
         else 0
     )
     started = time.perf_counter_ns()
@@ -788,6 +855,11 @@ def run_contention_matrix(
                     "scriptedRecovery": "reread-source-and-retry-exact-proposal",
                 },
                 {
+                    "name": "suggestion-batch",
+                    "semanticClass": "commutative-atomic-anchored-proposal-batch",
+                    "scriptedRecovery": "reread-source-and-retry-exact-batch",
+                },
+                {
                     "name": "suggestion-reject",
                     "semanticClass": "commutative-independent-decision",
                     "scriptedRecovery": "reinspect-suggestion-and-retry-exact-decision",
@@ -806,6 +878,7 @@ def run_contention_matrix(
             "groupSizes": list(limits.group_sizes),
             "repetitionsPerCase": limits.repetitions,
             "maximumRecoveryRounds": limits.recovery_rounds,
+            "suggestionsPerBatch": SUGGESTIONS_PER_BATCH,
             "writerStartsSynchronized": True,
             "armOrderCounterbalanced": True,
             "baselineCompletionRequired": False,

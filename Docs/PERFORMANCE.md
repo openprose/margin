@@ -183,6 +183,17 @@ episodes across 2, 4, 8, 16, and 32 simultaneous actors. Its complete aggregate
 result, including end-to-end duration deltas, is retained at
 `Evals/marginbench/results/contention/v45-model-free.json`.
 
+A later backward-compatible extension adds the atomic workload that agents now
+use in suggestion contention. Across 248 simultaneous batch submissions per
+binary—992 suggestions each—the first batch-capable checkpoint and the current
+candidate both completed every four-item batch in one visible CLI call, with no
+visible conflict, source change, or graph error. The largest episode launched 32
+batches together and verified all 128 resulting suggestions through an explicit
+bounded read. The 240-episode six-family report is retained at
+`Evals/marginbench/results/contention/v76-batch-model-free.json`. This is
+model-free correctness and scaling evidence, not an agent-quality or latency
+speedup claim.
+
 ### Named-suggestion wait follow-up
 
 The named-suggestion convergence candidate adds no daemon, startup polling,
