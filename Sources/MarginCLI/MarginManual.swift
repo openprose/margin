@@ -418,7 +418,7 @@ enum MarginManual {
       root drift causes COLLABORATION_PRECONDITION_FAILED, nothing was written and
       Margin will not silently rebase that provenance. Use the error's
       recoveryTarget with:
-        margin context TARGET --json
+        margin context TARGET --json --brief
         margin handoff list TARGET
       Reconsider touched, unresolved, audience, and recipient fields. Intentionally
       rerun with the same stable id only when the handoff still means the same thing;

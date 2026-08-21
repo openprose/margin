@@ -439,7 +439,7 @@ def _actionable_handoff_conflict(result: dict[str, Any]) -> bool:
             details.get("operation") == "handoff.add"
             and details.get("handoffWritten") == "false"
             and details.get("automaticRetrySafe") == "false"
-            and details.get("recoveryCommand") == "margin context TARGET --json"
+            and details.get("recoveryCommand") == "margin context TARGET --json --brief"
             and details.get("reviewCommand") == "margin handoff list TARGET"
             and details.get("provenancePolicy") == "never-silently-rebase"
             and isinstance(details.get("recoveryTarget"), str)

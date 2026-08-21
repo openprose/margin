@@ -1438,7 +1438,7 @@ enum CollaborationCLI {
                 "operation": "handoff.add",
                 "handoffWritten": "false",
                 "automaticRetrySafe": "false",
-                "recoveryCommand": "margin context TARGET --json",
+                "recoveryCommand": "margin context TARGET --json --brief",
                 "reviewCommand": "margin handoff list TARGET",
                 "recoveryTarget": targetArgument,
                 "provenancePolicy": "never-silently-rebase",

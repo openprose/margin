@@ -235,7 +235,7 @@ final class CLICommandContractTests: XCTestCase {
         let handoffAdd = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["handoff", "add"]))
         XCTAssertTrue(handoffAdd.contains("--id, --contribution-id ID"))
         XCTAssertTrue(handoffAdd.contains("writes nothing"))
-        XCTAssertTrue(handoffAdd.contains("margin context TARGET --json"))
+        XCTAssertTrue(handoffAdd.contains("margin context TARGET --json --brief"))
         XCTAssertTrue(handoffAdd.contains("never silently rebases"))
         let handoffManual = try XCTUnwrap(MarginManual.page(for: "handoff"))
         XCTAssertTrue(handoffManual.contains("COLLABORATION_PRECONDITION_FAILED"))
@@ -2057,7 +2057,7 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertEqual(staleDetails["automaticRetrySafe"] as? String, "false")
         XCTAssertEqual(
             staleDetails["recoveryCommand"] as? String,
-            "margin context TARGET --json"
+            "margin context TARGET --json --brief"
         )
         XCTAssertEqual(
             staleDetails["reviewCommand"] as? String,
