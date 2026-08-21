@@ -93,7 +93,15 @@ final class CLICommandContractTests: XCTestCase {
             cliVersion: MarginCommand.version,
             workflow: .suggestions
         )
-        XCTAssertTrue(suggestions.commands.contains { $0.path == ["suggest", "add"] })
+        let suggestionAdd = try XCTUnwrap(
+            suggestions.commands.first { $0.path == ["suggest", "add"] }
+        )
+        let suggestionGuidance = try XCTUnwrap(suggestionAdd.guidance)
+        XCTAssertEqual(suggestionGuidance.count, 4)
+        XCTAssertTrue(suggestionGuidance[0].contains("add directly"))
+        XCTAssertTrue(suggestionGuidance[0].contains("validate the source atomically"))
+        XCTAssertTrue(suggestionGuidance[2].contains("suggest list FILE once"))
+        XCTAssertTrue(suggestionGuidance[2].contains("once after the batch"))
         XCTAssertFalse(suggestions.commands.contains { $0.path == ["merge"] })
 
         let staging = CLICommandCatalog.capabilitiesProjection(
@@ -1241,6 +1249,13 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertTrue(add.contains("source drift fails closed"))
         XCTAssertTrue(add.contains("matching success or already-applied is conclusive"))
         XCTAssertTrue(add.contains("--quote \"current text\" --expect \"current text\""))
+        XCTAssertTrue(add.contains("EXACT-ASSIGNMENT FAST PATH"))
+        XCTAssertTrue(add.contains("add directly"))
+        XCTAssertTrue(add.contains("validate the source atomically"))
+        XCTAssertTrue(add.contains("suggest list FILE once"))
+        XCTAssertTrue(add.contains("once after the batch"))
+        XCTAssertTrue(add.contains("Skip preliminary context, inspect, review, list, and read"))
+        XCTAssertFalse(add.contains("read FILE --json once and confirm every quoted passage"))
 
         let accept = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "accept"]))
         XCTAssertTrue(accept.contains("never silently rebased"))
@@ -1259,12 +1274,13 @@ final class CLICommandContractTests: XCTestCase {
         let discoveryPath = try XCTUnwrap(manual.range(of: "DISCOVER OR DECIDE WORK"))
 
         XCTAssertLessThan(exactPath.lowerBound, discoveryPath.lowerBound)
-        XCTAssertTrue(manual.contains("Read the file once"))
+        XCTAssertTrue(manual.contains("Add each independent suggestion directly"))
         XCTAssertTrue(manual.contains("--expect \"current text\""))
-        XCTAssertTrue(manual.contains("without rereading between them"))
+        XCTAssertTrue(manual.contains("validate the source in the same operation"))
         XCTAssertTrue(manual.contains("successful or already-applied matching receipt is conclusive"))
         XCTAssertTrue(manual.contains("After the batch, list once"))
-        XCTAssertTrue(manual.contains("Skip preliminary context, inspect, and list calls"))
+        XCTAssertTrue(manual.contains("read once after the"))
+        XCTAssertTrue(manual.contains("Skip preliminary context, inspect, review, list, and read calls"))
         XCTAssertTrue(manual.contains("margin context TARGET --json --brief"))
     }
 

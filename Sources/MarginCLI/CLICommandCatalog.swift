@@ -36,6 +36,7 @@ struct CLICommandContract: Encodable, Equatable {
     let availability: CLICommandAvailability
     let summary: String
     let usage: [String]
+    let guidance: [String]?
     let arguments: [CLIArgumentContract]
     let options: [CLIOptionContract]
     let output: CLIOutputContract
@@ -55,6 +56,7 @@ struct CLICapabilitiesEnvelope: Encodable {
         let maxCommands: Int
         let maxOptionsPerCommand: Int
         let maxUsageFormsPerCommand: Int
+        let maxGuidanceLinesPerCommand = 8
         let maxEncodedBytes: Int
     }
 
@@ -249,6 +251,7 @@ struct CLICapabilityBriefCommand: Encodable {
     let availability: CLICommandAvailability
     let summary: String
     let usage: [String]
+    let guidance: [String]?
     let sideEffects: String
     let outputSchema: String?
     let helpArgv: [String]
@@ -258,6 +261,7 @@ struct CLICapabilityBriefCommand: Encodable {
         availability = command.availability
         summary = command.summary
         usage = command.usage
+        guidance = command.guidance
         sideEffects = command.sideEffects
         outputSchema = command.output.schema
         helpArgv = command.path + ["--help"]
@@ -665,6 +669,12 @@ enum CLICommandCatalog {
         }
         sections += ["", "USAGE"]
         sections += command.usage.map { "  \($0)" }
+        if let guidance = command.guidance, !guidance.isEmpty {
+            sections += ["", "EXACT-ASSIGNMENT FAST PATH"]
+            sections += guidance.enumerated().map { index, line in
+                "  \(index + 1). \(line)"
+            }
+        }
         if !command.aliases.isEmpty {
             sections += ["", "ALIASES"]
             sections += command.aliases.map { "  \((["margin"] + $0).joined(separator: " "))" }
@@ -880,6 +890,12 @@ enum CLICommandCatalog {
                     "margin suggest add TARGET (--quote EXACT [--prefix P --suffix S] [--occurrence N] | --range START:END | --from LINE:COL --to LINE:COL) [--expect TEXT] --replacement TEXT -m MESSAGE [OPTIONS]",
                     "margin suggest add FILE --quote \"current text\" --expect \"current text\" --replacement \"proposed text\" -m \"Why\" --id UUID",
                 ],
+                guidance: [
+                    "When the task supplies exact file, quote, expected text, replacement, body, and id, add directly; --quote plus --expect validate the source atomically.",
+                    "Add each independent item with --quote, --expect, --replacement, -m, and a stable --id; a matching success or already-applied receipt is conclusive.",
+                    "After the batch, run margin suggest list FILE once; if literal-source verification is required, run margin read FILE --json once after the batch.",
+                    "Skip preliminary context, inspect, review, list, and read calls unless the assignment is incomplete, a command reports drift, or an external edit is known.",
+                ],
                 arguments: [target],
                 options: mutationTarget + [option("--quote", value: "EXACT", description: "Resolve a unique exact passage without coordinate arithmetic."), option("--prefix", value: "TEXT", description: "Text immediately before --quote for disambiguation."), option("--suffix", value: "TEXT", description: "Text immediately after --quote for disambiguation."), option("--occurrence", value: "N", description: "One-based duplicate quote occurrence."), option("--range", value: "START:END", description: "Half-open Unicode-scalar range."), option("--from", value: "LINE:COL", description: "One-based grapheme start; requires --to."), option("--to", value: "LINE:COL", description: "One-based grapheme end; requires --from."), option("--expect", value: "TEXT", description: "Optional exact-match precondition; derived from the resolved passage when omitted."), requiredOption("--replacement", value: "TEXT", description: "Replacement logical Markdown."), option("--id", "--contribution-id", value: "ID", description: "Stable contribution and retry identity."), option("--audience", value: "ACTOR_ID", repeatable: true, description: "Intended actor audience.")] + messageOptions + actorOptions + identities + presentation,
                 sideEffects: "mutates-file-metadata",
@@ -993,6 +1009,7 @@ enum CLICommandCatalog {
         availability: CLICommandAvailability = .available,
         summary: String,
         usage: [String],
+        guidance: [String] = [],
         arguments: [CLIArgumentContract] = [],
         options: [CLIOptionContract] = [],
         sideEffects: String = "none",
@@ -1005,6 +1022,7 @@ enum CLICommandCatalog {
             availability: availability,
             summary: summary,
             usage: usage,
+            guidance: guidance.isEmpty ? nil : guidance,
             arguments: arguments,
             options: options,
             output: output,

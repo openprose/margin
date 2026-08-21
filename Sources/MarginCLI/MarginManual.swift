@@ -292,20 +292,22 @@ enum MarginManual {
       Use this path when the task already supplies the file, exact current text,
       replacement, explanation, and stable id.
 
-      1. Read the file once and confirm every quoted passage:
-         margin read FILE --json
-      2. Add each independent suggestion without rereading between them:
+      1. Add each independent suggestion directly:
          margin suggest add FILE --quote "current text" \\
            --expect "current text" --replacement "proposed text" \\
            -m "Why this is better" --id UUID
-      3. A successful or already-applied matching receipt is conclusive. Do not
+         The quote and expected text validate the source in the same operation,
+         so a complete exact assignment needs no preliminary read or inspection.
+      2. A successful or already-applied matching receipt is conclusive. Do not
          replay that suggestion.
-      4. After the batch, list once to verify every stable id:
+      3. After the batch, list once to verify every stable id:
          margin suggest list FILE
+      4. If the task requires literal-source verification, read once after the
+         batch: margin read FILE --json
 
-      Skip preliminary context, inspect, and list calls when the exact assignment
-      is complete and the single source read confirms it. Those commands are for
-      discovering work, not for re-proving supplied coordinates.
+      Skip preliminary context, inspect, review, list, and read calls when the
+      exact assignment is complete. Use them to discover incomplete work, or
+      after a stale result or known external source edit.
 
     DISCOVER OR DECIDE WORK
       1. margin context TARGET --json --brief

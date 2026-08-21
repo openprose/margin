@@ -287,6 +287,33 @@ directly in focused command help: read once, add the independent batch, trust a
 matching success receipt, and list once; inspect or reread only after drift or
 an external change.
 
+That structured-help candidate did not reduce visible commands in its first
+matched pair. The v47 arm scored 97.778 with 20 commands, 22 model turns,
+58.632 seconds, and $0.0051; v48 scored 97.500 with 21 commands, 20 model turns,
+42.292 seconds, and $0.0044. Both remained exact, safe, and source-preserving.
+The candidate was materially faster and cheaper, but its one extra command made
+the benchmark score slightly worse. Total pair cost was $0.0095.
+
+The trace shape exposed a contradiction rather than model disobedience. The
+scenario asks each role to inspect the final list and reread the literal source,
+while v48 told each role to read once before writing. Every role therefore read
+twice. For a complete exact assignment, `--quote` plus `--expect` already checks
+the source inside the mutation and fails closed on drift. The correct fast path
+is no preliminary read: add the independent batch, list once, then perform the
+requested source read once after the batch. v49 corrects that guidance before
+buying another matched pair.
+
+The v48-to-v49 pair cost $0.0096. Both arms scored 97.500 with 21 commands and
+23 model turns; v49 finished 1.906 seconds faster but cost $0.0002 more. Both
+were exact, safe, and source-preserving, and both still performed four reads.
+The product guidance is now semantically correct, but the benchmark prompt
+contains a stronger generic instruction to “inspect the revision you act on.”
+Suggestion creation does not act on a revision: its supplied exact text is the
+source precondition. That global sentence biases every role toward an unrelated
+pre-mutation inspection and masks the task-specific fast path. Keep v49, then
+make the benchmark neutral: never invent a revision or source precondition, but
+do not require a revision read for commands that do not use one.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a
