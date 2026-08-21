@@ -234,6 +234,13 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertTrue(suggestionAdd.contains("--id, --contribution-id ID"))
         let handoffAdd = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["handoff", "add"]))
         XCTAssertTrue(handoffAdd.contains("--id, --contribution-id ID"))
+        XCTAssertTrue(handoffAdd.contains("writes nothing"))
+        XCTAssertTrue(handoffAdd.contains("margin context TARGET --json"))
+        XCTAssertTrue(handoffAdd.contains("never silently rebases"))
+        let handoffManual = try XCTUnwrap(MarginManual.page(for: "handoff"))
+        XCTAssertTrue(handoffManual.contains("COLLABORATION_PRECONDITION_FAILED"))
+        XCTAssertTrue(handoffManual.contains("nothing was written"))
+        XCTAssertTrue(handoffManual.contains("never place a stale handoff in an automatic retry loop"))
 
         let capabilities = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["capabilities"]))
         XCTAssertTrue(capabilities.contains("--for WORKFLOW"))
@@ -2040,7 +2047,24 @@ final class CLICommandContractTests: XCTestCase {
             "--if-revision", "0",
         ])
         XCTAssertEqual(staleGuard.exit, CLIExit.temporaryFailure.rawValue)
-        XCTAssertTrue(String(decoding: staleGuard.output, as: UTF8.self).contains("Expected annotation revision 0"))
+        let stalePayload = try jsonObject(staleGuard.output)
+        let staleError = try XCTUnwrap(stalePayload["error"] as? [String: Any])
+        XCTAssertTrue((staleError["message"] as? String)?.contains("Expected annotation revision 0") == true)
+        XCTAssertTrue((staleError["message"] as? String)?.contains("Nothing was written") == true)
+        let staleDetails = try XCTUnwrap(staleError["details"] as? [String: Any])
+        XCTAssertEqual(staleDetails["operation"] as? String, "handoff.add")
+        XCTAssertEqual(staleDetails["handoffWritten"] as? String, "false")
+        XCTAssertEqual(staleDetails["automaticRetrySafe"] as? String, "false")
+        XCTAssertEqual(
+            staleDetails["recoveryCommand"] as? String,
+            "margin context TARGET --json"
+        )
+        XCTAssertEqual(
+            staleDetails["reviewCommand"] as? String,
+            "margin handoff list TARGET"
+        )
+        XCTAssertEqual(staleDetails["recoveryTarget"] as? String, file.path)
+        XCTAssertEqual(staleDetails["provenancePolicy"] as? String, "never-silently-rebase")
         XCTAssertEqual(try EmbeddedCommentCodec().decode(Data(contentsOf: file)).envelope?.revision, 1)
         XCTAssertEqual(
             runSilently(handoffAdd + ["--kind", "comment"]),

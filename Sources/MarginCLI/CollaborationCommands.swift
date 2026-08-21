@@ -1337,9 +1337,12 @@ enum CollaborationCLI {
         let existing = try contributionPayload(in: loadedBase.document, id: contributionID)
         if existing == nil, let fileCursor = baseCursor[selection.path] {
             if let targetRevision, targetRevision != fileCursor.annotationRevision {
-                throw CollaborationError.preconditionFailed(
-                    path: selection.path,
-                    reason: "Expected annotation revision \(targetRevision), found \(fileCursor.annotationRevision)."
+                throw handoffPreconditionFailure(
+                    CollaborationError.preconditionFailed(
+                        path: selection.path,
+                        reason: "Expected annotation revision \(targetRevision), found \(fileCursor.annotationRevision)."
+                    ),
+                    targetArgument: targetArgument
                 )
             }
             if let targetContentSHA {
@@ -1347,9 +1350,12 @@ enum CollaborationCLI {
                     ? String(targetContentSHA.dropFirst(7))
                     : targetContentSHA
                 guard normalized == fileCursor.contentSha256 else {
-                    throw CollaborationError.preconditionFailed(
-                        path: selection.path,
-                        reason: "The logical Markdown digest no longer matches --if-content-sha."
+                    throw handoffPreconditionFailure(
+                        CollaborationError.preconditionFailed(
+                            path: selection.path,
+                            reason: "The logical Markdown digest no longer matches --if-content-sha."
+                        ),
+                        targetArgument: targetArgument
                     )
                 }
             }
@@ -1392,7 +1398,13 @@ enum CollaborationCLI {
                 CollaborationContributionOperation(contribution: contribution)
             )
         )
-        let receipt = try submit(changeSet)
+        let receipt: CollaborationTransactionReceipt
+        do {
+            receipt = try submit(changeSet)
+        } catch let error as CollaborationError {
+            guard case .preconditionFailed = error else { throw error }
+            throw handoffPreconditionFailure(error, targetArgument: targetArgument)
+        }
         try write(
             command: "handoff.add",
             root: selection.root,
@@ -1410,6 +1422,26 @@ enum CollaborationCLI {
                     command: "comments get",
                     arguments: [targetArgument, contributionID]
                 ),
+            ]
+        )
+    }
+
+    private static func handoffPreconditionFailure(
+        _ error: CollaborationError,
+        targetArgument: String
+    ) -> CLIError {
+        CLIError(
+            error.code,
+            "\(error.localizedDescription) Nothing was written. A handoff certifies its starting state, so Margin did not silently rebase it. Read current context and handoffs, reconsider the handoff meaning, then intentionally retry only if it is still accurate.",
+            exit: .temporaryFailure,
+            details: [
+                "operation": "handoff.add",
+                "handoffWritten": "false",
+                "automaticRetrySafe": "false",
+                "recoveryCommand": "margin context TARGET --json",
+                "reviewCommand": "margin handoff list TARGET",
+                "recoveryTarget": targetArgument,
+                "provenancePolicy": "never-silently-rebase",
             ]
         )
     }

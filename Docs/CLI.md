@@ -192,7 +192,13 @@ margin handoff add . --path architecture.md \
 
 Handoffs remain bound to the state the author actually observed. Margin does not
 hide a concurrent root change by silently refreshing that state; reread and
-reauthor the handoff so its provenance remains truthful.
+reauthor the handoff so its provenance remains truthful. A precondition failure
+now states that no handoff was written and returns structured fields:
+`automaticRetrySafe:false`, `recoveryTarget`, the recovery command
+`margin context TARGET --json`, and the review command
+`margin handoff list TARGET`. Reconsider touched and unresolved work, audience,
+and recipients before intentionally repeating the stable mutation ID. Do not put
+a provenance-sensitive handoff into a blind retry loop.
 
 ## Safe automation
 

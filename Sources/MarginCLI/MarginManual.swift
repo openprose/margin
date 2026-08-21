@@ -413,6 +413,17 @@ enum MarginManual {
     Do not say work is complete unless it was checked. Activity records describe
     past actions; they do not establish live presence.
 
+    CONFLICTS
+      A handoff certifies the root state from which it was authored. If concurrent
+      root drift causes COLLABORATION_PRECONDITION_FAILED, nothing was written and
+      Margin will not silently rebase that provenance. Use the error's
+      recoveryTarget with:
+        margin context TARGET --json
+        margin handoff list TARGET
+      Reconsider touched, unresolved, audience, and recipient fields. Intentionally
+      rerun with the same stable id only when the handoff still means the same thing;
+      never place a stale handoff in an automatic retry loop.
+
     Exact syntax: margin handoff COMMAND --help
     """
 
