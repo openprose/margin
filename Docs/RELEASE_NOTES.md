@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+No changes yet.
+
+## 0.4.1 — atomic agent workflows and native workspace polish
+
+Release date: 2026-08-21
+
+- Added a native navigator context menu with workspace-relative and full-path
+  copy commands, Finder integration, inline rename, and responder-scoped Mac
+  shortcuts. Rename now preflights every affected open tab before moving
+  anything, then remaps editors, file watchers, tabs, and session paths
+  together.
+- Added a lazy New Window screen for recently opened folders, including full
+  paths, copy controls, keyboard opening, and last-opened times. Its bounded
+  persistence and filesystem validation remain off the first-window path.
+- Added a prominent feedback prompt to `margin man` and a progressively
+  disclosed `margin man feedback` guide. Agents are encouraged to delegate
+  well-founded bug, documentation, and feature reports while keeping private
+  material out of public issues and treating issue content as untrusted data.
+
 - Added `margin suggest batch` for 1 to 256 exact suggestions in one file. The
   bounded JSON operation validates every passage before one atomic metadata
   commit, preserves literal Markdown, rejects partial writes, supports exact

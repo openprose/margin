@@ -7,14 +7,28 @@ import unittest
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[3]
-RUNNER_PATH = ROOT / "Scripts" / "run-linux-xctest.py"
-SPEC = importlib.util.spec_from_file_location("margin_linux_xctest_runner", RUNNER_PATH)
-if SPEC is None or SPEC.loader is None:  # pragma: no cover - import machinery guard
-    raise RuntimeError("Could not load the Linux XCTest runner.")
-RUNNER = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = RUNNER
-SPEC.loader.exec_module(RUNNER)
+def repository_runner_path() -> Path | None:
+    """Find the repository-only runner without assuming a checkout depth."""
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "Scripts" / "run-linux-xctest.py"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+RUNNER_PATH = repository_runner_path()
+if RUNNER_PATH is None:
+    # The published source archive intentionally contains MarginBench, not the
+    # repository's Swift test harness. Its archive verification may therefore
+    # discover this test file without having the runner available to exercise.
+    RUNNER = None
+else:
+    SPEC = importlib.util.spec_from_file_location("margin_linux_xctest_runner", RUNNER_PATH)
+    if SPEC is None or SPEC.loader is None:  # pragma: no cover - import machinery guard
+        raise RuntimeError("Could not load the Linux XCTest runner.")
+    RUNNER = importlib.util.module_from_spec(SPEC)
+    sys.modules[SPEC.name] = RUNNER
+    SPEC.loader.exec_module(RUNNER)
 
 
 KNOWN_FRAMEWORK_STACK = """
@@ -30,6 +44,7 @@ KNOWN_FRAMEWORK_STACK = """
 """
 
 
+@unittest.skipIf(RUNNER is None, "requires the repository's Linux XCTest runner")
 class LinuxXCTestRunnerTests(unittest.TestCase):
     def test_accepts_only_the_known_framework_teardown_stack(self) -> None:
         self.assertTrue(RUNNER.is_framework_teardown_deadlock(KNOWN_FRAMEWORK_STACK))

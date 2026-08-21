@@ -204,6 +204,26 @@ final class WorkspaceBehaviorTests: XCTestCase {
         XCTAssertNotNil(menuItem(named: "Go to Comment…"))
     }
 
+    func testProgrammaticWorkspaceAndPaletteClosureAvoidStaleAnimations() {
+        let workspace = WorkspaceWindowController(workspaceURL: nil)
+        let workspaceWindow = workspace.window
+        let palette = NavigationPaletteController(
+            title: "Test Palette",
+            placeholder: "Search",
+            emptyMessage: "No results"
+        )
+
+        XCTAssertEqual(
+            palette.window?.animationBehavior,
+            NSWindow.AnimationBehavior.none
+        )
+        workspace.close()
+        XCTAssertEqual(
+            workspaceWindow?.animationBehavior,
+            NSWindow.AnimationBehavior.none
+        )
+    }
+
     func testFileWatcherNeverBlocksTheInteractionThreadWhileOpening() {
         let openerFinished = expectation(description: "Slow descriptor open finished")
         let watcher = FileSystemWatcher(

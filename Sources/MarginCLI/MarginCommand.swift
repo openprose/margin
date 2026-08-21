@@ -8,7 +8,7 @@ import Glibc
 #endif
 
 enum MarginCommand {
-    static let version = "0.4.0"
+    static let version = "0.4.1"
     static let service = CommentService()
     static let reviewService = ReviewService()
     static let codec = EmbeddedCommentCodec()

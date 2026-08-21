@@ -392,6 +392,14 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         }
     }
 
+    override func close() {
+        // A programmatic controller teardown must not leave AppKit retaining a
+        // transform animation after the controller hierarchy has gone away.
+        // Interactive window closes still use the normal document-window path.
+        window?.animationBehavior = .none
+        super.close()
+    }
+
     @objc func showCommandPalette(_ sender: Any?) {
         guard let window else { return }
         navigationPaletteController?.close()

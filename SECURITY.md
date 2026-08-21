@@ -2,8 +2,8 @@
 
 ## Supported versions
 
-Security fixes are made against the latest released version of Margin. Until
-the first public release, `main` is the only supported source state.
+Security fixes are made against the latest released version of Margin and the
+current `main` branch.
 
 ## Reporting a vulnerability
 
@@ -32,7 +32,7 @@ caller. MarginBench has additional isolation and spend-control machinery, but
 those controls do not turn arbitrary model or provider output into trusted
 input.
 
-The first public macOS release is not Developer ID signed or notarized. Verify
+The current macOS release is not Developer ID signed or notarized. Verify
 release checksums and follow the bounded first-open instructions in
 [`Docs/INSTALLATION.md`](Docs/INSTALLATION.md). Never disable Gatekeeper
 globally to install Margin.

@@ -108,11 +108,20 @@ final class RecentWorkspaceStartTests: XCTestCase {
         controller.window?.makeKeyAndOrderFront(nil)
 
         waitUntil {
-            let text = self.descendantText(in: controller.window?.contentView)
-            return text.contains("RECENT FOLDERS")
-                && text.contains(directory.lastPathComponent)
-                && text.contains(directory.path)
+            self.recentFoldersTable(in: controller.window?.contentView)?.numberOfRows == 1
         }
+        let text = descendantText(in: controller.window?.contentView)
+        XCTAssertTrue(text.contains("RECENT FOLDERS"))
+        let tableView = try XCTUnwrap(
+            recentFoldersTable(in: controller.window?.contentView)
+        )
+        XCTAssertEqual(tableView.numberOfRows, 1)
+        let rowView = try XCTUnwrap(
+            tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+        )
+        let rowText = descendantText(in: rowView)
+        XCTAssertTrue(rowText.contains(directory.lastPathComponent))
+        XCTAssertTrue(rowText.contains(directory.path))
     }
 
     func testRecentFolderRowsOpenWithReturnAndExposeKeyboardReachableCopyControl() throws {
@@ -171,11 +180,12 @@ final class RecentWorkspaceStartTests: XCTestCase {
         controller.window?.makeKeyAndOrderFront(nil)
 
         waitUntil {
-            self.descendant(of: NSTableView.self, in: controller.window?.contentView)?.numberOfRows == 1
+            self.recentFoldersTable(in: controller.window?.contentView)?.numberOfRows == 1
         }
         let tableView = try XCTUnwrap(
-            descendant(of: NSTableView.self, in: try XCTUnwrap(controller.window?.contentView))
+            recentFoldersTable(in: try XCTUnwrap(controller.window?.contentView))
         )
+        XCTAssertEqual(tableView.numberOfRows, 1)
         try FileManager.default.removeItem(at: directory)
 
         tableView.keyDown(with: try makeReturnKeyEvent())
@@ -238,6 +248,15 @@ final class RecentWorkspaceStartTests: XCTestCase {
     private func descendant<T: NSView>(of type: T.Type, in view: NSView?) -> T? {
         guard let view else { return nil }
         return descendant(of: type, in: view)
+    }
+
+    private func recentFoldersTable(in view: NSView?) -> NSTableView? {
+        guard let view else { return nil }
+        if let tableView = view as? NSTableView,
+           tableView.accessibilityLabel() == "Recently opened folders" {
+            return tableView
+        }
+        return view.subviews.lazy.compactMap(recentFoldersTable).first
     }
 
     private func descendantButtons(in view: NSView) -> [NSButton] {

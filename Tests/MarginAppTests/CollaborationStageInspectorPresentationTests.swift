@@ -342,6 +342,12 @@ final class CollaborationStageInspectorPresentationTests: XCTestCase {
             try store.load(stageID: refreshed.stageID, root: initialized.root),
             refreshed
         )
+        waitUntil {
+            self.button(named: "Done", in: controller.window?.sheets.first?.contentView) != nil
+        }
+        button(named: "Done", in: controller.window?.sheets.first?.contentView)?
+            .performClick(nil)
+        waitUntil { controller.window?.sheets.isEmpty == true }
     }
 
     func testDetailedPaletteRowWrapsAndKeepsCompleteAccessibilityAtNarrowWidth() throws {

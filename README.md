@@ -15,7 +15,7 @@ Margin keeps Markdown literal and portable. It adds a calm reading mode, precise
 
 Margin has no built-in account, sync service, server, database, daemon, WebView, plug-in runtime, or model dependency. Your files can still be stored and synchronized anywhere you choose.
 
-## Install Margin 0.4.0
+## Install Margin 0.4.1
 
 Download the artifacts from [GitHub Releases](https://github.com/openprose/margin/releases).
 
@@ -28,7 +28,7 @@ The unified Apple-silicon package installs:
 
 Margin currently supports Apple-silicon Macs running macOS 13 or newer.
 
-The first public package is ad-hoc signed at the app and executable level, but the installer itself is unsigned. It is **not** signed with an Apple Developer ID or notarized, so macOS will show Gatekeeper warnings. See [Installation](Docs/INSTALLATION.md) for the safe first-open procedure; you do not need to disable Gatekeeper globally.
+The current package is ad-hoc signed at the app and executable level, but the installer itself is unsigned. It is **not** signed with an Apple Developer ID or notarized, so macOS will show Gatekeeper warnings. See [Installation](Docs/INSTALLATION.md) for the safe first-open procedure; you do not need to disable Gatekeeper globally.
 
 Once installed:
 
@@ -142,7 +142,7 @@ MarginBench is not needed to install or use Margin. It evaluates exact protocol 
 
 ## Scope
 
-Margin 0.4.0 is deliberately local and file-native. It does not provide hosted sync, accounts, general rich text, plug-ins, or built-in model features. Durable activity records what collaborators did; it does not infer that someone is online.
+Margin 0.4.1 is deliberately local and file-native. It does not provide hosted sync, accounts, general rich text, plug-ins, or built-in model features. Durable activity records what collaborators did; it does not infer that someone is online.
 
 Current platform support:
 

@@ -132,29 +132,17 @@ final class FileNavigatorCommandTests: XCTestCase {
 
         let outlineView = controller.outlineViewForTesting
         waitUntil { outlineView.selectedRow >= 0 }
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 260),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentViewController = controller
-        window.makeKeyAndOrderFront(nil)
-        defer { window.close() }
-        XCTAssertTrue(window.makeFirstResponder(outlineView))
-
-        AppMenu.install(for: NSApplication.shared, delegate: AppDelegate())
         let pasteboard = NSPasteboard(name: .init("margin.navigator.responder.\(UUID().uuidString)"))
         controller.commandPasteboard = pasteboard
         defer { pasteboard.releaseGlobally() }
         let copyRelative = #selector(FileTreeViewController.copyNavigatorPath(_:))
         XCTAssertTrue(outlineView.responds(to: copyRelative))
-        XCTAssertTrue(window.firstResponder?.tryToPerform(copyRelative, with: nil) == true)
+        XCTAssertTrue(outlineView.tryToPerform(copyRelative, with: nil))
         XCTAssertEqual(pasteboard.string(forType: .string), "notes/review.md")
 
         let copyFull = #selector(FileTreeViewController.copyNavigatorFullPath(_:))
         XCTAssertTrue(outlineView.responds(to: copyFull))
-        XCTAssertTrue(window.firstResponder?.tryToPerform(copyFull, with: nil) == true)
+        XCTAssertTrue(outlineView.tryToPerform(copyFull, with: nil))
         XCTAssertEqual(pasteboard.string(forType: .string), fixture.file.path)
     }
 

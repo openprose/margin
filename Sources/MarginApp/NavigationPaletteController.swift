@@ -65,7 +65,11 @@ final class NavigationPaletteController: NSWindowController,
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = true
         panel.level = .floating
-        panel.animationBehavior = .utilityWindow
+        // Palettes can replace one another synchronously. A transform animation
+        // may otherwise outlive the closing controller and leave AppKit holding
+        // a stale animation object. Instant presentation is also the more tactile
+        // behavior for a keyboard-driven palette.
+        panel.animationBehavior = .none
         panel.setAccessibilityLabel(title)
 
         super.init(window: panel)

@@ -206,7 +206,7 @@ jobs:
             test "$(gh release view "$TAG" --repo "$GH_REPO" --json isDraft --jq .isDraft)" = true
             gh release upload "$TAG" "${assets[@]}" --repo "$GH_REPO" --clobber
           else
-            notes="The macOS app is ad-hoc signed and the installer is unsigned for this first public release. macOS will require explicit approval in System Settings. Developer ID signing and notarization are planned."
+            notes="The macOS app is ad-hoc signed and the installer is unsigned for this release. macOS will require explicit approval in System Settings. Developer ID signing and notarization are planned."
             gh release create "$TAG" "${assets[@]}" \
               --repo "$GH_REPO" \
               --draft \
