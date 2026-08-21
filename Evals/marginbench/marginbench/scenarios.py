@@ -25,6 +25,7 @@ SCENARIO_IDS = (
 # fixtures, reference path, and paid evidence are stable. Keeping them opt-in
 # preserves the historical nine-scenario default and its published scores.
 EXPERIMENTAL_SCENARIO_IDS = (
+    "suggestion_contention",
     "wide_directory_triage",
 )
 AVAILABLE_SCENARIO_IDS = SCENARIO_IDS + EXPERIMENTAL_SCENARIO_IDS
@@ -384,6 +385,96 @@ under stale source. Verify that only the accepted replacement changed the Markdo
                 {"id": first_id, "body": first_body, "exact": target, "replacement": first_replacement},
                 {"id": second_id, "body": second_body, "exact": second_target, "replacement": second_replacement},
             ]
+        }
+
+    elif scenario_id == "suggestion_contention":
+        suggestions: list[dict[str, str]] = []
+        lane_lines: list[str] = []
+        for index in range(8):
+            token = random.bytes(6).hex()
+            exact = f"Proposal lane {index + 1}: {token}"
+            replacement = f"Revised lane {index + 1}: {random.bytes(6).hex()}"
+            lane_lines.append(f"- {exact}")
+            suggestions.append({
+                "id": random.uuid(),
+                "body": _message(random, f"Concurrent suggestion {index + 1}"),
+                "exact": exact,
+                "replacement": replacement,
+            })
+        primary = primary + "\n## Concurrent suggestion lanes\n\n" + "\n".join(lane_lines) + "\n"
+        files = {"review.md": primary}
+        oracle = _base_oracle(files)
+        assignments = {
+            author.id: suggestions[:4],
+            reviewer.id: suggestions[4:],
+        }
+        all_ids = [item["id"] for item in suggestions]
+        for seat, actor in (("author", author), ("reviewer", reviewer)):
+            assignment_json = json.dumps(
+                assignments[actor.id],
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            ids_json = json.dumps(all_ids, separators=(",", ":"))
+            roles.append(RoleTask(
+                seat=seat,
+                actor=actor,
+                phase=0,
+                workflow="suggestion-contention",
+                prompt=f"""{SYSTEM_RULES}
+
+You and one peer are simultaneously proposing independent changes to the same Markdown file.
+Add exactly the four suggestions below to review.md. For every item, use its exact `exact` value
+as both the quote and expected text, its exact replacement, body, and stable id. Do not accept or
+reject any suggestion. If a concurrent metadata write is reported as stale, reread the suggestion
+state and retry the same operation with the same id; never duplicate or change an assignment.
+
+Your exact assignment JSON:
+{assignment_json}
+
+Together, both collaborators must leave exactly these eight suggestion ids:
+{ids_json}
+
+After your four writes, inspect the durable suggestion list and reread review.md. Verify that all
+eight proposals coexist while the literal Markdown source remains unchanged.""",
+            ))
+        oracle["annotations"] = [
+            _annotation(
+                item["id"],
+                "review.md",
+                item["body"],
+                actor,
+                kind="suggestion",
+                status=None,
+                root_id=item["id"],
+                properties=[
+                    {"path": ["margin:suggestion", "status"], "equals": "proposed"},
+                    {"path": ["margin:suggestion", "expectedText"], "equals": item["exact"]},
+                    {"path": ["margin:suggestion", "replacementText"], "equals": item["replacement"]},
+                ],
+            )
+            for actor in (author, reviewer)
+            for item in assignments[actor.id]
+        ]
+        oracle["minimumAnnotations"] = 8
+        oracle["efficientCommandTarget"] = 12
+        oracle["maxCommands"] = 48
+        oracle["requiredCommandGroups"] = [
+            ["suggest add"], ["suggest list"], ["read", "inspect"],
+        ]
+        oracle["allowedErrorCodes"] = [
+            "COLLABORATION_PRECONDITION_FAILED", "REVISION_CONFLICT",
+        ]
+        oracle["commandRendezvous"] = {
+            "command": "suggest add",
+            "target": "review.md",
+            "participantCount": 2,
+            "coordinatorRole": "author",
+        }
+        oracle["reference"] = {
+            "assignments": assignments,
+            "allIDs": all_ids,
         }
 
     elif scenario_id == "staged_multifile":

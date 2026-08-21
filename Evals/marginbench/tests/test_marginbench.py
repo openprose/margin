@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
@@ -43,6 +44,7 @@ from marginbench.fake_model import scripted_response
 from marginbench.gateway import (
     BOOLEAN_OPTIONS,
     VALUE_OPTIONS,
+    CommandRendezvous,
     MarginGateway,
     _error_code,
     event_command_path,
@@ -192,6 +194,47 @@ class MarginBenchCoreTests(unittest.TestCase):
             ]),
             "comments reply --resolve",
         )
+
+    def test_help_is_never_counted_as_the_command_it_documents(self) -> None:
+        self.assertEqual(event_command_path(["--help"]), "help")
+        self.assertEqual(event_command_path(["man", "suggestions"]), "man suggestions")
+        self.assertEqual(
+            event_command_path(["suggest", "add", "--help"]),
+            "help suggest add",
+        )
+
+    def test_command_rendezvous_releases_participants_together_and_only_once(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="marginbench-rendezvous-") as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            state = root / "state"
+            workspace.mkdir()
+            (workspace / "review.md").write_text("# Review\n", encoding="utf-8")
+            rendezvous = CommandRendezvous(
+                directory=root / "control",
+                command="suggest add",
+                target="review.md",
+                participant_count=2,
+                launch_delay_seconds=0.02,
+                lock_hold_seconds=0.05,
+                timeout_seconds=2,
+            )
+
+            started = time.perf_counter()
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [
+                    pool.submit(rendezvous.wait, role, workspace, state)
+                    for role in ("author", "reviewer")
+                ]
+                for future in futures:
+                    future.result()
+            elapsed = time.perf_counter() - started
+            self.assertGreaterEqual(elapsed, 0.015)
+            self.assertLess(elapsed, 1)
+
+            replay_started = time.perf_counter()
+            rendezvous.wait("author", workspace, state)
+            self.assertLess(time.perf_counter() - replay_started, 0.02)
 
     def test_refresh_submit_shortcut_receives_refresh_and_submission_credit(self) -> None:
         semantic_path = event_command_path([
@@ -2392,6 +2435,70 @@ class MarginBenchCoreTests(unittest.TestCase):
             )
         self.assertTrue(wrong_order.checks["all_expected_annotations"])
         self.assertFalse(wrong_order.checks["avoided_redundant_initial_reads"])
+
+    def test_suggestion_contention_is_opt_in_exact_and_reference_solvable(self) -> None:
+        self.assertNotIn("suggestion_contention", SCENARIO_IDS)
+        self.assertIn("suggestion_contention", EXPERIMENTAL_SCENARIO_IDS)
+        self.assertIn("suggestion_contention", AVAILABLE_SCENARIO_IDS)
+        episode = generate_episode("suggestion_contention", KEY, 0)
+        repeated = generate_episode("suggestion_contention", KEY, 0)
+        self.assertEqual(episode.fingerprint, repeated.fingerprint)
+        self.assertEqual(episode.files, repeated.files)
+        self.assertEqual(episode.oracle, repeated.oracle)
+        self.assertEqual(len(episode.roles), 2)
+        self.assertEqual({role.phase for role in episode.roles}, {0})
+        self.assertEqual(len(episode.oracle["annotations"]), 8)
+        self.assertEqual(
+            {item["creatorID"] for item in episode.oracle["annotations"]},
+            {role.actor.id for role in episode.roles},
+        )
+        plan = build_study_plan(
+            baseline="contention-baseline",
+            candidate="contention-candidate",
+            scenarios=["suggestion_contention"],
+            repetitions=1,
+            key=KEY,
+            development_cases=True,
+        )
+        self.assertEqual(plan["scenarioIDs"], ["suggestion_contention"])
+        self.assertEqual(plan["totalAgentProcesses"], 4)
+
+        for role in episode.roles:
+            messages = [{"role": "user", "content": role.prompt}]
+            for index in range(4):
+                invocation = scripted_response(messages)
+                self.assertEqual(invocation["arguments"][:2], ["suggest", "add"])
+                self.assertEqual(invocation["arguments"][-2:], ["--id", episode.oracle["reference"]["assignments"][role.actor.id][index]["id"]])
+                messages.append({
+                    "role": "tool",
+                    "content": json.dumps({"exitCode": 0, "stdout": "{}"}),
+                })
+            self.assertEqual(
+                scripted_response(messages)["arguments"],
+                ["suggest", "list", "review.md", "--json"],
+            )
+            messages.append({
+                "role": "tool",
+                "content": json.dumps({"exitCode": 0, "stdout": "{}"}),
+            })
+            self.assertEqual(
+                scripted_response(messages)["arguments"],
+                ["read", "review.md", "--json"],
+            )
+
+        with tempfile.TemporaryDirectory(prefix="marginbench-suggestion-contention-") as temporary:
+            result = run_episode(
+                episode,
+                self.binary,
+                Path(temporary) / "workspace",
+                ReferenceDriver(),
+            )
+        self.assertEqual(result.score, 100.0)
+        self.assertTrue(result.safety_passed)
+        self.assertTrue(result.source_preserved)
+        self.assertTrue(all(result.checks.values()))
+        self.assertEqual(result.command_count, 12)
+        self.assertEqual(result.invalid_command_count, 0)
 
     def test_redundant_initial_directory_reads_are_diagnosed_without_changing_outcomes(self) -> None:
         episode = generate_episode("directory_handoff", KEY, 41)

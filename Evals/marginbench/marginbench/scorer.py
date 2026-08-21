@@ -188,7 +188,11 @@ def _avoided_redundant_initial_reads(events: tuple[CommandEvent, ...]) -> bool:
         observed: set[str] = set()
         for event in (item for item in events if item.role == role):
             command = event.command
-            is_discovery = command in INITIAL_DISCOVERY_COMMANDS or command.startswith("man ")
+            is_discovery = (
+                command in INITIAL_DISCOVERY_COMMANDS
+                or command.startswith("help ")
+                or command.startswith("man ")
+            )
             if not is_discovery:
                 break
             if event.exit_code == 0 and command in {"context", "inbox"}:
@@ -206,7 +210,11 @@ def _used_expected_context_then_inbox(events: tuple[CommandEvent, ...]) -> bool:
         discovery: list[str] = []
         for event in (item for item in events if item.role == role):
             command = event.command
-            is_discovery = command in INITIAL_DISCOVERY_COMMANDS or command.startswith("man ")
+            is_discovery = (
+                command in INITIAL_DISCOVERY_COMMANDS
+                or command.startswith("help ")
+                or command.startswith("man ")
+            )
             if not is_discovery:
                 break
             if event.exit_code == 0:

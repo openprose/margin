@@ -195,6 +195,19 @@ brief inbox, one exact reply-and-resolve write, and verification in a
 `marginbench reference --scenario wide_directory_triage`; stable nine-family
 studies remain unchanged.
 
+`suggestion_contention` is also opt-in. Two agents independently author four
+exact suggestions each against one shared document. A benchmark-only
+rendezvous briefly holds Margin's ordinary document lock when their first real
+`suggest add` calls arrive, so both CLI processes evaluate the same initial
+state before either transaction may commit. This removes provider-timing and
+scheduler luck from the stale-metadata test without fabricating a CLI response
+or bypassing Margin's normal validation and write path. The old candidate must
+surface and recover from the forced collision; a candidate with safe internal
+metadata retries should keep the collision invisible. Both must preserve the
+literal Markdown, all eight identities, bodies, anchors, replacements, and
+actor attribution. Focused `--help` calls are recorded as help, never as the
+mutation they document.
+
 The plain control has one Prime-served tool named `workspace`.
 It discloses `guide`, `list`, `read`, and compare-and-swap `write` progressively,
 uses a private locked cross-process event record, and has passed one complete

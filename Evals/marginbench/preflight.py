@@ -25,7 +25,7 @@ from marginbench.controls import (  # noqa: E402
 )
 from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY  # noqa: E402
 from marginbench.keys import read_holdout_key  # noqa: E402
-from marginbench.scenarios import SCENARIO_IDS, generate_episode  # noqa: E402
+from marginbench.scenarios import AVAILABLE_SCENARIO_IDS, SCENARIO_IDS, generate_episode  # noqa: E402
 
 
 def _find_scores(value) -> list[float]:
@@ -44,14 +44,18 @@ def _find_scores(value) -> list[float]:
     return scores
 
 
-def _expected_trace_count(control_profile: str, generation_key: bytes) -> int:
+def _expected_trace_count(
+    control_profile: str,
+    generation_key: bytes,
+    scenarios: tuple[str, ...] = SCENARIO_IDS,
+) -> int:
     """Count model traces, which need not equal benchmark episodes."""
     return sum(
         planned_topology(
             control_profile,
             [role.seat for role in generate_episode(scenario, generation_key, 0).roles],
         )["agentProcessCount"]
-        for scenario in SCENARIO_IDS
+        for scenario in scenarios
     )
 
 
@@ -74,6 +78,12 @@ def main() -> int:
     parser.add_argument("--holdout-key-file", type=Path)
     parser.add_argument("--control-profile", default=DEFAULT_CONTROL_PROFILE)
     parser.add_argument(
+        "--scenario",
+        action="append",
+        choices=AVAILABLE_SCENARIO_IDS,
+        help="scenario to rehearse; repeat to override the frozen nine-scenario default",
+    )
+    parser.add_argument(
         "--server",
         action="store_true",
         help="exercise Prime's out-of-process environment-server wire path",
@@ -87,6 +97,9 @@ def main() -> int:
     arguments = parser.parse_args()
     if arguments.timeout_seconds <= 0:
         raise SystemExit("--timeout-seconds must be positive.")
+    scenarios = tuple(arguments.scenario or SCENARIO_IDS)
+    if len(scenarios) != len(set(scenarios)):
+        raise SystemExit("--scenario values must be unique.")
     try:
         require_implemented_profile(arguments.control_profile)
     except ValueError as error:
@@ -131,12 +144,12 @@ def main() -> int:
             "--model", "marginbench-fake",
             "--client.base-url", budget_proxy.base_url,
             "--client.api-key-var", "MARGINBENCH_PROXY_TOKEN",
-            "--num-tasks", str(len(SCENARIO_IDS)),
+            "--num-tasks", str(len(scenarios)),
             "--max-concurrent", "1",
             "--push", "false",
             "--rich", "false",
             "--output-dir", output,
-            "--env.taskset.scenario-ids", *SCENARIO_IDS,
+            "--env.taskset.scenario-ids", *scenarios,
             "--env.taskset.margin-binary", str(binary),
             "--env.taskset.control-profile", arguments.control_profile,
             "--sampling.max-tokens", "1200",
@@ -168,13 +181,14 @@ def main() -> int:
         expected_trace_count = _expected_trace_count(
             arguments.control_profile,
             holdout_key or PUBLIC_DEVELOPMENT_KEY,
+            scenarios,
         )
         expected_rewards = [1.0] * expected_trace_count
         live_budget = budget_proxy.gate.report()
         passed = (
             completed.returncode == 0
             and scores == expected_rewards
-            and handler.request_count >= len(SCENARIO_IDS)
+            and handler.request_count >= len(scenarios)
             and live_budget["forwardedRequestCount"] == handler.request_count
             and live_budget["rejectedRequestCount"] == 0
         )
@@ -184,10 +198,10 @@ def main() -> int:
             "paidModelsInvoked": False,
             "primeExitCode": completed.returncode,
             "fakeModelCalls": handler.request_count,
-            "scenarioCount": len(SCENARIO_IDS),
+            "scenarioCount": len(scenarios),
             "traceRewardCount": len(scores),
             "expectedTraceRewardCount": expected_trace_count,
-            "scenarios": list(SCENARIO_IDS),
+            "scenarios": list(scenarios),
             "rewards": scores,
             "rawPromptsRetained": False,
             "toolSurface": ["margin"],

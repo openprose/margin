@@ -6,6 +6,7 @@ import fcntl
 import json
 import os
 import subprocess
+import threading
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -89,6 +90,147 @@ class ToolPolicy:
         )
         if any(value <= 0 for value in values) or not (0 < self.timeout_seconds <= 120):
             raise ValueError("Invalid gateway limits.")
+
+
+@dataclass(frozen=True)
+class CommandRendezvous:
+    """Synchronize one benchmark mutation without changing the product binary.
+
+    The coordinator briefly holds Margin's document lock while every participant
+    starts the selected command. Each CLI process therefore evaluates the same
+    initial state before the normal product lock admits either transaction. This
+    turns scheduler luck into a repeatable stale-metadata race while leaving the
+    product's own validation, retry, and write path authoritative.
+    """
+
+    directory: Path
+    command: str
+    target: str
+    participant_count: int
+    coordinator_role: str = "author"
+    launch_delay_seconds: float = 0.1
+    lock_hold_seconds: float = 0.5
+    timeout_seconds: float = 30.0
+
+    def __post_init__(self) -> None:
+        if (
+            not self.command
+            or not self.target
+            or self.participant_count < 2
+            or not self.coordinator_role
+            or not 0 <= self.launch_delay_seconds <= 1
+            or not 0 < self.lock_hold_seconds <= 5
+            or not 0 < self.timeout_seconds <= 120
+        ):
+            raise ValueError("Invalid command rendezvous.")
+
+    def matches(self, arguments: list[str]) -> bool:
+        return (
+            "-h" not in arguments
+            and "--help" not in arguments
+            and event_command_path(arguments) == self.command
+        )
+
+    def wait(self, role: str, workspace: Path, state_home: Path) -> None:
+        directory = self.directory / sha256_bytes(
+            f"{self.command}\0{self.target}".encode("utf-8")
+        )
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        marker = directory / f"ready-{sha256_bytes(role.encode('utf-8'))}"
+        deadline = time.monotonic() + self.timeout_seconds
+        try:
+            descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            # A model may issue several tool calls in one turn. Only the first
+            # call from a role counts as ready; its siblings must not bypass a
+            # rendezvous that has not released yet.
+            self._await_release(directory / "release.json", deadline)
+            return
+        else:
+            os.close(descriptor)
+        while len(tuple(directory.glob("ready-*"))) < self.participant_count:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("MarginBench command rendezvous timed out.")
+            time.sleep(0.005)
+
+        release = directory / "release.json"
+        if role == self.coordinator_role and not release.exists():
+            locks = self._acquire_document_locks(workspace, state_home)
+            launch_at = time.time() + self.launch_delay_seconds
+            payload = canonical_json({"launchAt": launch_at})
+            try:
+                release_descriptor = os.open(
+                    release,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o600,
+                )
+            except FileExistsError:
+                self._release_locks(locks)
+            else:
+                try:
+                    os.write(release_descriptor, payload)
+                    os.fsync(release_descriptor)
+                finally:
+                    os.close(release_descriptor)
+                threading.Thread(
+                    target=self._release_after,
+                    args=(locks, launch_at + self.lock_hold_seconds),
+                    daemon=True,
+                ).start()
+
+        self._await_release(release, deadline)
+
+    @staticmethod
+    def _await_release(release: Path, deadline: float) -> None:
+        while not release.exists():
+            if time.monotonic() >= deadline:
+                raise TimeoutError("MarginBench command rendezvous release timed out.")
+            time.sleep(0.005)
+        payload = json.loads(release.read_bytes())
+        launch_at = payload.get("launchAt") if isinstance(payload, dict) else None
+        if not isinstance(launch_at, (int, float)):
+            raise RuntimeError("MarginBench command rendezvous release is malformed.")
+        remaining = float(launch_at) - time.time()
+        if remaining > 0:
+            time.sleep(remaining)
+
+    def _acquire_document_locks(self, workspace: Path, state_home: Path) -> list[int]:
+        target = (workspace / self.target).resolve(strict=True)
+        digest = sha256_bytes(str(target).encode("utf-8"))
+        # Foundation uses Library/Caches on Darwin and .cache on Linux. Hold
+        # both deterministic locations so the same benchmark fixture works in
+        # local Mac development and the published Linux evaluator.
+        directories = (
+            state_home / "Library" / "Caches" / "Margin" / "locks",
+            state_home / ".cache" / "Margin" / "locks",
+        )
+        descriptors: list[int] = []
+        try:
+            for directory in directories:
+                directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+                descriptor = os.open(
+                    directory / f"{digest}.lock",
+                    os.O_CREAT | os.O_RDWR,
+                    0o600,
+                )
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                descriptors.append(descriptor)
+        except BaseException:
+            self._release_locks(descriptors)
+            raise
+        return descriptors
+
+    @staticmethod
+    def _release_locks(descriptors: list[int]) -> None:
+        for descriptor in reversed(descriptors):
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+
+    def _release_after(self, descriptors: list[int], release_at: float) -> None:
+        remaining = release_at - time.time()
+        if remaining > 0:
+            time.sleep(remaining)
+        self._release_locks(descriptors)
 
 
 @dataclass(frozen=True)
@@ -289,6 +431,13 @@ def _is_boolean_option(option: str, arguments: list[str]) -> bool:
 
 def event_command_path(arguments: list[str]) -> str:
     path = command_path(arguments)
+    if arguments[0] in {"-h", "--help"}:
+        return "help"
+    if path in {"help", "man"}:
+        topic = next((value for value in arguments[1:] if not value.startswith("-")), None)
+        return f"{path} {topic}" if topic else path
+    if "-h" in arguments or "--help" in arguments:
+        return f"help {path}"
     if path == "stage refresh" and "--submit" in _option_names(arguments):
         # The documented shortcut performs the same atomic submission as a
         # separate `stage submit` after deriving the immutable refreshed stage.
@@ -318,6 +467,7 @@ class MarginGateway:
         event_log: Path | None = None,
         state_home: Path | None = None,
         policy: ToolPolicy | None = None,
+        rendezvous: CommandRendezvous | None = None,
     ):
         self.binary = binary.expanduser().resolve()
         self.workspace = workspace.expanduser().resolve()
@@ -326,6 +476,7 @@ class MarginGateway:
         self.event_log = event_log
         self.state_home = state_home or self.workspace.parent / ".marginbench-state"
         self.policy = policy or ToolPolicy()
+        self.rendezvous = rendezvous
         if not self.binary.is_file() or not os.access(self.binary, os.X_OK):
             raise ValueError(f"Margin executable is unavailable: {self.binary}")
         if not self.workspace.is_dir():
@@ -392,6 +543,16 @@ class MarginGateway:
             return self._blocked("MARGINBENCH_STDIN_LIMIT", "stdin exceeds its byte limit", arguments, started)
 
         self.state_home.mkdir(parents=True, exist_ok=True)
+        if self.rendezvous is not None and self.rendezvous.matches(arguments):
+            try:
+                self.rendezvous.wait(self.role, self.workspace, self.state_home)
+            except (OSError, RuntimeError, TimeoutError, ValueError) as error:
+                return self._blocked(
+                    "MARGINBENCH_RENDEZVOUS_FAILED",
+                    str(error),
+                    arguments,
+                    started,
+                )
         environment = {
             "HOME": str(self.state_home),
             "LANG": os.environ.get("LANG", "C.UTF-8"),

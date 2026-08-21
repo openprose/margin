@@ -239,6 +239,36 @@ choice, tokens, or latency. Keep the benchmark's six-call safe-recovery path at
 full efficiency so older binaries and real external conflicts are judged
 fairly.
 
+Natural model concurrency is not a reliable contention generator. In the first
+public `suggestion_contention` pilot, both provider processes were concurrent,
+but their inference latencies staggered all eight real writes. Both candidates
+were exact and safe; the newer CLI used 23 rather than 25 visible interactions,
+25 rather than 27 model calls, and 40.902 rather than 47.951 seconds, for scores
+93.194 and 92.639. The complete pair cost $0.0107. Neither arm actually saw a
+write conflict, so the small difference is calibration noise rather than retry
+evidence.
+
+That pilot also exposed two benchmark errors. Focused `suggest add --help`
+requests were labeled as `suggest add`, inflating mutation counts, and an
+unrelated explicit validation command obscured the mechanism under test. Help
+is now classified separately, while durable list plus source read is the exact
+verification route. The scenario now uses a disclosed benchmark-only lock
+rendezvous for the first mutation. Five old-CLI reference cases then surfaced
+2–4 stale-write results apiece and required 16–20 visible calls; twenty new-CLI
+cases remained exact in the ideal 12 calls. The in-process and served fake-model
+paths both still score 100 with two isolated traces.
+
+The corrected public pair cost $0.0118. The old CLI surfaced one forced
+`COLLABORATION_PRECONDITION_FAILED` result and recovered safely; the retrying
+CLI surfaced no error. Both finished exact, safe, and source-preserving at
+96.111, with 26 CLI calls and 28 model turns. The retrying CLI was 5.362 seconds
+faster and $0.0004 cheaper, but the agent spent the saved recovery work on more
+help, listing, inspection, and reading. This is positive mechanism evidence,
+not evidence of lower total interaction cost. The next isolated variable is
+therefore the built-in suggestion guidance: teach the shortest safe path for an
+exact assignment, then rerun the same forced-contention pair. The
+natural-scheduler pilot must never be reinterpreted under the corrected rules.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a

@@ -240,6 +240,23 @@ class MarginBenchEnv(vf.Env[MarginBenchEnvConfig]):
             state_root = control / "state"
             episode.materialize(workspace)
             traces: list[vf.Trace] = []
+            rendezvous_spec = episode.oracle.get("commandRendezvous")
+            rendezvous_options = (
+                {
+                    "rendezvous_directory": str(control / "rendezvous"),
+                    "rendezvous_command": str(rendezvous_spec["command"]),
+                    "rendezvous_target": str(rendezvous_spec["target"]),
+                    "rendezvous_participant_count": int(rendezvous_spec["participantCount"]),
+                    "rendezvous_coordinator_role": str(
+                        rendezvous_spec.get("coordinatorRole", "author")
+                    ),
+                }
+                if (
+                    isinstance(rendezvous_spec, dict)
+                    and task.data.control_profile == DEFAULT_CONTROL_PROFILE
+                )
+                else {}
+            )
 
             async def apply_events(phase: int, timing: str) -> None:
                 for event in episode.events:
@@ -267,6 +284,7 @@ class MarginBenchEnv(vf.Env[MarginBenchEnvConfig]):
                     actor_type=role.actor.type,
                     timeout_seconds=self.config.gateway_timeout_seconds,
                     max_output_bytes=self.config.gateway_max_output_bytes,
+                    **rendezvous_options,
                 ))
                 async with serve_shared(
                     [toolset],

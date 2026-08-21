@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Protocol
 
 from .controls import DEFAULT_CONTROL_PROFILE, require_implemented_profile
-from .gateway import GatewayResponse, MarginGateway, ToolPolicy
+from .gateway import CommandRendezvous, GatewayResponse, MarginGateway, ToolPolicy
 from .schema import Actor, EpisodeDefinition, EpisodeResult, HarnessEvent, RoleTask
 from .scorer import score_episode
 
@@ -127,6 +127,32 @@ class ReferenceDriver:
                 gateway.call(["suggest", "reject", "review.md", suggestions[1]["id"]])
                 gateway.call(["read", "review.md", "--json"])
                 gateway.call(["comments", "validate", "review.md"])
+            return
+
+        if scenario == "suggestion_contention":
+            assignments = reference["assignments"][role.actor.id]
+            for item in assignments:
+                for _ in range(8):
+                    added = gateway.call([
+                        "suggest", "add", "review.md", "--quote", item["exact"],
+                        "--expect", item["exact"], "--replacement", item["replacement"],
+                        "-m", item["body"], "--id", item["id"],
+                    ])
+                    if added.exit_code == 0:
+                        break
+                    if added.error_code not in {
+                        "COLLABORATION_PRECONDITION_FAILED", "REVISION_CONFLICT",
+                    }:
+                        raise RuntimeError(
+                            f"Unexpected concurrent suggestion error: {added.error_code}"
+                        )
+                    gateway.call(["suggest", "list", "review.md", "--json"])
+                else:
+                    raise RuntimeError(
+                        "Concurrent suggestion did not converge after eight attempts."
+                    )
+            gateway.call(["suggest", "list", "review.md", "--json"])
+            gateway.call(["read", "review.md", "--json"])
             return
 
         if scenario == "staged_multifile":
@@ -339,6 +365,18 @@ def run_episode(
         roles = [role for role in episode.roles if role.phase == phase]
 
         def execute(role: RoleTask) -> None:
+            rendezvous_spec = episode.oracle.get("commandRendezvous")
+            rendezvous = (
+                CommandRendezvous(
+                    directory=control_root / "rendezvous",
+                    command=str(rendezvous_spec["command"]),
+                    target=str(rendezvous_spec["target"]),
+                    participant_count=int(rendezvous_spec["participantCount"]),
+                    coordinator_role=str(rendezvous_spec.get("coordinatorRole", "author")),
+                )
+                if isinstance(rendezvous_spec, dict)
+                else None
+            )
             gateway = MarginGateway(
                 binary,
                 workspace,
@@ -347,6 +385,7 @@ def run_episode(
                 event_log=event_log,
                 state_home=state_root / "shared",
                 policy=policy,
+                rendezvous=rendezvous,
             )
             driver.run(episode, role, gateway)
 

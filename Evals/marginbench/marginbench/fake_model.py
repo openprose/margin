@@ -210,6 +210,31 @@ def scripted_suggestion_reviewer(prompt: str, tools: list[dict]) -> dict | None:
     return _invocation(commands[len(tools)]) if len(tools) < len(commands) else None
 
 
+def scripted_suggestion_contention(prompt: str, tools: list[dict]) -> dict | None:
+    match = re.search(
+        r"Your exact assignment JSON:\n(\[.*?\])\n\nTogether, both collaborators",
+        prompt,
+        re.DOTALL,
+    )
+    if match is None:
+        raise ValueError("Fake preflight could not parse the suggestion-contention brief.")
+    assignments = json.loads(match.group(1))
+    if not isinstance(assignments, list) or len(assignments) != 4:
+        raise ValueError("Suggestion-contention assignment must contain four items.")
+    if len(tools) < len(assignments):
+        item = assignments[len(tools)]
+        return _invocation([
+            "suggest", "add", "review.md", "--quote", item["exact"],
+            "--expect", item["exact"], "--replacement", item["replacement"],
+            "-m", item["body"], "--id", item["id"],
+        ])
+    if len(tools) == len(assignments):
+        return _invocation(["suggest", "list", "review.md", "--json"])
+    if len(tools) == len(assignments) + 1:
+        return _invocation(["read", "review.md", "--json"])
+    return None
+
+
 def scripted_stage_author(prompt: str, tools: list[dict]) -> dict | None:
     match = re.search(
         r"immutable stage\n(urn:uuid:[0-9a-f-]+) with request id (urn:uuid:[0-9a-f-]+).*?"
@@ -547,6 +572,8 @@ def scripted_response(messages: list[dict]) -> dict | None:
         return scripted_suggestion_author(prompt, tools)
     if "Review the two durable suggestions" in prompt:
         return scripted_suggestion_reviewer(prompt, tools)
+    if "Your exact assignment JSON" in prompt:
+        return scripted_suggestion_contention(prompt, tools)
     if "Initialize this directory as a Margin workspace" in prompt:
         return scripted_stage_author(prompt, tools)
     if "A prior agent left an immutable multi-file stage" in prompt:

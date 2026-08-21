@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import Field
 import verifiers.v1 as vf
 
-from marginbench.gateway import MarginGateway, ToolPolicy
+from marginbench.gateway import CommandRendezvous, MarginGateway, ToolPolicy
 from marginbench.phase_identity import read_phase_identity
 from marginbench.schema import Actor
 
@@ -64,6 +64,11 @@ class MarginGatewayConfig(vf.ToolsetConfig):
     identity_binding_file: str | None = None
     timeout_seconds: float = Field(30.0, gt=0, le=120)
     max_output_bytes: int = Field(1_048_576, gt=0, le=4_194_304)
+    rendezvous_directory: str | None = None
+    rendezvous_command: str | None = None
+    rendezvous_target: str | None = None
+    rendezvous_participant_count: int = Field(0, ge=0, le=32)
+    rendezvous_coordinator_role: str = "author"
 
 
 class MarginGatewayToolset(vf.Toolset[MarginGatewayConfig]):
@@ -99,6 +104,22 @@ class MarginGatewayToolset(vf.Toolset[MarginGatewayConfig]):
         else:
             actor = Actor(self.config.actor_id, self.config.actor_name, self.config.actor_type)
             role = self.config.role
+        rendezvous = (
+            CommandRendezvous(
+                directory=Path(self.config.rendezvous_directory),
+                command=self.config.rendezvous_command,
+                target=self.config.rendezvous_target,
+                participant_count=self.config.rendezvous_participant_count,
+                coordinator_role=self.config.rendezvous_coordinator_role,
+            )
+            if (
+                self.config.rendezvous_directory is not None
+                and self.config.rendezvous_command is not None
+                and self.config.rendezvous_target is not None
+                and self.config.rendezvous_participant_count > 0
+            )
+            else None
+        )
         gateway = MarginGateway(
             Path(self.config.margin_binary),
             Path(self.config.workspace),
@@ -110,6 +131,7 @@ class MarginGatewayToolset(vf.Toolset[MarginGatewayConfig]):
                 timeout_seconds=self.config.timeout_seconds,
                 max_output_bytes=self.config.max_output_bytes,
             ),
+            rendezvous=rendezvous,
         )
         # Some model providers preserve JSON-looking stdin as a string while
         # others decode it into an object before tool validation. Accept both

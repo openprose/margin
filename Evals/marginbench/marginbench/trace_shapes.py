@@ -132,6 +132,8 @@ def _safe_command(arguments: list[str]) -> tuple[str, bool]:
     values = arguments[1:] if leading else arguments
     if not values:
         return "unknown", leading
+    if values[0] in {"-h", "--help"}:
+        return "help", leading
     if values[0] not in ALLOWED_COMMANDS:
         missing_command = any(
             token.split("=", 1)[0] in KNOWN_FLAGS
@@ -143,6 +145,8 @@ def _safe_command(arguments: list[str]) -> tuple[str, bool]:
     if top == "man" and len(values) > 1 and values[1] in SAFE_MAN_TOPICS:
         return f"man {SAFE_MAN_TOPICS[values[1]]}", leading
     semantic = event_command_path(values)
+    if semantic == "help" or semantic.startswith("help "):
+        return "help", leading
     if semantic in {"comments reply --resolve", "stage refresh --submit"}:
         return semantic, leading
     if semantic == "comments reply" and top == "comments":
