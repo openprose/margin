@@ -314,6 +314,22 @@ pre-mutation inspection and masks the task-specific fast path. Keep v49, then
 make the benchmark neutral: never invent a revision or source precondition, but
 do not require a revision read for commands that do not use one.
 
+v50 makes that benchmark correction. The shared rules now say to use an exact
+revision or source precondition only when the task supplies it or the agent has
+actually observed it, and to read current state only when the selected command
+or outcome requires it. A regression protects the exact-assignment contention
+task from regaining a mandatory preliminary read while retaining its required
+final list and source verification. This changes the benchmark prompt digest,
+so v46–v49 remain historical diagnostic evidence rather than controls for a
+new comparison.
+
+The correction passed 206 tests in each supported Python runtime, the
+nine-scenario model-free suite at 100, the independent 85-role plain-control
+audit, all 17 default fake-model role traces in both execution modes, and both
+experimental contention traces in both modes. No paid model was invoked for
+these gates. The next paid experiment must rerun both candidate surfaces under
+this corrected benchmark rather than compare against an older prompt digest.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a

@@ -59,6 +59,7 @@ from marginbench.scenarios import (
     AVAILABLE_SCENARIO_IDS,
     EXPERIMENTAL_SCENARIO_IDS,
     SCENARIO_IDS,
+    SYSTEM_RULES,
     generate_episode,
 )
 from marginbench.schema import Actor, CommandEvent, EpisodeResult, RoleTask, canonical_json
@@ -2499,6 +2500,24 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertTrue(all(result.checks.values()))
         self.assertEqual(result.command_count, 12)
         self.assertEqual(result.invalid_command_count, 0)
+
+    def test_shared_rules_do_not_force_an_irrelevant_preliminary_read(self) -> None:
+        self.assertNotIn("inspect the revision you act on", SYSTEM_RULES)
+        self.assertIn("never invent one", SYSTEM_RULES)
+        self.assertIn(
+            "Read current state only when the chosen command or assigned outcome requires it",
+            SYSTEM_RULES,
+        )
+
+        episode = generate_episode("suggestion_contention", KEY, 0)
+        for role in episode.roles:
+            task = role.prompt.removeprefix(SYSTEM_RULES + "\n\n")
+            assignment_end = task.index("After your four writes")
+            assignment_instructions = task[:assignment_end]
+            self.assertNotIn("read review.md", assignment_instructions.lower())
+            self.assertNotIn("inspect the revision", assignment_instructions.lower())
+            self.assertIn("inspect the durable suggestion list", task)
+            self.assertIn("reread review.md", task)
 
     def test_redundant_initial_directory_reads_are_diagnosed_without_changing_outcomes(self) -> None:
         episode = generate_episode("directory_handoff", KEY, 41)
