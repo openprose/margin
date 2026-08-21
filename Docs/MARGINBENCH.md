@@ -452,6 +452,14 @@ merely used its last turn on a successful tool call. Provider 429/5xx outcomes,
 budget uncertainty, and censored attempts remain infrastructure evidence, not
 model or product scores.
 
+The paid proxy also makes uncertainty terminal. If a forwarded request returns
+an error, cannot be decoded and settled, or loses its transport after it may
+have reached the provider, MarginBench retains the request's full admitted cost
+bound and rejects every later request locally. Reports distinguish that
+conservative charge from normally settled usage and from requests still in
+flight. This prevents a provider-invalid collaboration cell from continuing to
+spend while guaranteeing that an ambiguous call is never treated as free.
+
 The exact iteration ledger, cost accounting, candidate digests, and next paid
 gate are in [MARGINBENCH_PLAN.md](MARGINBENCH_PLAN.md). Current real-model
 evidence is mechanism-finding calibration only; no post-release candidate has

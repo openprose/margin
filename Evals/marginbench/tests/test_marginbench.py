@@ -2487,12 +2487,109 @@ class MarginBenchCoreTests(unittest.TestCase):
         ))
         reservation = gate.reserve(50, 100)
         self.assertIsNotNone(reservation)
-        gate.record_response({"error": {"code": "upstream"}}, reservation)
+        self.assertFalse(gate.record_response({"error": {"code": "upstream"}}, reservation))
         self.assertIsNone(gate.reserve(50, 100))
         report = gate.report()
         self.assertEqual(report["settledRequestCount"], 0)
         self.assertEqual(report["outstandingReservationCount"], 1)
         self.assertEqual(report["reservedCostUpperBoundUSD"], 0.0002)
+
+    def test_inference_budget_gate_closes_after_uncertain_request(self) -> None:
+        gate = InferenceBudgetGate(InferenceBudgetPolicy(
+            allowed_model="test/model",
+            max_request_bytes=64,
+            template_token_allowance=0,
+            input_token_ceiling=1000,
+            max_output_tokens=100,
+            input_price_per_million=1.0,
+            output_price_per_million=1.0,
+            billing_overhead_usd_per_call=0.0,
+            max_total_cost_usd=0.001,
+        ))
+        reservation = gate.reserve(50, 100)
+        self.assertIsNotNone(reservation)
+        gate.record_uncertain_failure(reservation)
+        self.assertIsNone(gate.reserve(1, 1))
+        report = gate.report()
+        self.assertEqual(report["settledRequestCount"], 0)
+        self.assertEqual(report["uncertainRequestCount"], 1)
+        self.assertEqual(report["outstandingReservationCount"], 0)
+        self.assertEqual(
+            report["reservedCostUpperBoundUSD"],
+            round(reservation.cost_upper_usd, 6),
+        )
+        self.assertEqual(report["rejectedRequestCount"], 1)
+        self.assertTrue(report["latchedClosed"])
+
+    def test_inference_budget_proxy_stops_after_upstream_error_response(self) -> None:
+        observed = [0]
+
+        class UpstreamHandler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+            def do_POST(self) -> None:  # noqa: N802
+                observed[0] += 1
+                length = int(self.headers.get("content-length", "0"))
+                self.rfile.read(length)
+                response = b'{"error":{"code":"temporary"}}'
+                self.send_response(503)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(response)))
+                self.end_headers()
+                self.wfile.write(response)
+
+        upstream = ThreadingHTTPServer(("127.0.0.1", 0), UpstreamHandler)
+        upstream.daemon_threads = True
+        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+        upstream_thread.start()
+        try:
+            host, port = upstream.server_address[:2]
+            policy = InferenceBudgetPolicy(
+                allowed_model="test/model",
+                max_request_bytes=512,
+                template_token_allowance=32,
+                input_token_ceiling=1000,
+                max_output_tokens=100,
+                input_price_per_million=1.0,
+                output_price_per_million=1.0,
+                billing_overhead_usd_per_call=0.0,
+                max_total_cost_usd=0.01,
+            )
+            with InferenceBudgetProxy(
+                f"http://{host}:{port}/api/v1",
+                "upstream-secret",
+                policy,
+            ) as proxy, httpx.Client(timeout=5) as client:
+                endpoint = proxy.base_url + "/chat/completions"
+                headers = {"authorization": f"Bearer {proxy.client_token}"}
+                payload = {
+                    "model": "test/model",
+                    "messages": [{"role": "user", "content": "bounded"}],
+                    "max_tokens": 20,
+                }
+                upstream_error = client.post(endpoint, headers=headers, json=payload)
+                self.assertEqual(upstream_error.status_code, 503)
+                stopped = client.post(endpoint, headers=headers, json=payload)
+                self.assertEqual(stopped.status_code, 429)
+                self.assertEqual(
+                    stopped.json()["error"]["code"],
+                    "BUDGET_PROXY_COST_LIMIT",
+                )
+                report = proxy.gate.report()
+        finally:
+            upstream.shutdown()
+            upstream.server_close()
+            upstream_thread.join(timeout=5)
+
+        self.assertEqual(observed[0], 1)
+        self.assertEqual(report["forwardedRequestCount"], 1)
+        self.assertEqual(report["uncertainRequestCount"], 1)
+        self.assertEqual(report["outstandingReservationCount"], 0)
+        self.assertEqual(report["rejectedRequestCount"], 1)
+        self.assertTrue(report["latchedClosed"])
 
     def test_inference_budget_gate_settles_reservation_only_once(self) -> None:
         gate = InferenceBudgetGate(InferenceBudgetPolicy(
@@ -2680,6 +2777,19 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(
             codes,
             ["PROVIDER_RATE_LIMIT", "LIVE_BUDGET_EXHAUSTED"],
+        )
+
+    def test_uncertain_provider_accounting_is_an_infrastructure_cause(self) -> None:
+        self.assertEqual(
+            _infrastructure_codes(
+                "ProviderError: BUDGET_PROXY_COST_LIMIT",
+                {
+                    "providerBoundViolationCount": 0,
+                    "uncertainRequestCount": 1,
+                },
+                timed_out=False,
+            ),
+            ["LIVE_PROXY_UNCERTAIN_ACCOUNTING", "LIVE_BUDGET_EXHAUSTED"],
         )
 
     def test_local_budget_stop_is_not_mislabeled_as_provider_throttling(self) -> None:

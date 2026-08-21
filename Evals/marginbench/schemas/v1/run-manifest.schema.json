@@ -195,6 +195,7 @@
         "reservedCostUpperBoundUSD": {"type": "number", "minimum": 0},
         "grossReservedCostUpperBoundUSD": {"type": "number", "minimum": 0},
         "settledRequestCount": {"type": "integer", "minimum": 0},
+        "uncertainRequestCount": {"type": "integer", "minimum": 0},
         "outstandingReservationCount": {"type": "integer", "minimum": 0},
         "reportedPromptTokens": {"type": "integer", "minimum": 0},
         "reportedCompletionTokens": {"type": "integer", "minimum": 0},

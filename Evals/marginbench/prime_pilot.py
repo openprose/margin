@@ -826,6 +826,8 @@ def _infrastructure_codes(
     codes: list[str] = []
     if live_budget_report.get("providerBoundViolationCount", 0):
         codes.append("PROVIDER_USAGE_BOUND_VIOLATION")
+    if live_budget_report.get("uncertainRequestCount", 0):
+        codes.append("LIVE_PROXY_UNCERTAIN_ACCOUNTING")
     # The OpenAI client represents every HTTP 429 as a RateLimitError,
     # including the loopback proxy's intentional cost stop. Only retain a
     # provider-throttling diagnosis when the log contains an upstream marker or

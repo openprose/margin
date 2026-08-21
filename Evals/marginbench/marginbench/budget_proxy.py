@@ -203,6 +203,7 @@ class InferenceBudgetGate:
         self._reported_prompt_tokens = 0
         self._reported_completion_tokens = 0
         self._provider_bound_violations = 0
+        self._uncertain_requests = 0
         self._latched_closed = False
 
     def reserve(self, request_bytes: int, output_tokens: int) -> InferenceReservation | None:
@@ -235,12 +236,12 @@ class InferenceBudgetGate:
         with self._lock:
             self._rejected += 1
 
-    def record_response(self, payload: object, reservation: InferenceReservation) -> None:
+    def record_response(self, payload: object, reservation: InferenceReservation) -> bool:
         if not isinstance(payload, dict):
-            return
+            return False
         usage = payload.get("usage")
         if not isinstance(usage, dict):
-            return
+            return False
         prompt = usage.get("prompt_tokens", 0)
         completion = usage.get("completion_tokens", 0)
         if (
@@ -251,7 +252,7 @@ class InferenceBudgetGate:
             or isinstance(completion, bool)
             or completion < 0
         ):
-            return
+            return False
         cost = (
             prompt * self.policy.input_price_per_million / 1_000_000
             + completion * self.policy.output_price_per_million / 1_000_000
@@ -269,13 +270,17 @@ class InferenceBudgetGate:
                 # internal duplicate/mismatched callback as fail-closed.
                 self._provider_bound_violations += 1
                 self._latched_closed = True
-                return
+                return True
             self._reported_prompt_tokens += prompt
             self._reported_completion_tokens += completion
             if violation:
                 self._provider_bound_violations += 1
+                self._active_reservations.pop(reservation.reservation_id)
+                self._outstanding_upper_usd -= active_upper
+                self._settled_upper_usd += active_upper
+                self._uncertain_requests += 1
                 self._latched_closed = True
-                return
+                return True
 
             # The request was admitted at its worst-case price. Once the
             # provider returns bounded usage, replace that outstanding upper
@@ -287,6 +292,30 @@ class InferenceBudgetGate:
             self._outstanding_upper_usd -= active_upper
             self._settled_upper_usd += settled_upper
             self._settled_requests += 1
+            return True
+
+    def record_uncertain_failure(self, reservation: InferenceReservation) -> None:
+        """Charge the full reservation and stop after an indeterminate request.
+
+        A transport failure or malformed/error response may have reached the
+        provider and may therefore be billable. Retain its complete admitted
+        upper bound, remove it from the in-flight set, and latch the proxy
+        closed so a doomed episode cannot continue spending after the first
+        uncertain call.
+        """
+        with self._lock:
+            active_upper = self._active_reservations.pop(
+                reservation.reservation_id,
+                None,
+            )
+            if active_upper is None:
+                self._provider_bound_violations += 1
+                self._latched_closed = True
+                return
+            self._outstanding_upper_usd -= active_upper
+            self._settled_upper_usd += active_upper
+            self._uncertain_requests += 1
+            self._latched_closed = True
 
     def report(self) -> dict[str, Any]:
         with self._lock:
@@ -301,6 +330,7 @@ class InferenceBudgetGate:
                     6,
                 ),
                 "settledRequestCount": self._settled_requests,
+                "uncertainRequestCount": self._uncertain_requests,
                 "outstandingReservationCount": len(self._active_reservations),
                 "reportedPromptTokens": self._reported_prompt_tokens,
                 "reportedCompletionTokens": self._reported_completion_tokens,
@@ -535,6 +565,7 @@ class InferenceBudgetProxy:
                         for chunk in response.iter_bytes():
                             response_content.extend(chunk)
                             if len(response_content) > MAX_UPSTREAM_RESPONSE_BYTES:
+                                owner.gate.record_uncertain_failure(reservation)
                                 self._json_error(
                                     502,
                                     "BUDGET_PROXY_RESPONSE_LIMIT",
@@ -546,15 +577,17 @@ class InferenceBudgetProxy:
                         response_request_id = response.headers.get("x-request-id")
                         response_retry_after = response.headers.get("retry-after")
                 except httpx.HTTPError:
+                    owner.gate.record_uncertain_failure(reservation)
                     self._json_error(502, "BUDGET_PROXY_UPSTREAM", "Inference provider request failed.")
                     return
                 try:
-                    owner.gate.record_response(
-                        _decode_unique_json(response_content),
-                        reservation,
-                    )
+                    decoded_response = _decode_unique_json(response_content)
                 except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
-                    pass
+                    decoded_response = None
+                if not 200 <= response_status < 300:
+                    owner.gate.record_uncertain_failure(reservation)
+                elif not owner.gate.record_response(decoded_response, reservation):
+                    owner.gate.record_uncertain_failure(reservation)
                 self.send_response(response_status)
                 self.send_header("content-type", response_type)
                 self.send_header("content-length", str(len(response_content)))

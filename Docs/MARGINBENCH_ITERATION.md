@@ -765,6 +765,35 @@ suites, the nine-scenario reference, isolated agent controls, signed release,
 and retained publication audits pass. No paid request was made while building
 or validating v67.
 
+v68 froze v62 and v67 against one new private suggestion-contention case under
+the same Qwen model, reasoning bound, request pacing, $0.025 per-job cap, $0.05
+study cap, and $190 wallet floor. The v62 arm completed exactly and safely at
+97.5: 21 valid commands, 23 model calls, atomic batching by both roles, named
+waits by both roles, and one avoidable recheck after a conclusive wait. Its
+trace-reported cost and account-wide wallet movement were both $0.0056.
+
+The v67 arm did not produce evidence. Prime returned an upstream error after 18
+forwarded requests; the summary is `infrastructure_error`, the pair controller
+made no retry or comparison, and the account-wide wallet moved by another
+$0.0029. Its partial command outcome is neither a candidate score nor batch
+adoption evidence. The incident did expose a benchmark accounting weakness: a
+transport-uncertain request retained its reservation as indefinitely in flight,
+and the proxy remained open to later requests until a separate limit stopped
+them.
+
+v69 makes the first uncertain request terminal for paid forwarding. A transport
+failure, oversized response, malformed success body, or non-2xx provider
+response now keeps the request's complete admitted upper bound, moves it out of
+the in-flight set, records one `uncertainRequestCount`, and latches the local
+proxy closed. Any later model retry is rejected before it can reach Prime. The
+validator binds settled, uncertain, and outstanding counts to total forwarded
+requests and treats an uncertainty latch as infrastructure rather than product
+or model evidence. A real loopback 503 regression proves that exactly one
+request reaches the upstream server, the second stops locally, no reservation
+remains outstanding, and the full conservative first-call bound remains
+charged. Both supported Python environments pass 227 tests. No further paid
+request was made while implementing this hardening.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a
