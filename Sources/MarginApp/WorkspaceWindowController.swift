@@ -32,6 +32,12 @@ enum WorkspacePaneFactory {
 }
 
 final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate, NSToolbarItemValidation {
+    private static let recentWorkspaceValidationQueue = DispatchQueue(
+        label: "ink.margin.recent-workspace-validation",
+        qos: .utility,
+        attributes: .concurrent
+    )
+
     private enum CommentsVisibilityChoice {
         case automatic
         case explicit
@@ -57,7 +63,10 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     private let navigatorItem: NSSplitViewItem
     private let editorItem: NSSplitViewItem
     private let commentsItem: NSSplitViewItem
+    private let recentWorkspaceStore: RecentWorkspaceStore
     private var navigationPaletteController: NavigationPaletteController?
+    private var recentWorkspaceStartViewController: RecentWorkspaceStartViewController?
+    private var recentWorkspaceLoadGeneration = UUID()
     private var fileScanGeneration = UUID()
     private var collaborationLoadGeneration = UUID()
     private var indexedFileURLs: [URL] = []
@@ -144,8 +153,10 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
     init(
         workspaceURL: URL?,
-        restorationState: WorkspaceTabSession? = nil
+        restorationState: WorkspaceTabSession? = nil,
+        recentWorkspaceStore: RecentWorkspaceStore = RecentWorkspaceStore()
     ) {
+        self.recentWorkspaceStore = recentWorkspaceStore
         editorViewController = WorkspacePaneFactory.makeEditor()
         commentsViewController = WorkspacePaneFactory.makeComments()
 
@@ -186,15 +197,23 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     override func showWindow(_ sender: Any?) {
         let wasVisible = window?.isVisible == true
         super.showWindow(sender)
-        guard !wasVisible, let window, let frame = pendingInitialWindowFrame else { return }
-        pendingInitialWindowFrame = nil
+        guard !wasVisible else { return }
 
-        // AppKit asks a newly installed split view for its fitting size while
-        // ordering the window. Reapply the restored/default frame after that
-        // first layout pass; explicit child tabs instead inherit their group.
-        if !isExplicitlyTabbed {
-            window.setFrame(frame, display: true, animate: false)
+        if let window, let frame = pendingInitialWindowFrame {
+            pendingInitialWindowFrame = nil
+
+            // AppKit asks a newly installed split view for its fitting size while
+            // ordering the window. Reapply the restored/default frame after that
+            // first layout pass; explicit child tabs instead inherit their group.
+            if !isExplicitlyTabbed {
+                window.setFrame(frame, display: true, animate: false)
+            }
         }
+
+        // First paint remains only the native editor shell. Recent persistence
+        // is read and its start screen constructed on later turns of the run
+        // loop, after the window has already been ordered onscreen.
+        scheduleRecentWorkspaceStartScreenIfNeeded()
     }
 
     func prepareForTabAttachment() {
@@ -215,13 +234,18 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
             isDirectory: &isDirectory
         )
 
+        dismissRecentWorkspaceStartScreen()
         workspaceURL = standardizedURL
         if exists && isDirectory.boolValue {
             openDirectory(standardizedURL)
         } else {
             openStandaloneFile(standardizedURL)
         }
-        RecentWorkspaceStore.recordAfterLaunch(standardizedURL)
+        let recentDirectoryURL = Self.recentDirectoryURL(
+            for: standardizedURL,
+            isDirectory: exists && isDirectory.boolValue
+        )
+        recentWorkspaceStore.recordAfterLaunch(recentDirectoryURL)
     }
 
     @objc func toggleNavigator(_ sender: Any?) {
@@ -409,7 +433,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         ])
 
         let currentPath = workspaceURL?.standardizedFileURL.path
-        let recentURLs = RecentWorkspaceStore().urls(limit: 8).filter {
+        let recentURLs = recentWorkspaceStore.urls(limit: 8).filter {
             $0.path != currentPath && FileManager.default.fileExists(atPath: $0.path)
         }
         items.append(contentsOf: recentURLs.map { url in
@@ -437,9 +461,64 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     }
 
     private func openRecent(_ url: URL) {
+        let standardizedURL = url.standardizedFileURL
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(
+            atPath: standardizedURL.path,
+            isDirectory: &isDirectory
+        ), isDirectory.boolValue else {
+            recentWorkspaceStartViewController?.removeWorkspace(at: standardizedURL)
+            return
+        }
+
         if let editor = editorViewController as? EditorViewController,
            !editor.prepareToClose() { return }
-        open(url)
+        dismissRecentWorkspaceStartScreen()
+        workspaceURL = standardizedURL
+        openDirectory(standardizedURL)
+        recentWorkspaceStore.recordAfterLaunch(standardizedURL)
+    }
+
+    static func recentDirectoryURL(for url: URL, isDirectory: Bool) -> URL {
+        let standardizedURL = url.standardizedFileURL
+        return isDirectory
+            ? standardizedURL
+            : standardizedURL.deletingLastPathComponent().standardizedFileURL
+    }
+
+    /// Converts the bounded historical list to existing directories. This does
+    /// at most two metadata checks per entry and never enumerates a directory.
+    static func existingRecentDirectories(
+        from workspaces: [RecentWorkspace],
+        fileManager: FileManager = .default
+    ) -> [RecentWorkspace] {
+        var seenPaths = Set<String>()
+        var directories: [RecentWorkspace] = []
+
+        for workspace in workspaces {
+            var isDirectory = ObjCBool(false)
+            guard fileManager.fileExists(
+                atPath: workspace.url.path,
+                isDirectory: &isDirectory
+            ) else { continue }
+
+            let directoryURL = recentDirectoryURL(
+                for: workspace.url,
+                isDirectory: isDirectory.boolValue
+            )
+            guard seenPaths.insert(directoryURL.path).inserted else { continue }
+
+            var normalizedIsDirectory = ObjCBool(false)
+            guard fileManager.fileExists(
+                atPath: directoryURL.path,
+                isDirectory: &normalizedIsDirectory
+            ), normalizedIsDirectory.boolValue else { continue }
+            directories.append(RecentWorkspace(
+                url: directoryURL,
+                lastOpened: workspace.lastOpened
+            ))
+        }
+        return directories
     }
 
     @objc func navigateToHeading(_ sender: Any?) {
@@ -933,6 +1012,65 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         window?.toolbar?.validateVisibleItems()
     }
 
+    private func scheduleRecentWorkspaceStartScreenIfNeeded() {
+        guard isEmpty, window?.isVisible == true else { return }
+        recentWorkspaceLoadGeneration = UUID()
+        let generation = recentWorkspaceLoadGeneration
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.isEmpty,
+                  self.window?.isVisible == true,
+                  self.recentWorkspaceLoadGeneration == generation else { return }
+
+            let startViewController: RecentWorkspaceStartViewController
+            if let existing = self.recentWorkspaceStartViewController {
+                startViewController = existing
+            } else {
+                let created = RecentWorkspaceStartViewController()
+                created.onOpen = { [weak self] url in self?.openRecent(url) }
+                self.editorViewController.addChild(created)
+                let hostView = self.editorViewController.view
+                created.view.translatesAutoresizingMaskIntoConstraints = false
+                hostView.addSubview(created.view)
+                NSLayoutConstraint.activate([
+                    created.view.topAnchor.constraint(equalTo: hostView.topAnchor),
+                    created.view.leadingAnchor.constraint(equalTo: hostView.leadingAnchor),
+                    created.view.trailingAnchor.constraint(equalTo: hostView.trailingAnchor),
+                    created.view.bottomAnchor.constraint(equalTo: hostView.bottomAnchor),
+                ])
+                self.recentWorkspaceStartViewController = created
+                startViewController = created
+            }
+
+            self.recentWorkspaceStore.loadAfterPendingWrites(limit: 12) {
+                [weak self, weak startViewController] workspaces in
+                Self.recentWorkspaceValidationQueue.async {
+                    let recent = Self.existingRecentDirectories(
+                        from: workspaces
+                    )
+                    DispatchQueue.main.async { [weak self, weak startViewController] in
+                        guard let self,
+                              let startViewController,
+                              self.isEmpty,
+                              self.window?.isVisible == true,
+                              self.recentWorkspaceLoadGeneration == generation,
+                              self.recentWorkspaceStartViewController === startViewController else { return }
+                        startViewController.render(recent)
+                    }
+                }
+            }
+        }
+    }
+
+    private func dismissRecentWorkspaceStartScreen() {
+        recentWorkspaceLoadGeneration = UUID()
+        guard let controller = recentWorkspaceStartViewController else { return }
+        controller.view.removeFromSuperview()
+        controller.removeFromParent()
+        recentWorkspaceStartViewController = nil
+    }
+
     private func showEmptyState() {
         workspaceKind = .empty
         workspaceURL = nil
@@ -945,9 +1083,13 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         (commentsViewController as? WorkspaceCommentsPresenting)?.presentComments(for: nil)
         updateWindowTitle(documentURL: nil, workspaceURL: nil)
         window?.toolbar?.validateVisibleItems()
+        if window?.isVisible == true {
+            scheduleRecentWorkspaceStartScreenIfNeeded()
+        }
     }
 
     private func openStandaloneFile(_ fileURL: URL) {
+        dismissRecentWorkspaceStartScreen()
         workspaceKind = .file(fileURL)
         documentURL = fileURL
         resetUnreadComments()
@@ -959,6 +1101,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         _ directoryURL: URL,
         preferredDocumentURL: URL? = nil
     ) {
+        dismissRecentWorkspaceStartScreen()
         workspaceKind = .directory(directoryURL)
         documentURL = nil
         commentsVisibilityChoice = .automatic
