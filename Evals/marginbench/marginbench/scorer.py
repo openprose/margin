@@ -180,6 +180,13 @@ INITIAL_DISCOVERY_COMMANDS = frozenset({
     "stage show", "suggest list", "version", "workspace show",
 })
 
+PREWRITE_STATE_READ_COMMANDS = frozenset({
+    "collaborators", "comments export", "comments get", "comments list",
+    "comments validate", "context", "handoff list", "inbox", "inspect",
+    "outline", "read", "review", "slice", "stage list", "stage show",
+    "suggest list", "workspace show",
+})
+
 
 def _avoided_redundant_initial_reads(events: tuple[CommandEvent, ...]) -> bool:
     """Detect overlapping context+inbox reads by one role before its first action."""
@@ -198,6 +205,27 @@ def _avoided_redundant_initial_reads(events: tuple[CommandEvent, ...]) -> bool:
             if event.exit_code == 0 and command in {"context", "inbox"}:
                 observed.add(command)
         if observed == {"context", "inbox"}:
+            return False
+    return True
+
+
+def _used_no_prewrite_state_reads(
+    events: tuple[CommandEvent, ...],
+    write_command: str,
+) -> bool:
+    """Separate unnecessary preliminary reads from post-write convergence checks."""
+    roles = sorted({event.role for event in events})
+    if not roles:
+        return False
+    for role in roles:
+        reached_write = False
+        for event in (item for item in events if item.role == role):
+            if event.command == write_command:
+                reached_write = True
+                break
+            if event.command in PREWRITE_STATE_READ_COMMANDS:
+                return False
+        if not reached_write:
             return False
     return True
 
@@ -324,7 +352,13 @@ def score_episode(
 
     diagnostic_checks: dict[str, bool] = {}
     reference = episode.oracle.get("reference")
-    if isinstance(reference, dict) and episode.scenario_id == "specialist_audit":
+    if isinstance(reference, dict) and episode.scenario_id == "suggestion_contention":
+        diagnostic_checks = {
+            "diagnostic_no_prewrite_state_reads": _used_no_prewrite_state_reads(
+                events, "suggest add"
+            ),
+        }
+    elif isinstance(reference, dict) and episode.scenario_id == "specialist_audit":
         decision_body = body_for_reference(reference.get("decisionID"))
         issue_body = body_for_reference(reference.get("issueID"))
         performance_choice = reference.get("performanceChoice")

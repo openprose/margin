@@ -144,6 +144,12 @@ class WideTriageWrongDiscoveryOrderDriver:
         ReferenceDriver().run(episode, role, gateway)
 
 
+class SuggestionContentionPreReadDriver:
+    def run(self, episode, role, gateway) -> None:
+        gateway.call(["read", "review.md", "--json"])
+        ReferenceDriver().run(episode, role, gateway)
+
+
 class MarginBenchCoreTests(unittest.TestCase):
     def test_completed_durable_work_is_not_mislabeled_as_budget_exhaustion(self) -> None:
         complete = {
@@ -2498,8 +2504,20 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertTrue(result.safety_passed)
         self.assertTrue(result.source_preserved)
         self.assertTrue(all(result.checks.values()))
+        self.assertTrue(result.checks["diagnostic_no_prewrite_state_reads"])
         self.assertEqual(result.command_count, 12)
         self.assertEqual(result.invalid_command_count, 0)
+
+        with tempfile.TemporaryDirectory(prefix="marginbench-suggestion-preread-") as temporary:
+            preread = run_episode(
+                episode,
+                self.binary,
+                Path(temporary) / "workspace",
+                SuggestionContentionPreReadDriver(),
+            )
+        self.assertTrue(preread.checks["all_expected_annotations"])
+        self.assertTrue(preread.safety_passed)
+        self.assertFalse(preread.checks["diagnostic_no_prewrite_state_reads"])
 
     def test_shared_rules_do_not_force_an_irrelevant_preliminary_read(self) -> None:
         self.assertNotIn("inspect the revision you act on", SYSTEM_RULES)

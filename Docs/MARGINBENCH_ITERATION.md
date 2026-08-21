@@ -347,6 +347,17 @@ the CLI again, add a benchmark diagnostic that separates pre-write reads from
 legitimate post-write convergence checks. Then evaluate an on-demand wait or
 batch primitive without adding any work to ordinary CLI startup.
 
+v51 adds that diagnostic without changing the score. For the exact-assignment
+contention task, it examines each role only until its first `suggest add`,
+allows local help and manual discovery, and fails if the role first reads
+workspace or collaboration state. Reads after the first write remain visible in
+the trace but do not fail the check, because they may be required to observe a
+concurrent peer. The deterministic reference passes; a deliberately inserted
+pre-write read preserves every correct outcome but fails this one diagnostic.
+Both 206-test Python suites and the experimental fake-model workflow in both
+execution modes pass. This gives the next CLI experiment a causal measure rather
+than asking aggregate command count to stand in for two different behaviors.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a
