@@ -292,17 +292,25 @@ enum MarginManual {
       Use this path when the task already supplies the file, exact current text,
       replacement, explanation, and stable id.
 
-      1. Add each independent suggestion directly:
+      1. For several suggestions in one file, submit one atomic batch:
+         margin suggest batch FILE --items-file - --batch-id UUID
+         Standard input uses this bounded shape:
+         {"schema":"urn:margin:suggestion-batch:v1","version":1,
+          "items":[{"id":"UUID","exact":"current text",
+          "replacement":"proposed text","body":"Why this is better"}]}
+         Every exact value is also the source precondition. One bad item rejects
+         the entire batch; matching replay returns already-applied.
+      2. For one suggestion, add it directly:
          margin suggest add FILE --quote "current text" \\
            --expect "current text" --replacement "proposed text" \\
            -m "Why this is better" --id UUID
          The quote and expected text validate the source in the same operation,
          so a complete exact assignment needs no preliminary read or inspection.
-      2. A successful or already-applied matching receipt is conclusive. Do not
+      3. A successful or already-applied matching receipt is conclusive. Do not
          replay that suggestion.
-      3. After the batch, list once to verify every stable id:
+      4. After the batch, list once to verify every stable id:
          margin suggest list FILE
-      4. If the task requires literal-source verification, read once after the
+      5. If the task requires literal-source verification, read once after the
          batch: margin read FILE --json
 
       Skip preliminary context, inspect, review, list, and read calls when the

@@ -221,16 +221,37 @@ def scripted_suggestion_contention(prompt: str, tools: list[dict]) -> dict | Non
     assignments = json.loads(match.group(1))
     if not isinstance(assignments, list) or len(assignments) != 4:
         raise ValueError("Suggestion-contention assignment must contain four items.")
-    if len(tools) < len(assignments):
-        item = assignments[len(tools)]
+    if not tools:
+        return _invocation(["suggest", "batch", "--help"])
+    batch_available = _tool_payload(tools[0]).get("exitCode") == 0
+    if batch_available:
+        if len(tools) == 1:
+            plan = {
+                "schema": "urn:margin:suggestion-batch:v1",
+                "version": 1,
+                "items": assignments,
+            }
+            return _invocation(
+                ["suggest", "batch", "review.md", "--items-file", "-"],
+                json.dumps(plan, sort_keys=True, separators=(",", ":")),
+            )
+        if len(tools) == 2:
+            return _invocation(["suggest", "list", "review.md", "--json"])
+        if len(tools) == 3:
+            return _invocation(["read", "review.md", "--json"])
+        return None
+
+    add_index = len(tools) - 1
+    if add_index < len(assignments):
+        item = assignments[add_index]
         return _invocation([
             "suggest", "add", "review.md", "--quote", item["exact"],
             "--expect", item["exact"], "--replacement", item["replacement"],
             "-m", item["body"], "--id", item["id"],
         ])
-    if len(tools) == len(assignments):
+    if add_index == len(assignments):
         return _invocation(["suggest", "list", "review.md", "--json"])
-    if len(tools) == len(assignments) + 1:
+    if add_index == len(assignments) + 1:
         return _invocation(["read", "review.md", "--json"])
     return None
 

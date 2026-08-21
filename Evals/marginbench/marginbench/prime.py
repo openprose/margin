@@ -245,6 +245,10 @@ class MarginBenchEnv(vf.Env[MarginBenchEnvConfig]):
                 {
                     "rendezvous_directory": str(control / "rendezvous"),
                     "rendezvous_command": str(rendezvous_spec["command"]),
+                    "rendezvous_alternate_commands": [
+                        str(command)
+                        for command in rendezvous_spec.get("alternateCommands", [])
+                    ],
                     "rendezvous_target": str(rendezvous_spec["target"]),
                     "rendezvous_participant_count": int(rendezvous_spec["participantCount"]),
                     "rendezvous_coordinator_role": str(

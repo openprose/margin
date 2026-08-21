@@ -1,6 +1,6 @@
 # MarginBench iteration loop
 
-Status: active operating procedure, 2026-08-20.
+Status: active operating procedure, 2026-08-21.
 
 This document defines how Margin and MarginBench improve without confusing a
 better tool with an easier test, a luckier model sample, or a repaired runner.
@@ -357,6 +357,32 @@ pre-write read preserves every correct outcome but fails this one diagnostic.
 Both 206-test Python suites and the experimental fake-model workflow in both
 execution modes pass. This gives the next CLI experiment a causal measure rather
 than asking aggregate command count to stand in for two different behaviors.
+
+v52 tests the higher-leverage alternative to waiting: one atomic same-file
+suggestion batch. The CLI now accepts 1 to 256 exact assignments in bounded JSON,
+validates every passage against one captured source, and commits the entire set
+as one annotation revision. A bad anchor or changed source writes nothing;
+stable IDs make exact replay conclusive; independent annotation-only races retry
+inside the call. Cross-file work remains the job of immutable stages.
+
+The benchmark now treats `suggest add` and `suggest batch` as equivalent valid
+mutations and releases both through the same forced-contention rendezvous. Its
+pre-write-read diagnostic recognizes either path. The fake model discovers the
+new local help, submits four assignments in one batch, then performs the same
+single list and source read. Both in-process and separate-server rehearsals
+scored 1.0 for both collaborators with no paid model call. The cross-version
+reference deliberately remains on individual additions so older candidates are
+still solvable and comparable.
+
+Free gates are green: 182 Swift tests; 206 Python tests in each supported
+runtime; the experimental reference at 100; direct stdin execution; and both
+served execution modes. In a counterbalanced 100-process sample, global-help
+median was 6.217 ms for v51 and 6.245 ms for v52 (a 0.028 ms difference);
+focused suggestion capability median was 7.027 and 7.082 ms (0.055 ms).
+Candidate batch help measured 6.365 ms median / 6.954 ms p95. These are
+scheduler-scale differences and show no material startup regression. No real
+model has evaluated v52 yet; the next admissible observation is one frozen,
+capped matched pair against v51.
 
 ## Spend ladder
 

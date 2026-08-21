@@ -1,5 +1,18 @@
 # Margin release notes
 
+## Unreleased
+
+- Added `margin suggest batch` for 1 to 256 exact suggestions in one file. The
+  bounded JSON operation validates every passage before one atomic metadata
+  commit, preserves literal Markdown, rejects partial writes, supports exact
+  replay, and absorbs safe annotation-only contention internally.
+- Taught focused help, the progressive manual, machine-readable capabilities,
+  and MarginBench about the batch path without adding background work or a new
+  dependency. Counterbalanced process measurements found no material CLI
+  startup regression.
+- Made the README's protocol illustration non-literal so the example itself is
+  not mistaken for a nonterminal embedded metadata block.
+
 ## 0.4.0 — first public release
 
 Release date: 2026-08-19

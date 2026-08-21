@@ -59,6 +59,14 @@ Collaborator activity is factual and durable: first and last observed annotation
 
 A change set contains a root, base cursor, actor, request ID, ordered operations, and creation time. Operations may span files and may create comments, replies, typed contributions, suggestions, handoffs, status changes, or accepted source replacements.
 
+`margin suggest batch` is the ergonomic same-file form of that transaction. It
+accepts 1 to 256 exact suggestion assignments in at most 1 MiB of JSON, validates
+every expected passage against one captured source, and advances the file's
+annotation revision once. Any invalid anchor, changed source, duplicate ID, or
+payload conflict rejects the entire batch. Independent annotation-only movement
+may be retried internally while the logical Markdown hash remains identical.
+Cross-file all-or-none work uses an immutable directory stage instead.
+
 Stage listing is metadata-only and bounded by both entry count and aggregate
 canonical bytes. Explicit stage inspection returns bounded semantic previews and
 digests for contribution bodies, suggestions, tasks, and handoffs; raw staged

@@ -119,10 +119,13 @@ A document with collaboration metadata ends with one CommonMark-compatible HTML 
 ```text
 Your ordinary Markdown remains here.
 
-<!-- margin:comments:v1
-{ portable annotation data }
+<!-- margin:comments:v1⏎
+{ portable annotation data }⏎
 -->
 ```
+
+Here `⏎` denotes a line feed; the glyph itself is not written. Showing it explicitly keeps
+this README from being mistaken for a document with a nonterminal Margin metadata block.
 
 Ordinary Markdown renderers ignore the block. Margin hides it from source editing and reader mode, while the CLI can inspect and validate it. The payload follows the W3C Web Annotation data model with Margin extensions for thread state, resilient text anchors, document integrity, and projection rules.
 

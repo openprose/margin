@@ -204,7 +204,7 @@ enum CLICapabilityWorkflow: String, CaseIterable, Encodable {
             ])
         case .suggestions:
             selected = Set([
-                "context", "inbox", "suggest add", "suggest list",
+                "context", "suggest add", "suggest batch", "suggest list",
                 "suggest accept", "suggest reject",
             ])
         case .handoff:
@@ -878,9 +878,9 @@ enum CLICommandCatalog {
         let contributionCommands: [CLICommandContract] = [
             command(
                 "suggest",
-                summary: "Create, list, accept, or reject source replacement suggestions.",
+                summary: "Create one or an atomic batch, list, accept, or reject source replacement suggestions.",
                 usage: ["margin suggest COMMAND ..."],
-                arguments: [argument("COMMAND", kind: "subcommand", description: "add, list, accept, or reject.")],
+                arguments: [argument("COMMAND", kind: "subcommand", description: "add, batch, list, accept, or reject.")],
                 output: output
             ),
             command(
@@ -891,7 +891,8 @@ enum CLICommandCatalog {
                     "margin suggest add FILE --quote \"current text\" --expect \"current text\" --replacement \"proposed text\" -m \"Why\" --id UUID",
                 ],
                 guidance: [
-                    "When the task supplies exact file, quote, expected text, replacement, body, and id, add directly; --quote plus --expect validate the source atomically.",
+                    "For one supplied exact assignment, add directly; --quote plus --expect validate the source atomically.",
+                    "For several exact assignments in one file, use suggest batch so every proposal is committed together in one tool call.",
                     "Add each independent item with --quote, --expect, --replacement, -m, and a stable --id; a matching success or already-applied receipt is conclusive.",
                     "After the batch, run margin suggest list FILE once; if literal-source verification is required, run margin read FILE --json once after the batch.",
                     "Skip preliminary context, inspect, review, list, and read calls unless the assignment is incomplete, a command reports drift, or an external edit is known.",
@@ -899,6 +900,24 @@ enum CLICommandCatalog {
                 arguments: [target],
                 options: mutationTarget + [option("--quote", value: "EXACT", description: "Resolve a unique exact passage without coordinate arithmetic."), option("--prefix", value: "TEXT", description: "Text immediately before --quote for disambiguation."), option("--suffix", value: "TEXT", description: "Text immediately after --quote for disambiguation."), option("--occurrence", value: "N", description: "One-based duplicate quote occurrence."), option("--range", value: "START:END", description: "Half-open Unicode-scalar range."), option("--from", value: "LINE:COL", description: "One-based grapheme start; requires --to."), option("--to", value: "LINE:COL", description: "One-based grapheme end; requires --from."), option("--expect", value: "TEXT", description: "Optional exact-match precondition; derived from the resolved passage when omitted."), requiredOption("--replacement", value: "TEXT", description: "Replacement logical Markdown."), option("--id", "--contribution-id", value: "ID", description: "Stable contribution and retry identity."), option("--audience", value: "ACTOR_ID", repeatable: true, description: "Intended actor audience.")] + messageOptions + actorOptions + identities + presentation,
                 sideEffects: "mutates-file-metadata",
+                output: output
+            ),
+            command(
+                "suggest", "batch",
+                summary: "Atomically add 1 to 256 exact same-file suggestions from bounded JSON; annotation-only races retry internally and source drift fails closed.",
+                usage: [
+                    "margin suggest batch FILE --items-file BATCH_JSON_OR_- [--batch-id ID] [ACTOR_OPTIONS] [IDENTITY_OPTIONS] [--pretty]",
+                    "margin suggest batch FILE --items-file - --batch-id ID",
+                ],
+                guidance: [
+                    "Input schema: {\"schema\":\"urn:margin:suggestion-batch:v1\",\"version\":1,\"items\":[{\"id\":\"UUID\",\"exact\":\"current text\",\"replacement\":\"proposed text\",\"body\":\"Why\"}]}",
+                    "Each exact value is both the quote and expected-text guard; one missing or changed passage rejects the whole batch without a partial write.",
+                    "Stable item ids derive a deterministic retry identity; --batch-id may name the atomic group explicitly. Do not combine it with advanced --request-id. Matching replay returns already-applied.",
+                    "After success, list once; read literal source once only when the assigned outcome requires it.",
+                ],
+                arguments: [argument("FILE", kind: "markdown-file", description: "Existing Markdown file receiving every suggestion in the batch.")],
+                options: [requiredOption("--items-file", value: "BATCH_JSON_OR_-", description: "Bounded v1 batch JSON path, or - for standard input; maximum 1 MiB and 256 items."), option("--batch-id", value: "ID", description: "Optional stable atomic-group identity; otherwise derived from the sorted item ids. Mutually exclusive with --request-id."), option("--root", value: "DIRECTORY", description: "Use an explicit directory collaboration boundary.")] + actorOptions + identities + presentation,
+                sideEffects: "atomically-mutates-one-file-metadata",
                 output: output
             ),
             command(

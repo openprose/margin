@@ -50,10 +50,10 @@ IDENTITY_FLAGS = frozenset({
 })
 VALUE_OPTIONS = frozenset({
     "-m", "--actor", "--actor-id", "--actor-name", "--actor-type", "--app",
-    "--assignee", "--audience", "--body", "--change-set-file", "--comment",
+    "--assignee", "--audience", "--batch-id", "--body", "--change-set-file", "--comment",
     "--context", "--exclude", "--expect", "--finishing-cursor", "--for",
     "--format", "--from", "--heading", "--id", "--contribution-id", "--if-content-sha",
-    "--if-revision", "--include", "--kind", "--limit", "--lines", "--max-bytes",
+    "--if-revision", "--include", "--items-file", "--kind", "--limit", "--lines", "--max-bytes",
     "--max-contributions", "--max-depth", "--max-files", "--max-headings",
     "--max-preview-bytes", "--max-source-bytes", "--merged-body", "--message", "--message-file",
     "--next-actor", "--occurrence", "--operations-file", "--output", "--parent", "--path",
@@ -68,7 +68,7 @@ BOOLEAN_OPTIONS = frozenset({
     "--version", "--wait", "--with-comments",
 })
 PATH_VALUE_OPTIONS = frozenset({
-    "--app", "--change-set-file", "--exclude", "--include", "--merged-body",
+    "--app", "--change-set-file", "--exclude", "--include", "--items-file", "--merged-body",
     "--message-file", "--operations-file", "--output", "--path", "--root",
 })
 
@@ -107,6 +107,7 @@ class CommandRendezvous:
     command: str
     target: str
     participant_count: int
+    alternate_commands: tuple[str, ...] = ()
     coordinator_role: str = "author"
     launch_delay_seconds: float = 0.1
     lock_hold_seconds: float = 0.5
@@ -117,6 +118,9 @@ class CommandRendezvous:
             not self.command
             or not self.target
             or self.participant_count < 2
+            or any(not command for command in self.alternate_commands)
+            or self.command in self.alternate_commands
+            or len(set(self.alternate_commands)) != len(self.alternate_commands)
             or not self.coordinator_role
             or not 0 <= self.launch_delay_seconds <= 1
             or not 0 < self.lock_hold_seconds <= 5
@@ -128,13 +132,12 @@ class CommandRendezvous:
         return (
             "-h" not in arguments
             and "--help" not in arguments
-            and event_command_path(arguments) == self.command
+            and event_command_path(arguments) in {self.command, *self.alternate_commands}
         )
 
     def wait(self, role: str, workspace: Path, state_home: Path) -> None:
-        directory = self.directory / sha256_bytes(
-            f"{self.command}\0{self.target}".encode("utf-8")
-        )
+        commands = "\0".join((self.command, *sorted(self.alternate_commands)))
+        directory = self.directory / sha256_bytes(f"{commands}\0{self.target}".encode("utf-8"))
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         marker = directory / f"ready-{sha256_bytes(role.encode('utf-8'))}"
         deadline = time.monotonic() + self.timeout_seconds

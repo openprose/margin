@@ -66,6 +66,7 @@ class MarginGatewayConfig(vf.ToolsetConfig):
     max_output_bytes: int = Field(1_048_576, gt=0, le=4_194_304)
     rendezvous_directory: str | None = None
     rendezvous_command: str | None = None
+    rendezvous_alternate_commands: list[str] = Field(default_factory=list, max_length=8)
     rendezvous_target: str | None = None
     rendezvous_participant_count: int = Field(0, ge=0, le=32)
     rendezvous_coordinator_role: str = "author"
@@ -110,6 +111,7 @@ class MarginGatewayToolset(vf.Toolset[MarginGatewayConfig]):
                 command=self.config.rendezvous_command,
                 target=self.config.rendezvous_target,
                 participant_count=self.config.rendezvous_participant_count,
+                alternate_commands=tuple(self.config.rendezvous_alternate_commands),
                 coordinator_role=self.config.rendezvous_coordinator_role,
             )
             if (

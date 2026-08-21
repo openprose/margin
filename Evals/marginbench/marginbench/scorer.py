@@ -211,7 +211,7 @@ def _avoided_redundant_initial_reads(events: tuple[CommandEvent, ...]) -> bool:
 
 def _used_no_prewrite_state_reads(
     events: tuple[CommandEvent, ...],
-    write_command: str,
+    write_commands: frozenset[str],
 ) -> bool:
     """Separate unnecessary preliminary reads from post-write convergence checks."""
     roles = sorted({event.role for event in events})
@@ -220,7 +220,7 @@ def _used_no_prewrite_state_reads(
     for role in roles:
         reached_write = False
         for event in (item for item in events if item.role == role):
-            if event.command == write_command:
+            if event.command in write_commands:
                 reached_write = True
                 break
             if event.command in PREWRITE_STATE_READ_COMMANDS:
@@ -355,7 +355,7 @@ def score_episode(
     if isinstance(reference, dict) and episode.scenario_id == "suggestion_contention":
         diagnostic_checks = {
             "diagnostic_no_prewrite_state_reads": _used_no_prewrite_state_reads(
-                events, "suggest add"
+                events, frozenset({"suggest add", "suggest batch"})
             ),
         }
     elif isinstance(reference, dict) and episode.scenario_id == "specialist_audit":

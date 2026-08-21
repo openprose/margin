@@ -222,10 +222,14 @@ class MarginBenchCoreTests(unittest.TestCase):
                 command="suggest add",
                 target="review.md",
                 participant_count=2,
+                alternate_commands=("suggest batch",),
                 launch_delay_seconds=0.02,
                 lock_hold_seconds=0.05,
                 timeout_seconds=2,
             )
+            self.assertTrue(rendezvous.matches(["suggest", "add", "review.md"]))
+            self.assertTrue(rendezvous.matches(["suggest", "batch", "review.md"]))
+            self.assertFalse(rendezvous.matches(["suggest", "batch", "--help"]))
 
             started = time.perf_counter()
             with ThreadPoolExecutor(max_workers=2) as pool:
@@ -2469,17 +2473,41 @@ class MarginBenchCoreTests(unittest.TestCase):
         )
         self.assertEqual(plan["scenarioIDs"], ["suggestion_contention"])
         self.assertEqual(plan["totalAgentProcesses"], 4)
+        self.assertIn(
+            ["suggest add", "suggest batch"],
+            episode.oracle["requiredCommandGroups"],
+        )
+        self.assertEqual(
+            episode.oracle["commandRendezvous"]["alternateCommands"],
+            ["suggest batch"],
+        )
 
         for role in episode.roles:
             messages = [{"role": "user", "content": role.prompt}]
-            for index in range(4):
-                invocation = scripted_response(messages)
-                self.assertEqual(invocation["arguments"][:2], ["suggest", "add"])
-                self.assertEqual(invocation["arguments"][-2:], ["--id", episode.oracle["reference"]["assignments"][role.actor.id][index]["id"]])
-                messages.append({
-                    "role": "tool",
-                    "content": json.dumps({"exitCode": 0, "stdout": "{}"}),
-                })
+            self.assertEqual(
+                scripted_response(messages)["arguments"],
+                ["suggest", "batch", "--help"],
+            )
+            messages.append({
+                "role": "tool",
+                "content": json.dumps({"exitCode": 0, "stdout": "batch help"}),
+            })
+            invocation = scripted_response(messages)
+            self.assertEqual(
+                invocation["arguments"],
+                ["suggest", "batch", "review.md", "--items-file", "-"],
+            )
+            batch = json.loads(invocation["stdin"])
+            self.assertEqual(batch["schema"], "urn:margin:suggestion-batch:v1")
+            self.assertEqual(batch["version"], 1)
+            self.assertEqual(
+                batch["items"],
+                episode.oracle["reference"]["assignments"][role.actor.id],
+            )
+            messages.append({
+                "role": "tool",
+                "content": json.dumps({"exitCode": 0, "stdout": "{}"}),
+            })
             self.assertEqual(
                 scripted_response(messages)["arguments"],
                 ["suggest", "list", "review.md", "--json"],
@@ -2492,6 +2520,26 @@ class MarginBenchCoreTests(unittest.TestCase):
                 scripted_response(messages)["arguments"],
                 ["read", "review.md", "--json"],
             )
+
+        fallback_role = episode.roles[0]
+        fallback_messages = [{"role": "user", "content": fallback_role.prompt}]
+        self.assertEqual(
+            scripted_response(fallback_messages)["arguments"],
+            ["suggest", "batch", "--help"],
+        )
+        fallback_messages.append({
+            "role": "tool",
+            "content": json.dumps({"exitCode": 64, "stdout": ""}),
+        })
+        for index in range(4):
+            invocation = scripted_response(fallback_messages)
+            self.assertEqual(invocation["arguments"][:2], ["suggest", "add"])
+            expected = episode.oracle["reference"]["assignments"][fallback_role.actor.id][index]
+            self.assertEqual(invocation["arguments"][-2:], ["--id", expected["id"]])
+            fallback_messages.append({
+                "role": "tool",
+                "content": json.dumps({"exitCode": 0, "stdout": "{}"}),
+            })
 
         with tempfile.TemporaryDirectory(prefix="marginbench-suggestion-contention-") as temporary:
             result = run_episode(

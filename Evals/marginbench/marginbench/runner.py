@@ -372,6 +372,9 @@ def run_episode(
                     command=str(rendezvous_spec["command"]),
                     target=str(rendezvous_spec["target"]),
                     participant_count=int(rendezvous_spec["participantCount"]),
+                    alternate_commands=tuple(
+                        str(command) for command in rendezvous_spec.get("alternateCommands", [])
+                    ),
                     coordinator_role=str(rendezvous_spec.get("coordinatorRole", "author")),
                 )
                 if isinstance(rendezvous_spec, dict)

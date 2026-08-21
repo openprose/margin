@@ -97,11 +97,20 @@ final class CLICommandContractTests: XCTestCase {
             suggestions.commands.first { $0.path == ["suggest", "add"] }
         )
         let suggestionGuidance = try XCTUnwrap(suggestionAdd.guidance)
-        XCTAssertEqual(suggestionGuidance.count, 4)
+        XCTAssertEqual(suggestionGuidance.count, 5)
         XCTAssertTrue(suggestionGuidance[0].contains("add directly"))
         XCTAssertTrue(suggestionGuidance[0].contains("validate the source atomically"))
-        XCTAssertTrue(suggestionGuidance[2].contains("suggest list FILE once"))
-        XCTAssertTrue(suggestionGuidance[2].contains("once after the batch"))
+        XCTAssertTrue(suggestionGuidance[1].contains("suggest batch"))
+        XCTAssertTrue(suggestionGuidance[3].contains("suggest list FILE once"))
+        XCTAssertTrue(suggestionGuidance[3].contains("once after the batch"))
+        let suggestionBatch = try XCTUnwrap(
+            suggestions.commands.first { $0.path == ["suggest", "batch"] }
+        )
+        let batchGuidance = try XCTUnwrap(suggestionBatch.guidance)
+        XCTAssertEqual(batchGuidance.count, 4)
+        XCTAssertTrue(batchGuidance[0].contains("urn:margin:suggestion-batch:v1"))
+        XCTAssertTrue(batchGuidance[1].contains("rejects the whole batch"))
+        XCTAssertFalse(suggestions.commands.contains { $0.path == ["inbox"] })
         XCTAssertFalse(suggestions.commands.contains { $0.path == ["merge"] })
 
         let staging = CLICommandCatalog.capabilitiesProjection(
@@ -1243,6 +1252,187 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertEqual(String(data: decoded.bodyData, encoding: .utf8), source)
     }
 
+    func testSuggestionBatchIsAtomicReplaySafeAndSourcePreserving() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("batch.md")
+        let source = "Alpha remains.\n\nBeta remains.\n\nGamma remains.\n"
+        try Data(source.utf8).write(to: file)
+
+        func writePlan(_ name: String, items: [[String: Any]]) throws -> URL {
+            let url = directory.appendingPathComponent(name)
+            let data = try JSONSerialization.data(withJSONObject: [
+                "schema": "urn:margin:suggestion-batch:v1",
+                "version": 1,
+                "items": items,
+            ], options: [.sortedKeys])
+            try data.write(to: url)
+            return url
+        }
+
+        let invalid = try writePlan("invalid.json", items: [
+            [
+                "id": "00000000-0000-4000-8000-000000095001",
+                "exact": "Alpha remains.",
+                "replacement": "Alpha improves.",
+                "body": "Valid first item must not leak from a rejected batch.",
+            ],
+            [
+                "id": "00000000-0000-4000-8000-000000095002",
+                "exact": "Missing passage.",
+                "replacement": "No replacement.",
+                "body": "Invalid second item rejects everything.",
+            ],
+        ])
+        let pristine = try Data(contentsOf: file)
+        XCTAssertEqual(
+            runSilently([
+                "suggest", "batch", file.path, "--items-file", invalid.path,
+                "--actor-id", "urn:test:agent:batch", "--actor-type", "software",
+            ]),
+            CLIExit.data.rawValue
+        )
+        XCTAssertEqual(try Data(contentsOf: file), pristine)
+
+        let items: [[String: Any]] = [
+            [
+                "id": "00000000-0000-4000-8000-000000095011",
+                "exact": "Alpha remains.",
+                "replacement": "Alpha improves.",
+                "body": "Improve Alpha.",
+            ],
+            [
+                "id": "00000000-0000-4000-8000-000000095012",
+                "exact": "Beta remains.",
+                "replacement": "Beta improves.",
+                "body": "Improve Beta.",
+            ],
+            [
+                "id": "00000000-0000-4000-8000-000000095013",
+                "exact": "Gamma remains.",
+                "replacement": "Gamma improves.",
+                "body": "Improve Gamma.",
+            ],
+        ]
+        let plan = try writePlan("batch.json", items: items)
+        let arguments = [
+            "suggest", "batch", file.path, "--items-file", plan.path,
+            "--batch-id", "00000000-0000-4000-8000-000000095099",
+            "--actor-id", "urn:test:agent:batch", "--actor-type", "software",
+        ]
+        let first = runCapturing(arguments)
+        XCTAssertEqual(first.exit, CLIExit.success.rawValue)
+        let firstResult = try XCTUnwrap(try jsonObject(first.output)["result"] as? [String: Any])
+        XCTAssertEqual(
+            firstResult["batchID"] as? String,
+            "urn:uuid:00000000-0000-4000-8000-000000095099"
+        )
+        XCTAssertEqual(firstResult["contributionCount"] as? Int, 3)
+        let firstTransaction = try XCTUnwrap(firstResult["transaction"] as? [String: Any])
+        XCTAssertEqual(firstTransaction["disposition"] as? String, "applied")
+
+        let stored = try Data(contentsOf: file)
+        let decoded = try EmbeddedCommentCodec().decode(stored)
+        XCTAssertEqual(String(data: decoded.bodyData, encoding: .utf8), source)
+        XCTAssertEqual(decoded.envelope?.revision, 1)
+        let snapshot = try CommentService().list(at: file)
+        XCTAssertEqual(snapshot.comments.count, 3)
+        XCTAssertEqual(
+            Set(snapshot.comments.map(\.annotation.id)),
+            Set(items.compactMap { $0["id"] as? String }.map(MarginID.annotation))
+        )
+
+        let replay = runCapturing(arguments)
+        XCTAssertEqual(replay.exit, CLIExit.success.rawValue)
+        let replayResult = try XCTUnwrap(try jsonObject(replay.output)["result"] as? [String: Any])
+        let replayTransaction = try XCTUnwrap(replayResult["transaction"] as? [String: Any])
+        XCTAssertEqual(replayTransaction["disposition"] as? String, "already-applied")
+        XCTAssertEqual(try Data(contentsOf: file), stored)
+
+        XCTAssertEqual(
+            runSilently(arguments + ["--request-id", "urn:test:request:conflict"]),
+            CLIExit.usage.rawValue
+        )
+        XCTAssertEqual(try Data(contentsOf: file), stored)
+
+        var changedItems = items
+        changedItems[0]["replacement"] = "Conflicting Alpha."
+        let changed = try writePlan("changed.json", items: changedItems)
+        var changedArguments = arguments
+        changedArguments[changedArguments.firstIndex(of: plan.path)!] = changed.path
+        XCTAssertEqual(runSilently(changedArguments), CLIExit.data.rawValue)
+        XCTAssertEqual(try Data(contentsOf: file), stored)
+    }
+
+    func testConcurrentSuggestionBatchesConvergeAsWholeMetadataTransactions() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("concurrent-batches.md")
+        let source = (0..<8).map { "Lane \($0) stays literal." }.joined(separator: "\n\n") + "\n"
+        try Data(source.utf8).write(to: file)
+
+        var planURLs: [URL] = []
+        for batch in 0..<2 {
+            let items = (0..<4).map { offset -> [String: Any] in
+                let index = batch * 4 + offset
+                return [
+                    "id": String(format: "00000000-0000-4000-8000-%012d", 96_000 + index),
+                    "exact": "Lane \(index) stays literal.",
+                    "replacement": "Lane \(index) becomes proposed.",
+                    "body": "Concurrent batch suggestion \(index).",
+                ]
+            }
+            let data = try JSONSerialization.data(withJSONObject: [
+                "schema": "urn:margin:suggestion-batch:v1",
+                "version": 1,
+                "items": items,
+            ], options: [.sortedKeys])
+            let plan = directory.appendingPathComponent("batch-\(batch).json")
+            try data.write(to: plan)
+            planURLs.append(plan)
+        }
+
+        let null = try XCTUnwrap(FileHandle(forWritingAtPath: "/dev/null"))
+        let savedStandardOutput = dup(STDOUT_FILENO)
+        XCTAssertGreaterThanOrEqual(savedStandardOutput, 0)
+        XCTAssertGreaterThanOrEqual(dup2(null.fileDescriptor, STDOUT_FILENO), 0)
+        defer {
+            _ = dup2(savedStandardOutput, STDOUT_FILENO)
+            close(savedStandardOutput)
+            try? null.close()
+        }
+
+        let failures = NSLock()
+        var capturedErrors: [String] = []
+        DispatchQueue.concurrentPerform(iterations: 4) { iteration in
+            do {
+                let batch = iteration % 2
+                var cursor = ArgumentCursor([
+                    "batch", file.path, "--items-file", planURLs[batch].path,
+                    "--batch-id", "urn:test:suggestion-batch:\(batch)",
+                    "--actor-id", "urn:test:agent:batch:\(batch)",
+                    "--actor-type", "software",
+                ])
+                try CollaborationCLI.run(command: "suggest", cursor: &cursor)
+            } catch {
+                failures.lock()
+                capturedErrors.append(error.localizedDescription)
+                failures.unlock()
+            }
+        }
+
+        XCTAssertTrue(capturedErrors.isEmpty, capturedErrors.joined(separator: "\n"))
+        let decoded = try EmbeddedCommentCodec().decode(Data(contentsOf: file))
+        XCTAssertEqual(String(data: decoded.bodyData, encoding: .utf8), source)
+        XCTAssertEqual(decoded.envelope?.revision, 2)
+        let snapshot = try CommentService().list(at: file)
+        XCTAssertEqual(snapshot.comments.count, 8)
+        XCTAssertEqual(Set(snapshot.comments.map(\.annotation.creator.id)).count, 2)
+        XCTAssertTrue(snapshot.comments.allSatisfy {
+            string(in: $0.annotation.extensions, key: "margin:kind") == "suggestion"
+        })
+    }
+
     func testSuggestionAndHandoffHelpExplainContentionSafety() throws {
         let add = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "add"]))
         XCTAssertTrue(add.contains("metadata races retry internally"))
@@ -1256,6 +1446,12 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertTrue(add.contains("once after the batch"))
         XCTAssertTrue(add.contains("Skip preliminary context, inspect, review, list, and read"))
         XCTAssertFalse(add.contains("read FILE --json once and confirm every quoted passage"))
+
+        let batch = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "batch"]))
+        XCTAssertTrue(batch.contains("margin suggest batch FILE --items-file"))
+        XCTAssertTrue(batch.contains("urn:margin:suggestion-batch:v1"))
+        XCTAssertTrue(batch.contains("rejects the whole batch"))
+        XCTAssertTrue(batch.contains("source drift fails closed"))
 
         let accept = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "accept"]))
         XCTAssertTrue(accept.contains("never silently rebased"))
@@ -1274,7 +1470,10 @@ final class CLICommandContractTests: XCTestCase {
         let discoveryPath = try XCTUnwrap(manual.range(of: "DISCOVER OR DECIDE WORK"))
 
         XCTAssertLessThan(exactPath.lowerBound, discoveryPath.lowerBound)
-        XCTAssertTrue(manual.contains("Add each independent suggestion directly"))
+        XCTAssertTrue(manual.contains("For one suggestion, add it directly"))
+        XCTAssertTrue(manual.contains("submit one atomic batch"))
+        XCTAssertTrue(manual.contains("urn:margin:suggestion-batch:v1"))
+        XCTAssertTrue(manual.contains("One bad item rejects"))
         XCTAssertTrue(manual.contains("--expect \"current text\""))
         XCTAssertTrue(manual.contains("validate the source in the same operation"))
         XCTAssertTrue(manual.contains("successful or already-applied matching receipt is conclusive"))

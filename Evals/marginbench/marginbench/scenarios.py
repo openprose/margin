@@ -463,13 +463,14 @@ eight proposals coexist while the literal Markdown source remains unchanged.""",
         oracle["efficientCommandTarget"] = 12
         oracle["maxCommands"] = 48
         oracle["requiredCommandGroups"] = [
-            ["suggest add"], ["suggest list"], ["read", "inspect"],
+            ["suggest add", "suggest batch"], ["suggest list"], ["read", "inspect"],
         ]
         oracle["allowedErrorCodes"] = [
             "COLLABORATION_PRECONDITION_FAILED", "REVISION_CONFLICT",
         ]
         oracle["commandRendezvous"] = {
             "command": "suggest add",
+            "alternateCommands": ["suggest batch"],
             "target": "review.md",
             "participantCount": 2,
             "coordinatorRole": "author",

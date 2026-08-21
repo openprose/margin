@@ -132,6 +132,17 @@ remain portable when those files are copied elsewhere.
 Suggestions propose source changes without applying them:
 
 ```sh
+printf '%s' '{
+  "schema":"urn:margin:suggestion-batch:v1",
+  "version":1,
+  "items":[
+    {"id":"UUID-1","exact":"at least once","replacement":"exactly once",
+     "body":"Make the delivery guarantee explicit"},
+    {"id":"UUID-2","exact":"best effort","replacement":"bounded retry",
+     "body":"Name the actual recovery behavior"}
+  ]
+}' | margin suggest batch architecture.md --items-file -
+
 margin suggest add architecture.md \
   --quote "at least once" \
   --replacement "exactly once after durable acknowledgement" \
@@ -144,6 +155,13 @@ margin suggest list architecture.md --pretty
 margin suggest accept architecture.md SUGGESTION_ID \
   --actor-type person --actor-name reviewer
 ```
+
+Use `suggest batch` when one collaborator already has several exact assignments
+for one file. Margin validates every quoted passage first, then commits all 1 to
+256 proposals in one document revision. One missing or changed passage rejects
+the whole batch. Stable item IDs make exact replay safe, and literal Markdown is
+never changed by creation. Use directory staging instead when one all-or-none
+decision spans files.
 
 Independent suggestion additions retry bounded annotation-only races inside one
 CLI call when the logical Markdown is unchanged. Independent rejections do the

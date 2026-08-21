@@ -24,6 +24,7 @@ enum CollaborationCLICommand: String, CaseIterable {
 
 enum CollaborationCLI {
     private static let maximumCommutativeAttempts = 32
+    private static let maximumSuggestionBatchItems = 256
     private static let rootResolver = CollaborationRootResolver()
     private static let cursorService = CollaborationCursorService()
     private static let contextService = CollaborationContextService()
@@ -791,12 +792,162 @@ enum CollaborationCLI {
         let subcommand = try cursor.require("suggest subcommand")
         switch subcommand {
         case "add": try suggestAdd(&cursor)
+        case "batch": try suggestBatch(&cursor)
         case "list": try suggestList(&cursor)
         case "accept": try suggestDisposition(&cursor, disposition: .accept)
         case "reject": try suggestDisposition(&cursor, disposition: .reject)
         default:
             throw CLIError.usage("Unknown suggest subcommand '\(subcommand)'. Run 'margin suggest --help'.")
         }
+    }
+
+    private static func suggestBatch(_ cursor: inout ArgumentCursor) throws {
+        let pretty = cursor.takeFlag("--pretty")
+        _ = cursor.takeFlag("--json")
+        let explicitRoot = try cursor.takeValue("--root")
+        let input = try requiredValue("--items-file", cursor: &cursor)
+        let requestedBatchID = try cursor.takeValue("--batch-id").map(MarginID.annotation)
+        let requestedRequestID = try cursor.takeValue("--request-id").map(MarginID.annotation)
+        guard requestedBatchID == nil || requestedRequestID == nil else {
+            throw CLIError.usage("Use --batch-id or --request-id, not both.")
+        }
+        let actor = try takeActor(cursor: &cursor)
+        let plan = try readSuggestionBatchPlan(input)
+        guard plan.items.allSatisfy({ !$0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+            throw CLIError(
+                "INVALID_SUGGESTION_BATCH",
+                "Every suggestion batch item needs a nonempty stable id.",
+                exit: .data
+            )
+        }
+        let items = plan.items.sorted { MarginID.annotation($0.id) < MarginID.annotation($1.id) }
+        let normalizedIDs = items.map { MarginID.annotation($0.id) }
+        guard Set(normalizedIDs).count == normalizedIDs.count else {
+            throw CLIError(
+                "INVALID_SUGGESTION_BATCH",
+                "Every suggestion batch item needs a distinct stable id.",
+                exit: .data
+            )
+        }
+        let batchID = requestedBatchID ?? MarginID.annotation(
+            "urn:margin:suggestion-batch:sha256:\(CollaborationCanonicalJSON.sha256(of: Data(normalizedIDs.joined(separator: "\0").utf8)))"
+        )
+        let requestID = requestedRequestID ?? batchID
+        let identities = RequestIdentities(
+            requestID: requestID,
+            stageID: MarginID.annotation(
+                try cursor.takeValue("--stage-id") ?? "\(requestID)#stage"
+            )
+        )
+        let targetArgument = try cursor.require("Markdown file")
+        let target = try PathResolver.existingFile(targetArgument)
+        try cursor.rejectRemaining()
+        let selection = try resolveMutationSelection(
+            target: target,
+            explicitRoot: explicitRoot,
+            explicitPath: nil
+        )
+        var loaded = try loadDocumentBase(root: selection.root, path: selection.path)
+        guard let baseFileCursor = loaded.cursor[selection.path] else {
+            throw CollaborationError.invalidCursor(
+                "The suggestion batch target is not cursor-bound."
+            )
+        }
+        let expectedContentSha256 = baseFileCursor.contentSha256
+        let created = CollaborationTimestamp.string()
+        var receipt: CollaborationTransactionReceipt?
+        for attempt in 0..<maximumCommutativeAttempts {
+            let operations = try items.enumerated().map { offset, item in
+                let contributionID = normalizedIDs[offset]
+                let existing = try contributionPayload(
+                    in: loaded.document,
+                    id: contributionID
+                )
+                let selector = try SuggestionSelectorArguments.quote(
+                    exact: item.exact,
+                    prefix: item.prefix,
+                    suffix: item.suffix,
+                    occurrence: item.occurrence,
+                    expected: item.exact
+                ).resolve(in: loaded.document.body)
+                let contribution = try CollaborationContributionFactory.suggestion(
+                    actor: actor,
+                    path: selection.path,
+                    range: selector.range,
+                    message: item.body,
+                    expectedText: selector.expectedText,
+                    replacementText: item.replacement,
+                    baseCursor: loaded.cursor,
+                    created: existing?.created ?? created,
+                    id: contributionID,
+                    audience: item.audience ?? []
+                )
+                return CollaborationOperation.contribution(
+                    id: "\(identities.requestID)#operation-\(offset + 1)",
+                    CollaborationContributionOperation(contribution: contribution)
+                )
+            }
+            let changeSet = try CollaborationChangeSet(
+                id: "\(identities.requestID)#changeset",
+                root: selection.root,
+                baseCursor: loaded.cursor,
+                actor: actor,
+                requestID: identities.requestID,
+                stageID: identities.stageID,
+                created: created,
+                operations: operations
+            )
+            do {
+                receipt = try submit(changeSet)
+                break
+            } catch let error as CollaborationError {
+                guard case .preconditionFailed = error,
+                      attempt + 1 < maximumCommutativeAttempts else {
+                    throw error
+                }
+                let refreshed = try loadDocumentBase(
+                    root: selection.root,
+                    path: selection.path
+                )
+                guard let refreshedFile = refreshed.cursor[selection.path],
+                      refreshedFile.contentSha256 == expectedContentSha256 else {
+                    throw CollaborationError.preconditionFailed(
+                        path: selection.path,
+                        reason: "The logical Markdown changed during concurrent suggestion batch creation."
+                    )
+                }
+                loaded = refreshed
+            }
+        }
+        guard let receipt else {
+            throw CollaborationError.transactionFailed(
+                "The suggestion batch did not converge after \(maximumCommutativeAttempts) annotation-only attempts."
+            )
+        }
+        try write(
+            command: "suggest.batch",
+            root: selection.root,
+            result: SuggestionBatchMutationResult(
+                batchID: batchID,
+                contributionCount: normalizedIDs.count,
+                contributionIDs: normalizedIDs,
+                transaction: receipt
+            ),
+            pretty: pretty,
+            notice: "Suggestion batch saved atomically without changing source. A matching already-applied receipt is conclusive.",
+            nextActions: [
+                CollaborationNextAction(
+                    condition: "verify all durable suggestions once after the batch",
+                    command: "suggest list",
+                    arguments: [targetArgument]
+                ),
+                CollaborationNextAction(
+                    condition: "verify literal source only when the assigned outcome requires it",
+                    command: "read",
+                    arguments: [targetArgument, "--json"]
+                ),
+            ]
+        )
     }
 
     private static func suggestAdd(_ cursor: inout ArgumentCursor) throws {
@@ -1586,6 +1737,46 @@ enum CollaborationCLI {
             throw error
         } catch {
             throw CLIError("INVALID_STAGE_INTENT", "Could not decode the stage intent plan: \(error.localizedDescription)", exit: .data)
+        }
+    }
+
+    private static func readSuggestionBatchPlan(_ raw: String) throws -> SuggestionBatchPlan {
+        let maximumBytes = 1_048_576
+        let data: Data
+        if raw == "-" {
+            data = try readStandardInput(maximumBytes: maximumBytes)
+        } else {
+            do {
+                data = try readBounded(
+                    PathResolver.existingFile(raw),
+                    maximumBytes: maximumBytes
+                )
+            } catch let error as CLIError where error.code == "NOT_FOUND" {
+                throw CLIError.notFound(
+                    "\(error.message) For inline batch JSON, use --items-file - and send the JSON through standard input."
+                )
+            }
+        }
+        do {
+            let plan = try JSONDecoder().decode(SuggestionBatchPlan.self, from: data)
+            guard plan.version == 1,
+                  plan.schema == nil || plan.schema == "urn:margin:suggestion-batch:v1",
+                  (1...maximumSuggestionBatchItems).contains(plan.items.count) else {
+                throw CLIError(
+                    "INVALID_SUGGESTION_BATCH",
+                    "The batch must use version 1, the urn:margin:suggestion-batch:v1 schema, and contain 1 to \(maximumSuggestionBatchItems) items.",
+                    exit: .data
+                )
+            }
+            return plan
+        } catch let error as CLIError {
+            throw error
+        } catch {
+            throw CLIError(
+                "INVALID_SUGGESTION_BATCH",
+                "Could not decode the suggestion batch: \(error.localizedDescription)",
+                exit: .data
+            )
         }
     }
 
@@ -3348,6 +3539,13 @@ private struct SuggestionDispositionResult: Encodable {
     let transaction: CollaborationTransactionReceipt
 }
 
+private struct SuggestionBatchMutationResult: Encodable {
+    let batchID: String
+    let contributionCount: Int
+    let contributionIDs: [String]
+    let transaction: CollaborationTransactionReceipt
+}
+
 private struct LoadedAnnotationFile {
     let path: String
     let annotationRevision: Int
@@ -3438,6 +3636,23 @@ private struct StageIntentPlan: Decodable {
     let schema: String?
     let version: Int
     let operations: [StageIntentOperation]
+}
+
+private struct SuggestionBatchPlan: Decodable {
+    let schema: String?
+    let version: Int
+    let items: [SuggestionBatchItem]
+}
+
+private struct SuggestionBatchItem: Decodable {
+    let id: String
+    let exact: String
+    let replacement: String
+    let body: String
+    let prefix: String?
+    let suffix: String?
+    let occurrence: Int?
+    let audience: [String]?
 }
 
 private struct StageIntentOperation: Decodable {
