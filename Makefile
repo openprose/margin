@@ -41,6 +41,7 @@ marginbench-test: release
 marginbench-audit:
 	@for probe in "$(PROJECT_DIR)"/Evals/marginbench/results/wide-directory/*.json \
 		"$(PROJECT_DIR)"/Evals/marginbench/results/concurrency/*.json \
+		"$(PROJECT_DIR)"/Evals/marginbench/results/convergence/*.json \
 		"$(PROJECT_DIR)"/Evals/marginbench/results/contention/*.json; do \
 		[ -f "$$probe" ] || continue; \
 		PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(PROJECT_DIR)/Evals/marginbench" \

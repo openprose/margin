@@ -205,3 +205,13 @@ stripped, ad-hoc-signed release CLI grew from 2,809,328 to 2,842,784 bytes
 (33,456 bytes); its `__TEXT` segment grew by 32 KiB. The exact candidate digest
 for this measurement is
 `4ffa7d215b637f3b7f529e43d28dd1fdb75de9196feb413ed7c8940d545fad35`.
+
+A separate model-free delayed-peer probe measures invoked collaboration work,
+not startup. Across four repetitions at each 200, 500, and 1,000 ms delay, the
+frozen pre-wait workflow made 115 `suggest list` calls before observing the
+same two durable ids. The candidate made 12 `suggest wait` calls—one in every
+trial. Both arms preserved logical Markdown, retained exactly two suggestions,
+and passed graph validation. Candidate median completion time was 9.753 to
+51.515 ms lower depending on the delay, but latency is descriptive rather than
+a pass condition. The schema-validated aggregate is retained at
+`Evals/marginbench/results/convergence/v61-model-free.json`.

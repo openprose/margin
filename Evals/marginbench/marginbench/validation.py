@@ -7,6 +7,7 @@ import json
 import math
 import re
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -140,6 +141,7 @@ def _schema_name(payload: Any) -> tuple[str, str]:
         "urn:marginbench:study-plan:v1": "study-plan.schema.json",
         "urn:marginbench:trace-shape-report:v1": "trace-shape-report.schema.json",
         "urn:marginbench:concurrency-probe:v1": "concurrency-probe.schema.json",
+        "urn:marginbench:suggestion-convergence-probe:v1": "suggestion-convergence-probe.schema.json",
         "urn:marginbench:contention-matrix:v1": "contention-matrix.schema.json",
         "urn:marginbench:wide-directory-probe:v1": "wide-directory-probe.schema.json",
         "urn:marginbench:submission:v1": "submission.schema.json",
@@ -231,6 +233,28 @@ def _schema_errors(payload: Any, schema_name: str) -> list[str]:
 
 def _close(left: float, right: float) -> bool:
     return math.isclose(float(left), float(right), abs_tol=0.000001)
+
+
+def _histogram_numeric_summary(histogram: dict[str, int]) -> dict[str, float | int]:
+    values = sorted(
+        int(value)
+        for value, frequency in histogram.items()
+        for _ in range(frequency)
+    )
+    midpoint = len(values) // 2
+    median = (
+        float(values[midpoint])
+        if len(values) % 2
+        else (values[midpoint - 1] + values[midpoint]) / 2
+    )
+    p95_index = max(0, (95 * len(values) + 99) // 100 - 1)
+    return {
+        "total": sum(values),
+        "min": float(values[0]),
+        "median": round(median, 6),
+        "p95": float(values[p95_index]),
+        "max": float(values[-1]),
+    }
 
 
 def _observed_wallet_debit(wallet: dict[str, Any]) -> float:
@@ -2248,6 +2272,124 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             errors.append("concurrency command-count delta is inconsistent")
         if payload["passed"] != expected_passed:
             errors.append("concurrency pass flag is inconsistent")
+    elif schema_name == "suggestion-convergence-probe.schema.json":
+        fixture = payload["fixture"]
+        method = payload["method"]
+        arms = payload["arms"]
+        comparison = payload["comparison"]
+        expected_samples = method["repetitionsPerDelay"] * len(method["delaysMs"])
+        if method["delaysMs"] != sorted(method["delaysMs"]):
+            errors.append("suggestion convergence delays are not increasing")
+        if fixture["sampleCountPerArm"] != expected_samples:
+            errors.append("suggestion convergence fixture sample count is inconsistent")
+        case_material = [
+            f"{delay}:{repetition}"
+            for delay in method["delaysMs"]
+            for repetition in range(method["repetitionsPerDelay"])
+        ]
+        expected_case_digest = hashlib.sha256(
+            "\n".join(case_material).encode("ascii")
+        ).hexdigest()
+        if fixture["caseSetSha256"] != expected_case_digest:
+            errors.append("suggestion convergence case-set digest is inconsistent")
+        for label in ("baseline", "candidate"):
+            arm = arms[label]
+            if arm["sampleCount"] != expected_samples:
+                errors.append(f"suggestion convergence {label} sample count is inconsistent")
+            if arm["completedCount"] > arm["sampleCount"]:
+                errors.append(f"suggestion convergence {label} completion count is inconsistent")
+            delay_values = [item["delayMs"] for item in arm["byDelay"]]
+            if delay_values != method["delaysMs"]:
+                errors.append(f"suggestion convergence {label} delay coverage is inconsistent")
+            if sum(item["sampleCount"] for item in arm["byDelay"]) != arm["sampleCount"]:
+                errors.append(f"suggestion convergence {label} delay samples are inconsistent")
+            call_summaries = [
+                (arm["convergenceCalls"], arm["sampleCount"]),
+                *[
+                    (item["convergenceCalls"], item["sampleCount"])
+                    for item in arm["byDelay"]
+                ],
+            ]
+            for summary, expected_count in call_summaries:
+                histogram_count = sum(summary["histogram"].values())
+                histogram_total = sum(
+                    int(count) * frequency
+                    for count, frequency in summary["histogram"].items()
+                )
+                if histogram_count != expected_count:
+                    errors.append(f"suggestion convergence {label} call histogram is inconsistent")
+                if histogram_total != summary["total"]:
+                    errors.append(f"suggestion convergence {label} call total is inconsistent")
+                expected_summary = _histogram_numeric_summary(summary["histogram"])
+                if any(
+                    not _close(summary[field], expected_summary[field])
+                    for field in ("total", "min", "median", "p95", "max")
+                ):
+                    errors.append(
+                        f"suggestion convergence {label} call summary is inconsistent"
+                    )
+            aggregate_histogram = Counter()
+            for item in arm["byDelay"]:
+                aggregate_histogram.update(item["convergenceCalls"]["histogram"])
+            if dict(aggregate_histogram) != arm["convergenceCalls"]["histogram"]:
+                errors.append(
+                    f"suggestion convergence {label} aggregate histogram is inconsistent"
+                )
+            if sum(
+                item["convergenceCalls"]["total"] for item in arm["byDelay"]
+            ) != arm["convergenceCalls"]["total"]:
+                errors.append(f"suggestion convergence {label} delay call totals are inconsistent")
+            duration = arm["durationMs"]
+            if not duration["min"] <= duration["median"] <= duration["p95"] <= duration["max"]:
+                errors.append(f"suggestion convergence {label} duration percentiles are inconsistent")
+        baseline_calls = arms["baseline"]["convergenceCalls"]["total"]
+        candidate_calls = arms["candidate"]["convergenceCalls"]["total"]
+        if comparison["candidateMinusBaselineConvergenceCalls"] != (
+            candidate_calls - baseline_calls
+        ):
+            errors.append("suggestion convergence call delta is inconsistent")
+        if not _close(
+            comparison["candidateToBaselineConvergenceCallRatio"],
+            candidate_calls / baseline_calls,
+        ):
+            errors.append("suggestion convergence call ratio is inconsistent")
+        if [item["delayMs"] for item in comparison["byDelay"]] != method["delaysMs"]:
+            errors.append("suggestion convergence comparison delay coverage is inconsistent")
+        for item in comparison["byDelay"]:
+            delay = item["delayMs"]
+            baseline = next(value for value in arms["baseline"]["byDelay"] if value["delayMs"] == delay)
+            candidate = next(value for value in arms["candidate"]["byDelay"] if value["delayMs"] == delay)
+            if not _close(
+                item["candidateMinusBaselineMedianCalls"],
+                candidate["convergenceCalls"]["median"]
+                - baseline["convergenceCalls"]["median"],
+            ):
+                errors.append("suggestion convergence median call delta is inconsistent")
+            if not _close(
+                item["candidateMinusBaselineMedianDurationMs"],
+                candidate["durationMs"]["median"] - baseline["durationMs"]["median"],
+            ):
+                errors.append("suggestion convergence median duration delta is inconsistent")
+        expected_passed = (
+            all(
+                arm["completedCount"] == arm["sampleCount"]
+                and arm["writerFailureCount"] == 0
+                and arm["convergenceFailureCount"] == 0
+                and arm["documentValid"]
+                and arm["graphIntegrityPassed"]
+                and arm["sourcePreserved"]
+                for arm in arms.values()
+            )
+            and arms["candidate"]["convergenceCalls"]["histogram"]
+            == {"1": expected_samples}
+            and all(
+                item["convergenceCalls"]["min"] >= 2
+                for item in arms["baseline"]["byDelay"]
+            )
+            and baseline_calls > candidate_calls
+        )
+        if payload["passed"] != expected_passed:
+            errors.append("suggestion convergence pass flag is inconsistent")
     elif schema_name == "wide-directory-probe.schema.json":
         fixture = payload["fixture"]
         method = payload["method"]

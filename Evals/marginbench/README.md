@@ -107,6 +107,10 @@ PYTHONPATH=Evals/marginbench python3 -m marginbench.cli wide-directory-probe \
 PYTHONPATH=Evals/marginbench python3 -m marginbench.cli concurrency-probe \
   --baseline-bin PATH_TO_BASELINE --candidate-bin build/margin --repetitions 100
 
+PYTHONPATH=Evals/marginbench python3 -m marginbench.cli \
+  suggestion-convergence-probe \
+  --baseline-bin PATH_TO_PRE_WAIT_BINARY --candidate-bin build/margin
+
 PYTHONPATH=Evals/marginbench python3 -m marginbench.cli contention-matrix \
   --baseline-bin PATH_TO_BASELINE --candidate-bin build/margin \
   --repetitions 8
@@ -168,6 +172,19 @@ schema-bound report is
 of `make marginbench-audit`, so a stale or hand-edited report fails the normal
 publication gate. The current 1,000-pair development result is
 `results/concurrency/v41-model-free.json`.
+
+`suggestion-convergence-probe` invokes no model. It gives both arms the same
+known first suggestion, adds a second suggestion after controlled 200, 500,
+and 1,000 ms delays, and starts the arms together with counterbalanced process
+order. The baseline checks `suggest list` repeatedly; the candidate makes one
+named `suggest wait` call. Verification reads are excluded from the measured
+convergence count but still require both exact suggestions, a valid comment
+graph, and byte-identical logical Markdown. The report contains only aggregate
+counts, timings, binary digests, and a generated case-set digest. It uses
+`urn:marginbench:suggestion-convergence-probe:v1`, is checked by
+`make marginbench-audit`, and is mechanism evidence rather than a model-quality
+claim. The current retained result is
+`results/convergence/v61-model-free.json`.
 
 `contention-matrix` invokes no model and uses real, simultaneous CLI processes.
 By default it tests groups of 2, 4, 8, and 16 actors across five meanings of

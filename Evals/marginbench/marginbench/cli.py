@@ -15,6 +15,10 @@ from .challenges import challenge_catalog
 from .checkpoint import CheckpointPromotionError, promote_checkpoint
 from .controls import DEFAULT_CONTROL_PROFILE, control_catalog
 from .concurrency_probe import ConcurrencyProbeLimits, run_concurrency_probe
+from .convergence_probe import (
+    SuggestionConvergenceLimits,
+    run_suggestion_convergence_probe,
+)
 from .contention_matrix import ContentionMatrixLimits, run_contention_matrix
 from .crossover import (
     CONTINUING_PROFILE,
@@ -171,6 +175,22 @@ def main(argv: list[str] | None = None) -> int:
     concurrency_probe.add_argument("--baseline-bin", required=True)
     concurrency_probe.add_argument("--candidate-bin", required=True)
     concurrency_probe.add_argument("--repetitions", type=int, default=100)
+
+    convergence_probe = subparsers.add_parser(
+        "suggestion-convergence-probe",
+        help="compare repeated suggestion-list polling with one named durable wait",
+    )
+    convergence_probe.add_argument("--baseline-bin", required=True)
+    convergence_probe.add_argument("--candidate-bin", required=True)
+    convergence_probe.add_argument("--repetitions", type=int, default=4)
+    convergence_probe.add_argument(
+        "--delay-ms",
+        action="append",
+        type=int,
+        help="delayed peer write in milliseconds; repeat to replace 200,500,1000",
+    )
+    convergence_probe.add_argument("--poll-interval-ms", type=int, default=50)
+    convergence_probe.add_argument("--timeout-seconds", type=int, default=3)
 
     contention_matrix = subparsers.add_parser(
         "contention-matrix",
@@ -391,6 +411,18 @@ def main(argv: list[str] | None = None) -> int:
             _binary(arguments.baseline_bin),
             _binary(arguments.candidate_bin),
             limits=ConcurrencyProbeLimits(repetitions=arguments.repetitions),
+        ))
+        return 0
+    if arguments.command == "suggestion-convergence-probe":
+        _write(run_suggestion_convergence_probe(
+            _binary(arguments.baseline_bin),
+            _binary(arguments.candidate_bin),
+            limits=SuggestionConvergenceLimits(
+                repetitions_per_delay=arguments.repetitions,
+                delays_ms=tuple(arguments.delay_ms or (200, 500, 1_000)),
+                poll_interval_ms=arguments.poll_interval_ms,
+                timeout_seconds=arguments.timeout_seconds,
+            ),
         ))
         return 0
     if arguments.command == "contention-matrix":

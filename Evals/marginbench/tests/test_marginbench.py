@@ -1321,9 +1321,10 @@ class MarginBenchCoreTests(unittest.TestCase):
             self.assertEqual(payload["$schema"], "https://json-schema.org/draft/2020-12/schema")
             self.assertNotIn(payload["$id"], schemas)
             schemas[payload["$id"]] = payload
-        self.assertEqual(len(schemas), 47)
+        self.assertEqual(len(schemas), 48)
         self.assertIn("urn:marginbench:crossover-prime-plan:v1", schemas)
         self.assertIn("urn:marginbench:crossover-prime-completion:v1", schemas)
+        self.assertIn("urn:marginbench:schema:suggestion-convergence-probe:v1", schemas)
 
         try:
             from jsonschema import Draft202012Validator

@@ -593,6 +593,24 @@ wait or list after its first successful wait. The corresponding finding now
 targets receipt finality and next actions. This changes no correctness score and
 does not retroactively rewrite the signed v59 evidence.
 
+v61 isolates the wait mechanism without a model. Each arm starts with one
+known suggestion; a peer adds the second after a controlled 200, 500, or 1,000
+ms delay. The frozen pre-wait binary polls `suggest list`, while the candidate
+runs one `suggest wait` for the same two public ids. Twelve paired,
+counterbalanced trials completed exactly and preserved both the comment graph
+and logical Markdown. The polling arm made 115 measured convergence calls; the
+wait arm made 12, exactly one per trial. Median call savings increased from four
+at 200 ms to fourteen at 1,000 ms. Candidate median end-to-end time was 9.753
+to 51.515 ms lower, but duration is descriptive and not a pass criterion.
+
+The independently validated aggregate is retained at
+`Evals/marginbench/results/convergence/v61-model-free.json`. It contains no
+paths, ids, bodies, or model data, and its schema recomputes the case-set digest,
+histograms, summaries, per-delay totals, comparisons, and pass flag. This
+establishes that one blocking predicate causally removes visible polling. It
+does not establish that models will trust the receipt, and it does not justify
+presence or general-completion claims.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a
