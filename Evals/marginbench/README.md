@@ -189,11 +189,14 @@ renaming the profile is forbidden because its writable ledger and checks mean
 something different.
 
 The private-trace reducer in steps 1 and 2 is implemented and tested, but it is
-not yet selected by the paid controller. It retains only stable per-role checks,
+not yet selected by the paid controller. Its output is now bound to the strict
+`urn:marginbench:no-exchange-trace-summary:v1` schema and semantic validator.
+It retains only stable per-role checks,
 topology, stop conditions, aggregate usage/cost, action counts, and request and
 response byte counts. It discards final answers, tool arguments, tool results,
 paths, and content. Blocked writes and malformed actions remain visible as
-counts instead of disappearing with the redaction.
+counts instead of disappearing with the redaction. The remaining schemas in
+step 3 are the complete paid-run manifest and Prime execution summary.
 
 `wide-directory-probe` invokes no model. It creates byte-identical copies of a
 deterministic 16-document, 64-item workspace; alternates baseline and candidate

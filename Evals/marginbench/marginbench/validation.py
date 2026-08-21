@@ -122,6 +122,7 @@ def _schema_name(payload: Any) -> tuple[str, str]:
         "urn:marginbench:neutral-feasibility:v1": "neutral-feasibility.schema.json",
         "urn:marginbench:no-exchange-feasibility:v1": "no-exchange-feasibility.schema.json",
         "urn:marginbench:no-exchange-isolation-preflight:v1": "no-exchange-isolation-preflight.schema.json",
+        "urn:marginbench:no-exchange-trace-summary:v1": "no-exchange-trace-summary.schema.json",
         "urn:marginbench:neutral-isolation-preflight:v1": "neutral-isolation-preflight.schema.json",
         "urn:marginbench:neutral-prompt-audit:v1": "neutral-prompt-audit.schema.json",
         "urn:marginbench:neutral-production-preflight:v1": "neutral-production-preflight.schema.json",
@@ -660,6 +661,63 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 errors.append("no-exchange isolation file-copy count is inconsistent")
         if payload["passed"] != all(item["passed"] for item in assessments):
             errors.append("no-exchange isolation overall pass flag is inconsistent")
+    elif schema_name == "no-exchange-trace-summary.schema.json":
+        episodes = payload["episodes"]
+        if payload["episodeCount"] != len(episodes):
+            errors.append("no-exchange trace episode count is inconsistent")
+        episode_ids = [item["episodeID"] for item in episodes]
+        if len(episode_ids) != len(set(episode_ids)) or episode_ids != sorted(episode_ids):
+            errors.append("no-exchange trace episodes are not unique canonical values")
+        represented_traces = 0
+        for episode in episodes:
+            roles = episode["roles"]
+            role_runs = episode["roleRuns"]
+            represented_traces += len(role_runs)
+            if episode["roleCount"] != len(roles):
+                errors.append("no-exchange trace role count is inconsistent")
+            passed = sum(item["passed"] for item in roles)
+            if episode["passedRoleCount"] != passed:
+                errors.append("no-exchange trace passed-role count is inconsistent")
+            for role in roles:
+                if role["passed"] != all(role["checks"].values()):
+                    errors.append("no-exchange trace role pass flag is inconsistent")
+                if (role["submittedFactCount"] is None) == role["checks"]["responseValid"]:
+                    errors.append("no-exchange trace submitted count is inconsistent")
+            source_preserved = all(
+                role["checks"]["initialSourceUnchanged"] for role in roles
+            )
+            if episode["sourcePreserved"] != source_preserved:
+                errors.append("no-exchange trace source flag is inconsistent")
+            expected_seats = [role["seat"] for role in roles]
+            if (
+                len(expected_seats) != len(set(expected_seats))
+                or episode["traceSeats"] != expected_seats
+                or episode["agentProcessCount"] != len(expected_seats)
+                or episode["separateAgentRolloutCount"] != len(expected_seats)
+            ):
+                errors.append("no-exchange trace topology is inconsistent")
+            run_seats = [role["seat"] for role in role_runs]
+            if payload["traceConsistencyPassed"] and sorted(run_seats) != sorted(expected_seats):
+                errors.append("no-exchange trace role-run coverage is inconsistent")
+            round_trips = episode["toolRoundTrips"]
+            actions = round_trips["actionCounts"]
+            if round_trips["count"] != sum(actions.values()):
+                errors.append("no-exchange trace action count is inconsistent")
+            if round_trips["blockedActionCount"] != actions["write"] + actions["invalid"]:
+                errors.append("no-exchange trace blocked-action count is inconsistent")
+            usage = episode["usage"]
+            for name in (
+                "modelCalls", "promptTokens", "completionTokens",
+                "cachedInputTokens", "reasoningTokens",
+            ):
+                if usage[name] != sum(role["usage"][name] for role in role_runs):
+                    errors.append(f"no-exchange trace {name} total is inconsistent")
+            if usage["reportedCostUSD"] != round(sum(
+                role["usage"]["reportedCostUSD"] for role in role_runs
+            ), 6):
+                errors.append("no-exchange trace reported cost is inconsistent")
+        if payload["traceConsistencyPassed"] and payload["traceCount"] != represented_traces:
+            errors.append("no-exchange trace count is inconsistent")
     elif schema_name == "neutral-served-preflight.schema.json":
         assessments = payload["assessments"]
         if payload["assessmentCount"] != len(assessments):

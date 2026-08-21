@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import tempfile
 import unittest
@@ -8,6 +9,8 @@ from pathlib import Path
 from marginbench.entropy import PUBLIC_DEVELOPMENT_KEY
 from marginbench.no_exchange import NO_EXCHANGE_PROFILE
 from marginbench.scenarios import generate_episode
+from marginbench.schema import canonical_json
+from marginbench.validation import validate_bytes
 from prime_pilot import _summarize_no_exchange_traces
 
 
@@ -86,6 +89,13 @@ class NoExchangeTraceSummaryTests(unittest.TestCase):
         self.assertEqual(result["toolRoundTrips"]["actionCounts"]["read"], 2)
         self.assertEqual(result["toolRoundTrips"]["blockedActionCount"], 0)
         self.assertEqual(result["usage"]["reportedCostUSD"], 0.002)
+        receipt = validate_bytes(canonical_json(summary))
+        self.assertTrue(receipt["valid"], receipt["errors"])
+        tampered = copy.deepcopy(summary)
+        tampered["episodes"][0]["toolRoundTrips"]["blockedActionCount"] = 1
+        rejected = validate_bytes(canonical_json(tampered))
+        self.assertFalse(rejected["valid"])
+        self.assertTrue(any("blocked-action" in item for item in rejected["errors"]))
 
     def test_blocked_or_malformed_actions_are_visible_without_arguments(self) -> None:
         episode = generate_episode("parallel_shards", PUBLIC_DEVELOPMENT_KEY, 0)

@@ -896,6 +896,7 @@ def _summarize_no_exchange_traces(output: Path) -> dict[str, Any]:
         episode["roleRuns"].sort(key=lambda value: (value["seat"], value["stopCondition"] or ""))
         summaries.append(episode)
     return {
+        "schema": "urn:marginbench:no-exchange-trace-summary:v1",
         "traceCount": len(traces),
         "episodeCount": len(summaries),
         "traceConsistencyPassed": consistent,

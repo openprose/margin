@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:no-exchange-trace-summary:v1",
+  "title": "MarginBench redacted no-exchange trace summary v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "traceCount", "episodeCount", "traceConsistencyPassed", "episodes"],
+  "properties": {
+    "schema": {"const": "urn:marginbench:no-exchange-trace-summary:v1"},
+    "traceCount": {"type": "integer", "minimum": 0, "maximum": 200000},
+    "episodeCount": {"type": "integer", "minimum": 0, "maximum": 100000},
+    "traceConsistencyPassed": {"type": "boolean"},
+    "episodes": {
+      "type": "array", "maxItems": 100000,
+      "items": {"$ref": "#/$defs/episode"}
+    }
+  },
+  "$defs": {
+    "usage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["modelCalls", "promptTokens", "completionTokens", "cachedInputTokens", "reasoningTokens", "reportedCostUSD"],
+      "properties": {
+        "modelCalls": {"type": "integer", "minimum": 0},
+        "promptTokens": {"type": "integer", "minimum": 0},
+        "completionTokens": {"type": "integer", "minimum": 0},
+        "cachedInputTokens": {"type": "integer", "minimum": 0},
+        "reasoningTokens": {"type": "integer", "minimum": 0},
+        "reportedCostUSD": {"type": "number", "minimum": 0}
+      }
+    },
+    "checks": {
+      "type": "object", "additionalProperties": false,
+      "required": ["responseValid", "exactIndependentFacts", "initialSourceUnchanged"],
+      "properties": {
+        "responseValid": {"type": "boolean"},
+        "exactIndependentFacts": {"type": "boolean"},
+        "initialSourceUnchanged": {"type": "boolean"}
+      }
+    },
+    "role": {
+      "type": "object", "additionalProperties": false,
+      "required": ["seat", "phase", "expectedFactCount", "submittedFactCount", "checks", "passed"],
+      "properties": {
+        "seat": {"enum": ["author", "reviewer"]},
+        "phase": {"type": "integer", "minimum": 0, "maximum": 31},
+        "expectedFactCount": {"type": "integer", "minimum": 0, "maximum": 512},
+        "submittedFactCount": {"type": ["integer", "null"], "minimum": 0, "maximum": 512},
+        "checks": {"$ref": "#/$defs/checks"},
+        "passed": {"type": "boolean"}
+      }
+    },
+    "roleRun": {
+      "type": "object", "additionalProperties": false,
+      "required": ["seat", "stopCondition", "usage"],
+      "properties": {
+        "seat": {"enum": ["author", "reviewer", "unknown"]},
+        "stopCondition": {"type": ["string", "null"], "maxLength": 128},
+        "usage": {"$ref": "#/$defs/usage"}
+      }
+    },
+    "toolRoundTrips": {
+      "type": "object", "additionalProperties": false,
+      "required": ["count", "blockedActionCount", "requestBytes", "responseBytes", "actionCounts"],
+      "properties": {
+        "count": {"type": "integer", "minimum": 0},
+        "blockedActionCount": {"type": "integer", "minimum": 0},
+        "requestBytes": {"type": "integer", "minimum": 0},
+        "responseBytes": {"type": "integer", "minimum": 0},
+        "actionCounts": {
+          "type": "object", "additionalProperties": false,
+          "required": ["guide", "list", "read", "write", "invalid"],
+          "properties": {
+            "guide": {"type": "integer", "minimum": 0},
+            "list": {"type": "integer", "minimum": 0},
+            "read": {"type": "integer", "minimum": 0},
+            "write": {"type": "integer", "minimum": 0},
+            "invalid": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    },
+    "episode": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "episodeID", "scenario", "repetition", "fingerprint", "aggregation", "roles",
+        "passedRoleCount", "roleCount", "sourcePreserved", "overallScore", "durationMs",
+        "controlProfile", "controlRunnable", "component", "separateAgentRolloutCount",
+        "toolSurface", "allowedActions", "agentProcessCount", "traceSeats", "phasePolicy",
+        "roleRuns", "toolRoundTrips", "usage"
+      ],
+      "properties": {
+        "episodeID": {"type": "string", "minLength": 1, "maxLength": 256},
+        "scenario": {"enum": ["human_agent_relay", "agent_agent_handoff", "concurrent_review", "suggestion_decision", "staged_multifile", "directory_handoff", "parallel_shards", "specialist_audit", "distributed_synthesis"]},
+        "repetition": {"type": "integer", "minimum": 0, "maximum": 999999},
+        "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "aggregation": {"const": "per-role-only-no-overall-score"},
+        "roles": {"type": "array", "minItems": 1, "maxItems": 2, "items": {"$ref": "#/$defs/role"}},
+        "passedRoleCount": {"type": "integer", "minimum": 0, "maximum": 2},
+        "roleCount": {"type": "integer", "minimum": 1, "maximum": 2},
+        "sourcePreserved": {"type": "boolean"},
+        "overallScore": {"type": "null"},
+        "durationMs": {"type": "number", "minimum": 0},
+        "controlProfile": {"const": "role-separated-no-exchange-v1"},
+        "controlRunnable": {"const": false},
+        "component": {"const": "integrated-profile-runner-development"},
+        "separateAgentRolloutCount": {"type": "integer", "minimum": 1, "maximum": 2},
+        "toolSurface": {"const": ["workspace"]},
+        "allowedActions": {"const": ["guide", "list", "read"]},
+        "agentProcessCount": {"type": "integer", "minimum": 1, "maximum": 2},
+        "traceSeats": {"type": "array", "minItems": 1, "maxItems": 2, "items": {"enum": ["author", "reviewer"]}, "uniqueItems": true},
+        "phasePolicy": {"const": "independent-workspaces"},
+        "roleRuns": {"type": "array", "minItems": 1, "maxItems": 2, "items": {"$ref": "#/$defs/roleRun"}},
+        "toolRoundTrips": {"$ref": "#/$defs/toolRoundTrips"},
+        "usage": {"$ref": "#/$defs/usage"}
+      }
+    }
+  }
+}
