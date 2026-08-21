@@ -269,6 +269,24 @@ therefore the built-in suggestion guidance: teach the shortest safe path for an
 exact assignment, then rerun the same forced-contention pair. The
 natural-scheduler pilot must never be reinterpreted under the corrected rules.
 
+The first guidance-only pair then held the retrying mechanism fixed and changed
+only the suggestion manual plus focused add help. It cost $0.0093. Both arms
+were exact, safe, and source-preserving. The old guidance scored 96.944 with 23
+commands, 25 model turns, 46.263 seconds, and $0.0051 reported cost. The new
+guidance scored 97.222 with 22 commands, 24 model turns, 44.005 seconds, and
+$0.0042 reported cost. Every new-guidance write used the exact `--expect`
+precondition, while none of the old-guidance writes did.
+
+This remains a diagnostic one-pair result, not a promotion result. The private
+shape audit explains the modest gain: neither new-guidance role opened
+`margin man suggestions`. Both opened global help and `suggest add --help`, then
+still inspected, read, wrote four suggestions, listed, reread, and performed a
+final inspect or review. The longer manual was therefore not the active teaching
+surface. The next candidate should put a small structured exact-assignment path
+directly in focused command help: read once, add the independent batch, trust a
+matching success receipt, and list once; inspect or reread only after drift or
+an external change.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a

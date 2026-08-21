@@ -1239,6 +1239,8 @@ final class CLICommandContractTests: XCTestCase {
         let add = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "add"]))
         XCTAssertTrue(add.contains("metadata races retry internally"))
         XCTAssertTrue(add.contains("source drift fails closed"))
+        XCTAssertTrue(add.contains("matching success or already-applied is conclusive"))
+        XCTAssertTrue(add.contains("--quote \"current text\" --expect \"current text\""))
 
         let accept = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "accept"]))
         XCTAssertTrue(accept.contains("never silently rebased"))
@@ -1249,6 +1251,21 @@ final class CLICommandContractTests: XCTestCase {
 
         let handoff = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["handoff", "add"]))
         XCTAssertTrue(handoff.contains("provenance is never silently rewritten"))
+    }
+
+    func testSuggestionManualSeparatesExactAssignmentsFromDiscovery() throws {
+        let manual = try XCTUnwrap(MarginManual.page(for: "suggestions"))
+        let exactPath = try XCTUnwrap(manual.range(of: "EXACT ASSIGNMENTS — SHORTEST SAFE PATH"))
+        let discoveryPath = try XCTUnwrap(manual.range(of: "DISCOVER OR DECIDE WORK"))
+
+        XCTAssertLessThan(exactPath.lowerBound, discoveryPath.lowerBound)
+        XCTAssertTrue(manual.contains("Read the file once"))
+        XCTAssertTrue(manual.contains("--expect \"current text\""))
+        XCTAssertTrue(manual.contains("without rereading between them"))
+        XCTAssertTrue(manual.contains("successful or already-applied matching receipt is conclusive"))
+        XCTAssertTrue(manual.contains("After the batch, list once"))
+        XCTAssertTrue(manual.contains("Skip preliminary context, inspect, and list calls"))
+        XCTAssertTrue(manual.contains("margin context TARGET --json --brief"))
     }
 
     func testDirectoryContextReturnsReusablePerFilePathsAndNeverInventsRevisionZero() throws {

@@ -288,17 +288,33 @@ enum MarginManual {
 
     Use a suggestion when source text should be reviewed before it changes.
 
-    WORKFLOW
-      1. margin context TARGET --json --brief
-      2. For an existing suggestion, choose the concrete accept or reject action
-         in workflowGuidance only after making the authorized decision.
-      3. To create a new suggestion when no concrete action fits:
+    EXACT ASSIGNMENTS — SHORTEST SAFE PATH
+      Use this path when the task already supplies the file, exact current text,
+      replacement, explanation, and stable id.
+
+      1. Read the file once and confirm every quoted passage:
+         margin read FILE --json
+      2. Add each independent suggestion without rereading between them:
          margin suggest add FILE --quote "current text" \\
-           --replacement "proposed text" -m "Why this is better" --id UUID
-      4. margin suggest list TARGET
-      5. margin suggest accept TARGET ID
+           --expect "current text" --replacement "proposed text" \\
+           -m "Why this is better" --id UUID
+      3. A successful or already-applied matching receipt is conclusive. Do not
+         replay that suggestion.
+      4. After the batch, list once to verify every stable id:
+         margin suggest list FILE
+
+      Skip preliminary context, inspect, and list calls when the exact assignment
+      is complete and the single source read confirms it. Those commands are for
+      discovering work, not for re-proving supplied coordinates.
+
+    DISCOVER OR DECIDE WORK
+      1. margin context TARGET --json --brief
+      2. For an existing suggestion, choose its concrete accept or reject action
+         in workflowGuidance only after making the authorized decision.
+      3. margin suggest list TARGET
+      4. margin suggest accept TARGET ID
          or: margin suggest reject TARGET ID
-      6. Exact machine grammar when needed:
+      5. Exact machine grammar when needed:
          margin capabilities --json --for suggestions --brief
 
     PRACTICE

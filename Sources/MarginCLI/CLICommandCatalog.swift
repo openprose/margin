@@ -875,8 +875,11 @@ enum CLICommandCatalog {
             ),
             command(
                 "suggest", "add",
-                summary: "Add a passage replacement suggestion; unchanged-source metadata races retry internally, while source drift fails closed.",
-                usage: ["margin suggest add TARGET (--quote EXACT [--prefix P --suffix S] [--occurrence N] | --range START:END | --from LINE:COL --to LINE:COL) [--expect TEXT] --replacement TEXT -m MESSAGE [OPTIONS]"],
+                summary: "Add an exact replacement proposal; matching success or already-applied is conclusive. Independent metadata races retry internally, while source drift fails closed.",
+                usage: [
+                    "margin suggest add TARGET (--quote EXACT [--prefix P --suffix S] [--occurrence N] | --range START:END | --from LINE:COL --to LINE:COL) [--expect TEXT] --replacement TEXT -m MESSAGE [OPTIONS]",
+                    "margin suggest add FILE --quote \"current text\" --expect \"current text\" --replacement \"proposed text\" -m \"Why\" --id UUID",
+                ],
                 arguments: [target],
                 options: mutationTarget + [option("--quote", value: "EXACT", description: "Resolve a unique exact passage without coordinate arithmetic."), option("--prefix", value: "TEXT", description: "Text immediately before --quote for disambiguation."), option("--suffix", value: "TEXT", description: "Text immediately after --quote for disambiguation."), option("--occurrence", value: "N", description: "One-based duplicate quote occurrence."), option("--range", value: "START:END", description: "Half-open Unicode-scalar range."), option("--from", value: "LINE:COL", description: "One-based grapheme start; requires --to."), option("--to", value: "LINE:COL", description: "One-based grapheme end; requires --from."), option("--expect", value: "TEXT", description: "Optional exact-match precondition; derived from the resolved passage when omitted."), requiredOption("--replacement", value: "TEXT", description: "Replacement logical Markdown."), option("--id", "--contribution-id", value: "ID", description: "Stable contribution and retry identity."), option("--audience", value: "ACTOR_ID", repeatable: true, description: "Intended actor audience.")] + messageOptions + actorOptions + identities + presentation,
                 sideEffects: "mutates-file-metadata",
