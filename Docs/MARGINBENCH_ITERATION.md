@@ -501,6 +501,32 @@ Mach-O segment sizes, so this is a recorded sub-millisecond process-layout or
 scheduling effect, not evidence of a new startup path. The optimized CLI remains
 2.7 MiB. No paid model was invoked for v56 yet.
 
+One fresh private Qwen pair then compared v54's separate batch verb with v56's
+unified add form. Both arms were exact, safe, source-preserving, and free of
+invalid calls. v54 scored 96.667 with 24 commands, 25 model calls, 46.316
+seconds, and $0.0046 reported cost. v56 scored 98.611 with 17 commands, 19
+model calls, 37.912 seconds, and $0.0035. The pair reported $0.0081 total; the
+proxy conservatively accounted $0.020153 beneath the $0.10 cap, independent
+submission verification passed, and both private key copies were overwritten
+and removed.
+
+The command traces support the intended mechanism but also bound the claim.
+Both v56 roles opened global help and add help. One then used the unified atomic
+form in one write; the other inspected, read, and listed before making four
+single additions. The batch role also listed twice after its write, so all-role
+adoption and exactly-once post-write verification still failed their non-
+scoring diagnostics. In the v54 arm neither role batched, one role exhausted
+its turn allowance after extensive discovery, and both still committed every
+required suggestion. This is a useful one-case win, not promotion evidence.
+
+v57 fixes one telemetry inconsistency found while reading that pair. Gateway
+events and the scorer already normalized `suggest add --items-file` to the
+semantic batch operation, but private trace shapes showed the literal add verb.
+Trace shapes now use the same safe semantic normalization. Reprocessing the
+candidate trace yields exactly one `suggest batch`, four `suggest add`, and the
+corresponding role-separated sequences without retaining stdin, paths, ids, or
+document content.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a

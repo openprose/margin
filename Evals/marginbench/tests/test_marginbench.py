@@ -368,6 +368,38 @@ class MarginBenchCoreTests(unittest.TestCase):
             [{"commands": ["comments reply --resolve"], "count": 1}],
         )
 
+    def test_trace_shape_normalizes_multi_item_add_to_atomic_batch(self) -> None:
+        trace = {
+            "traces": [{
+                "task": {"data": {"scenario_id": "suggestion_contention"}},
+                "agent": {"name": "author"},
+                "nodes": [
+                    {"message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "batch-call",
+                            "name": "margin",
+                            "arguments": json.dumps({"arguments": [
+                                "suggest", "add", "private.md", "--items-file", "-",
+                            ]}),
+                        }],
+                    }},
+                    {"message": {
+                        "role": "tool",
+                        "tool_call_id": "batch-call",
+                        "content": json.dumps({"ok": True, "exitCode": 0}),
+                    }},
+                ],
+            }],
+        }
+        with tempfile.TemporaryDirectory(prefix="marginbench-batch-alias-trace-") as temporary:
+            path = Path(temporary) / "traces.jsonl"
+            path.write_text(json.dumps(trace) + "\n", encoding="utf-8")
+            report = summarize_trace_shapes([path])
+        self.assertTrue(validate_bytes(canonical_json(report))["valid"])
+        self.assertEqual(report["commands"][0]["name"], "suggest batch")
+        self.assertEqual(report["writeLatency"]["writeAttemptCount"], 1)
+
     def test_trace_shape_retains_only_static_manual_topics(self) -> None:
         secret = "private-man-topic"
         nodes = []

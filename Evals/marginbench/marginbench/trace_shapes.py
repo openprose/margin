@@ -165,6 +165,8 @@ def _safe_command(arguments: list[str]) -> tuple[str, bool]:
     semantic = event_command_path(values)
     if semantic == "help" or semantic.startswith("help "):
         return _safe_help_command(semantic), leading
+    if semantic == "suggest batch":
+        return semantic, leading
     if semantic in {"comments reply --resolve", "stage refresh --submit"}:
         return semantic, leading
     if semantic == "comments reply" and top == "comments":
