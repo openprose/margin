@@ -1943,6 +1943,56 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                     != suggestion_mechanisms["waitReceiptObservedTraceCount"]
                 ):
                     errors.append("diagnostic wait receipt partition is inconsistent")
+            handoff_recovery = evidence.get("handoffRecoveryEvidence")
+            if isinstance(handoff_recovery, dict):
+                applicable = handoff_recovery["applicableTraceCount"]
+                recovery_fields = (
+                    "allConflictReceiptsActionableTraceCount",
+                    "contextAfterConflictTraceCount",
+                    "handoffReviewAfterConflictTraceCount",
+                    "bothReadsAfterConflictTraceCount",
+                    "safeReauthorAttemptTraceCount",
+                    "successfulRecoveryTraceCount",
+                    "blindRetryTraceCount",
+                    "unresolvedConflictTraceCount",
+                )
+                if any(handoff_recovery[field] > applicable for field in recovery_fields):
+                    errors.append("diagnostic handoff recovery exceeds applicable traces")
+                if handoff_recovery["bothReadsAfterConflictTraceCount"] > min(
+                    handoff_recovery["contextAfterConflictTraceCount"],
+                    handoff_recovery["handoffReviewAfterConflictTraceCount"],
+                ):
+                    errors.append("diagnostic paired handoff recovery reads are inconsistent")
+                if handoff_recovery["safeReauthorAttemptTraceCount"] > handoff_recovery[
+                    "bothReadsAfterConflictTraceCount"
+                ]:
+                    errors.append("diagnostic safe handoff reauthor attempts are inconsistent")
+                if handoff_recovery["successfulRecoveryTraceCount"] > handoff_recovery[
+                    "safeReauthorAttemptTraceCount"
+                ]:
+                    errors.append("diagnostic successful handoff recovery is inconsistent")
+                if (
+                    finding["id"] == "non-actionable-handoff-conflict"
+                    and handoff_recovery["allConflictReceiptsActionableTraceCount"]
+                    >= applicable
+                ):
+                    errors.append("diagnostic non-actionable handoff threshold is not met")
+                if (
+                    finding["id"] == "blind-handoff-retry"
+                    and handoff_recovery["blindRetryTraceCount"] == 0
+                ):
+                    errors.append("diagnostic blind handoff threshold is not met")
+                if (
+                    finding["id"] == "unresolved-handoff-conflict"
+                    and handoff_recovery["unresolvedConflictTraceCount"] == 0
+                ):
+                    errors.append("diagnostic unresolved handoff threshold is not met")
+            elif finding["id"] in {
+                "non-actionable-handoff-conflict",
+                "blind-handoff-retry",
+                "unresolved-handoff-conflict",
+            }:
+                errors.append("diagnostic handoff finding lacks recovery evidence")
         experiment = payload["recommendedNextExperiment"]
         local_gate = focus is None or focus["safetyFailureCount"] > 0 or focus["sourceFailureCount"] > 0
         if experiment["gate"] != ("local-safety" if local_gate else "matched-private-pairs"):

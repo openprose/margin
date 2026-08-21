@@ -399,6 +399,9 @@ new attempt occurred only after both reads, recovery succeeded, a blind retry
 occurred, or the conflict remained unresolved. These are trace-level counts, not
 claims about intent. The report retains none of the recovery target, command
 arguments, handoff text, actor IDs, prompts, stdout, stderr, or source paths.
+When supplied with scored episodes, `marginbench diagnose` ranks incomplete
+receipts, blind retries, and unresolved conflicts as separate high-priority
+findings, while a fully safe recovery creates no defect by itself.
 
 ## Validate publication artifacts
 

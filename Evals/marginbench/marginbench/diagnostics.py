@@ -414,6 +414,36 @@ def _suggestion_mechanism_evidence(
     return {field: totals[field] for field in fields}
 
 
+def _handoff_recovery_evidence(
+    reports: list[dict[str, Any]],
+) -> dict[str, int] | None:
+    fields = (
+        "applicableTraceCount",
+        "allConflictReceiptsActionableTraceCount",
+        "contextAfterConflictTraceCount",
+        "handoffReviewAfterConflictTraceCount",
+        "bothReadsAfterConflictTraceCount",
+        "safeReauthorAttemptTraceCount",
+        "successfulRecoveryTraceCount",
+        "blindRetryTraceCount",
+        "unresolvedConflictTraceCount",
+    )
+    totals: Counter[str] = Counter()
+    for report in reports:
+        recovery = report.get("handoffRecovery")
+        if not isinstance(recovery, dict):
+            continue
+        for field in fields:
+            totals[field] += int(recovery.get(field, 0))
+    if totals["applicableTraceCount"] == 0:
+        return None
+    if totals["applicableTraceCount"] > MAX_SUPPLEMENTARY_TOOL_CALLS:
+        raise DiagnosticError(
+            "Supplementary handoff evidence exceeds the diagnostic trace limit."
+        )
+    return {field: totals[field] for field in fields}
+
+
 def _findings(
     episodes: list[dict[str, Any]],
     *,
@@ -421,6 +451,7 @@ def _findings(
     capability_response_evidence: dict[str, Any] | None = None,
     write_latency_evidence: dict[str, Any] | None = None,
     suggestion_mechanism_evidence: dict[str, int] | None = None,
+    handoff_recovery_evidence: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     integrity, _ = _affected(
@@ -513,6 +544,65 @@ def _findings(
                 "on the same stale-state cases."
             ),
         ))
+
+    if handoff_recovery_evidence is not None:
+        handoff_episodes = [
+            item
+            for item in episodes
+            if item["scenario"] in {"agent_agent_handoff", "directory_handoff"}
+        ] or episodes
+        applicable = handoff_recovery_evidence["applicableTraceCount"]
+        actionable = handoff_recovery_evidence[
+            "allConflictReceiptsActionableTraceCount"
+        ]
+        if actionable < applicable:
+            finding = _finding(
+                "non-actionable-handoff-conflict",
+                "high",
+                "Some handoff conflicts did not return the complete safe recovery contract",
+                handoff_episodes,
+                failed_checks=set(),
+                surfaces=["handoff error response", "recovery command", "focused help"],
+                experiment=(
+                    "Keep the stale cases and model fixed, return one bounded structured recovery "
+                    "contract at every handoff conflict, and compare actionable receipts, safe "
+                    "reauthoring, unresolved conflicts, and completion."
+                ),
+            )
+            finding["evidence"]["handoffRecoveryEvidence"] = handoff_recovery_evidence
+            findings.append(finding)
+        if handoff_recovery_evidence["blindRetryTraceCount"] > 0:
+            finding = _finding(
+                "blind-handoff-retry",
+                "high",
+                "A collaborator retried a stale handoff before reviewing current state",
+                handoff_episodes,
+                failed_checks=set(),
+                surfaces=["handoff conflict receipt", "compact context", "handoff review"],
+                experiment=(
+                    "Keep the conflict and handoff meaning fixed, require compact context plus "
+                    "handoff review before reauthoring, and compare blind retries, successful safe "
+                    "recoveries, completion, and total model input."
+                ),
+            )
+            finding["evidence"]["handoffRecoveryEvidence"] = handoff_recovery_evidence
+            findings.append(finding)
+        if handoff_recovery_evidence["unresolvedConflictTraceCount"] > 0:
+            finding = _finding(
+                "unresolved-handoff-conflict",
+                "high",
+                "A collaborator left a handoff conflict unresolved",
+                handoff_episodes,
+                failed_checks=set(),
+                surfaces=["handoff recovery steps", "bounded state reads", "completion signal"],
+                experiment=(
+                    "Keep the same stale cases and limits, make the next safe recovery steps "
+                    "explicit at failure, and compare unresolved conflicts, safe recoveries, "
+                    "completion, and command count."
+                ),
+            )
+            finding["evidence"]["handoffRecoveryEvidence"] = handoff_recovery_evidence
+            findings.append(finding)
 
     workflow, _ = _affected(
         episodes,
@@ -958,6 +1048,9 @@ def diagnose_artifacts(
         capability_response_evidence=_capability_response_evidence(focus_trace_reports),
         write_latency_evidence=_write_latency_evidence(focus_trace_reports),
         suggestion_mechanism_evidence=_suggestion_mechanism_evidence(
+            focus_trace_reports
+        ),
+        handoff_recovery_evidence=_handoff_recovery_evidence(
             focus_trace_reports
         ),
     )

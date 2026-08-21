@@ -899,6 +899,115 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertTrue(any("taught batch adoption" in item for item in invalid["errors"]))
 
     @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_diagnostics_rank_non_actionable_and_blind_handoff_recovery(self) -> None:
+        result = EpisodeResult(
+            episode_id="agent_agent_handoff:0:recovery-diagnostic",
+            candidate_id="handoff-recovery-candidate",
+            score=100.0,
+            dimensions={
+                "outcome": 100.0,
+                "integrity": 100.0,
+                "protocol": 100.0,
+                "recovery": 100.0,
+                "efficiency": 100.0,
+            },
+            checks={
+                "source_expected": True,
+                "valid_documents": True,
+                "all_or_none": True,
+                "workspace_expected_paths": True,
+                "workspace_policy": True,
+                "valid_command_use": True,
+                "required_recovery_observed": True,
+                "required_commands": True,
+            },
+            command_count=0,
+            invalid_command_count=0,
+            duration_ms=1.0,
+            safety_passed=True,
+            source_preserved=True,
+            margin_sha256="0" * 64,
+        )
+        handoff = ["handoff", "add", "private.md", "-m", "private"]
+        trace = {"traces": [{
+            "task": {"data": {"scenario_id": "agent_agent_handoff"}},
+            "agent": {"name": "author"},
+            "nodes": [
+                {"message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "stale",
+                        "name": "margin",
+                        "arguments": json.dumps({"arguments": handoff}),
+                    }],
+                }},
+                {"message": {
+                    "role": "tool",
+                    "tool_call_id": "stale",
+                    "content": json.dumps({
+                        "ok": False,
+                        "exitCode": 75,
+                        "errorCode": "COLLABORATION_PRECONDITION_FAILED",
+                    }),
+                }},
+                {"message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "blind",
+                        "name": "margin",
+                        "arguments": json.dumps({"arguments": handoff}),
+                    }],
+                }},
+                {"message": {
+                    "role": "tool",
+                    "tool_call_id": "blind",
+                    "content": json.dumps({"ok": True, "exitCode": 0}),
+                }},
+            ],
+        }]}
+        with tempfile.TemporaryDirectory(prefix="marginbench-handoff-diagnostic-") as temporary:
+            root = Path(temporary)
+            result_path = root / "result.json"
+            result_path.write_bytes(canonical_json(result.to_dict()))
+            trace_path = root / "traces.jsonl"
+            trace_path.write_text(json.dumps(trace) + "\n", encoding="utf-8")
+            shape_path = root / "trace-shape.json"
+            shape_path.write_bytes(canonical_json(summarize_trace_shapes([trace_path])))
+            report = diagnose_artifacts([result_path, shape_path])
+
+        finding_ids = [item["id"] for item in report["findings"]]
+        self.assertEqual(finding_ids[:2], [
+            "non-actionable-handoff-conflict",
+            "blind-handoff-retry",
+        ])
+        evidence = report["findings"][0]["evidence"]["handoffRecoveryEvidence"]
+        self.assertEqual(evidence["applicableTraceCount"], 1)
+        self.assertEqual(evidence["allConflictReceiptsActionableTraceCount"], 0)
+        self.assertEqual(evidence["blindRetryTraceCount"], 1)
+        self.assertEqual(evidence["unresolvedConflictTraceCount"], 0)
+        self.assertTrue(validate_bytes(canonical_json(report))["valid"])
+
+        tampered = json.loads(canonical_json(report))
+        tampered["findings"][0]["evidence"]["handoffRecoveryEvidence"][
+            "safeReauthorAttemptTraceCount"
+        ] = 1
+        invalid = validate_bytes(canonical_json(tampered))
+        self.assertFalse(invalid["valid"])
+        self.assertTrue(any(
+            "safe handoff reauthor attempts" in item for item in invalid["errors"]
+        ))
+
+        threshold_tampered = json.loads(canonical_json(report))
+        threshold_tampered["findings"][0]["evidence"]["handoffRecoveryEvidence"][
+            "allConflictReceiptsActionableTraceCount"
+        ] = 1
+        invalid = validate_bytes(canonical_json(threshold_tampered))
+        self.assertFalse(invalid["valid"])
+        self.assertTrue(any(
+            "non-actionable handoff threshold" in item for item in invalid["errors"]
+        ))
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
     def test_diagnostics_identify_extra_postwrite_state_reads(self) -> None:
         result = EpisodeResult(
             episode_id="suggestion_contention:0:extra-postwrite",
