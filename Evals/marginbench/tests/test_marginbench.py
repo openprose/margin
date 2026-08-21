@@ -400,6 +400,50 @@ class MarginBenchCoreTests(unittest.TestCase):
             {"man", "man handoff"},
         )
 
+    def test_trace_shape_retains_static_help_target_without_private_arguments(self) -> None:
+        secret = "private-help-target-and-path"
+        nodes = []
+        for index, arguments in enumerate((
+            ["suggest", "add", f"{secret}.md", "--help"],
+            ["help", secret],
+        )):
+            identifier = f"call-{index}"
+            nodes.extend([
+                {"message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": identifier,
+                        "name": "margin",
+                        "arguments": json.dumps({"arguments": arguments}),
+                    }],
+                }},
+                {"message": {
+                    "role": "tool",
+                    "tool_call_id": identifier,
+                    "content": json.dumps({"ok": True, "exitCode": 0}),
+                }},
+            ])
+        trace = {"traces": [{
+            "task": {"data": {"scenario_id": "suggestion_contention"}},
+            "agent": {"name": "author"},
+            "nodes": nodes,
+        }]}
+        with tempfile.TemporaryDirectory(prefix="marginbench-help-target-") as temporary:
+            path = Path(temporary) / "traces.jsonl"
+            path.write_text(json.dumps(trace) + "\n", encoding="utf-8")
+            report = summarize_trace_shapes([path])
+        encoded = canonical_json(report).decode("utf-8")
+        self.assertTrue(validate_bytes(encoded.encode("utf-8"))["valid"])
+        self.assertNotIn(secret, encoded)
+        self.assertEqual(
+            {item["name"] for item in report["commands"]},
+            {"help", "help suggest add"},
+        )
+        self.assertEqual(
+            report["scenarios"][0]["sequences"],
+            [{"commands": ["help suggest add", "help"], "count": 1}],
+        )
+
     def test_generation_is_deterministic_but_keyed(self) -> None:
         first = generate_episode("agent_agent_handoff", KEY, 7)
         repeated = generate_episode("agent_agent_handoff", KEY, 7)

@@ -128,6 +128,23 @@ def _safe_error(value: object) -> str:
     return value if isinstance(value, str) and SAFE_NAME.fullmatch(value) else "UNCLASSIFIED"
 
 
+def _safe_help_command(semantic: str) -> str:
+    """Retain only a static documented help target, never a user argument."""
+    if semantic == "help":
+        return semantic
+    values = semantic.split()
+    if len(values) not in {2, 3} or values[0] != "help":
+        return "help"
+    top = values[1]
+    if top not in ALLOWED_COMMANDS:
+        return "help"
+    if len(values) == 3:
+        subcommand = values[2]
+        if subcommand not in SAFE_SUBCOMMANDS.get(top, frozenset()):
+            return f"help {top}"
+    return semantic
+
+
 def _safe_command(arguments: list[str]) -> tuple[str, bool]:
     leading = arguments[:1] == ["margin"]
     values = arguments[1:] if leading else arguments
@@ -147,7 +164,7 @@ def _safe_command(arguments: list[str]) -> tuple[str, bool]:
         return f"man {SAFE_MAN_TOPICS[values[1]]}", leading
     semantic = event_command_path(values)
     if semantic == "help" or semantic.startswith("help "):
-        return "help", leading
+        return _safe_help_command(semantic), leading
     if semantic in {"comments reply --resolve", "stage refresh --submit"}:
         return semantic, leading
     if semantic == "comments reply" and top == "comments":

@@ -443,6 +443,39 @@ help median difference and a 0.115 ms global-help difference. The optimized
 focused help remains about 6 ms. These are scheduler-scale differences, not a
 speed regression or speedup claim.
 
+One fresh private Qwen pair then held the batch implementation, task, model,
+limits, and role layout fixed while comparing v52 with the first-help recipe.
+Both arms were exact, safe, source-preserving, free of invalid calls, and
+exactly-once in their post-write list/read verification. The complete pair
+reported $0.0074, with a conservative proxy-accounted upper value of $0.016906
+beneath the $0.10 cap; the private key copies were overwritten and removed
+after independent submission verification.
+
+The recipe did not improve adoption in this case. v52 scored 98.889 with 16
+commands and one batch-using role. v54 scored 98.611 with 17 commands and no
+batch-using role, although it finished 6.356 seconds faster. This is one
+diagnostic pair, not a population result, but it falsifies the narrow claim
+that a complete recipe on the add page is sufficient to make this model batch.
+The self-contained help remains useful and safe; it is not an efficiency win.
+
+v55 closes the measurement gap exposed by that result. Privacy-safe trace
+shapes previously collapsed every local help request to `help`, hiding whether
+an agent saw the page under test. They now retain only allowlisted static help
+targets such as `help suggest add` and `help suggest batch`; unknown topics,
+document paths, identifiers, prompts, and outputs remain absent. Reprocessing
+the private traces showed that the v52 batch user opened global help, add help,
+then dedicated batch help. Its peer opened add help and used four adds. In v54,
+one role opened the new add-help recipe and still used four adds; the other
+opened only parent suggestion help and used four adds. Both 207-test Python
+suites pass the refined privacy and canonical-validation contract.
+
+The next product experiment should therefore change the command affordance,
+not add another paragraph. The leading usage on an `add` page still teaches a
+single mutation, while batching requires switching verbs and constructing
+stdin JSON. A unified multi-item add form can put the efficient path in the
+primary usage block while preserving the existing single-add command and
+atomic batch engine.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a
