@@ -703,6 +703,101 @@ class MarginBenchCoreTests(unittest.TestCase):
             scenario.pop("handoffRecovery")
         self.assertTrue(validate_bytes(canonical_json(backward_compatible))["valid"])
 
+    def test_real_cli_handoff_conflict_round_trips_through_trace_recovery(self) -> None:
+        secret = "private-real-handoff-recovery-2c63"
+        actor = Actor(
+            id="urn:marginbench:test:handoff-recovery",
+            name="Handoff recovery test",
+            type="software",
+        )
+        with tempfile.TemporaryDirectory(prefix="marginbench-real-handoff-recovery-") as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            document = workspace / "review.md"
+            source = f"# Recovery fixture\n\n{secret}\n"
+            document.write_text(source, encoding="utf-8")
+            gateway = MarginGateway(
+                self.binary,
+                workspace,
+                actor,
+                "author",
+                state_home=root / "state",
+            )
+            seeded = gateway.call([
+                "comments", "add", "review.md", "--document", "-m", "Seed",
+                "--id", "00000000-0000-4000-8000-000000008201",
+            ])
+            self.assertTrue(seeded.ok, seeded.tool_payload())
+
+            handoff = [
+                "handoff", "add", "review.md", "-m", "Verified transfer",
+                "--to", "urn:marginbench:test:reviewer",
+                "--id", "00000000-0000-4000-8000-000000008202",
+                "--request-id", "00000000-0000-4000-8000-000000008203",
+                "--if-revision", "0",
+            ]
+            calls = [
+                (handoff, gateway.call(handoff)),
+                (
+                    ["context", "review.md", "--json", "--brief"],
+                    gateway.call(["context", "review.md", "--json", "--brief"]),
+                ),
+                (
+                    ["handoff", "list", "review.md"],
+                    gateway.call(["handoff", "list", "review.md"]),
+                ),
+            ]
+            refreshed = [*handoff[:-1], "1"]
+            calls.append((refreshed, gateway.call(refreshed)))
+            self.assertEqual(calls[0][1].error_code, "COLLABORATION_PRECONDITION_FAILED")
+            self.assertTrue(all(response.ok for _, response in calls[1:]))
+
+            nodes: list[dict[str, Any]] = []
+            for index, (arguments, response) in enumerate(calls):
+                identifier = f"real-handoff-call-{index}"
+                nodes.extend([
+                    {"message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": identifier,
+                            "name": "margin",
+                            "arguments": json.dumps({"arguments": arguments}),
+                        }],
+                    }},
+                    {"message": {
+                        "role": "tool",
+                        "tool_call_id": identifier,
+                        "content": json.dumps(response.tool_payload()),
+                    }},
+                ])
+            trace = {"traces": [{
+                "task": {"data": {"scenario_id": "agent_agent_handoff"}},
+                "agent": {"name": "author"},
+                "nodes": nodes,
+            }]}
+            trace_path = root / "traces.jsonl"
+            trace_path.write_text(json.dumps(trace) + "\n", encoding="utf-8")
+            report = summarize_trace_shapes([trace_path])
+
+            encoded = canonical_json(report)
+            self.assertTrue(validate_bytes(encoded)["valid"])
+            self.assertNotIn(secret.encode("utf-8"), encoded)
+            self.assertEqual(report["handoffRecovery"], {
+                "applicableTraceCount": 1,
+                "allConflictReceiptsActionableTraceCount": 1,
+                "contextAfterConflictTraceCount": 1,
+                "handoffReviewAfterConflictTraceCount": 1,
+                "bothReadsAfterConflictTraceCount": 1,
+                "safeReauthorAttemptTraceCount": 1,
+                "successfulRecoveryTraceCount": 1,
+                "blindRetryTraceCount": 0,
+                "unresolvedConflictTraceCount": 0,
+            })
+            body = gateway.call(["read", "review.md", "--json"])
+            self.assertTrue(body.ok)
+            self.assertEqual(body.json["result"]["body"], source)
+
     @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
     def test_diagnostics_attach_suggestion_mechanisms_to_batch_finding(self) -> None:
         result = EpisodeResult(
