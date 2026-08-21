@@ -1480,8 +1480,10 @@ final class CLICommandContractTests: XCTestCase {
         let wait = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "wait"]))
         XCTAssertTrue(wait.contains("margin suggest wait FILE ID..."))
         XCTAssertTrue(wait.contains("1 to 256"))
-        XCTAssertTrue(wait.contains("not infer collaborator presence"))
-        XCTAssertTrue(wait.contains("starts no daemon"))
+        XCTAssertTrue(wait.contains("Exit 0 is conclusive"))
+        XCTAssertTrue(wait.contains("do not list or wait again"))
+        XCTAssertTrue(wait.contains("not presence or unrelated completion"))
+        XCTAssertTrue(wait.contains("no daemon"))
 
         let accept = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "accept"]))
         XCTAssertTrue(accept.contains("never silently rebased"))
@@ -1492,6 +1494,50 @@ final class CLICommandContractTests: XCTestCase {
 
         let handoff = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["handoff", "add"]))
         XCTAssertTrue(handoff.contains("provenance is never silently rewritten"))
+    }
+
+    func testSuccessfulSuggestionWaitReceiptEndsImmediateReverification() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("wait-receipt.md")
+        try Data("# Review\n\nLiteral source remains.\n".utf8).write(to: file)
+        let id = "00000000-0000-4000-8000-000000099001"
+
+        XCTAssertEqual(
+            runSilently([
+                "suggest", "add", file.path,
+                "--quote", "Literal source remains.",
+                "--expect", "Literal source remains.",
+                "--replacement", "Literal source improves.",
+                "-m", "Make the intent exact.",
+                "--id", id,
+                "--actor-id", "urn:test:agent:wait-receipt",
+                "--actor-type", "software",
+            ]),
+            CLIExit.success.rawValue
+        )
+
+        let waited = runCapturing([
+            "suggest", "wait", file.path, id, "--timeout", "0",
+        ])
+        XCTAssertEqual(waited.exit, CLIExit.success.rawValue)
+        let envelope = try jsonObject(waited.output)
+        let result = try XCTUnwrap(envelope["result"] as? [String: Any])
+        XCTAssertEqual(result["complete"] as? Bool, true)
+        XCTAssertEqual(result["receiptConclusiveForNamedIDs"] as? Bool, true)
+        XCTAssertEqual(result["immediateRecheckRequired"] as? Bool, false)
+        let notice = try XCTUnwrap(envelope["notice"] as? String)
+        XCTAssertTrue(notice.contains("Conclusive for these ids at the reported revision"))
+        XCTAssertTrue(notice.contains("Do not run suggest list or suggest wait again"))
+        XCTAssertTrue(notice.contains("not collaborator presence"))
+        let nextActions = try XCTUnwrap(envelope["nextActions"] as? [[String: Any]])
+        XCTAssertEqual(nextActions.count, 1)
+        XCTAssertEqual(nextActions.first?["command"] as? String, "read")
+        XCTAssertTrue(
+            (nextActions.first?["condition"] as? String)?.contains(
+                "does not recheck the named suggestion ids"
+            ) == true
+        )
     }
 
     func testSuggestionManualSeparatesExactAssignmentsFromDiscovery() throws {
@@ -1509,8 +1555,10 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertTrue(manual.contains("successful or already-applied matching receipt is conclusive"))
         XCTAssertTrue(manual.contains("wait once for"))
         XCTAssertTrue(manual.contains("margin suggest wait FILE ID... --timeout 20"))
-        XCTAssertTrue(manual.contains("not collaborator presence"))
-        XCTAssertTrue(manual.contains("Without a complete id set, list once"))
+        XCTAssertTrue(manual.contains("Exit 0 is conclusive"))
+        XCTAssertTrue(manual.contains("list or wait again"))
+        XCTAssertTrue(manual.contains("not confirm collaborator presence"))
+        XCTAssertTrue(manual.contains("complete id set, list once"))
         XCTAssertTrue(manual.contains("read once after the"))
         XCTAssertTrue(manual.contains("Skip preliminary context, inspect, review, list, and read calls"))
         XCTAssertTrue(manual.contains("margin context TARGET --json --brief"))

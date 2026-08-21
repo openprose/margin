@@ -1157,10 +1157,10 @@ enum CollaborationCLI {
             result: result,
             pretty: pretty,
             maximumBytes: 65_536,
-            notice: "Every named suggestion is durably present in this file. This confirms only those ids, not collaborator presence or unrelated task completion.",
+            notice: "Conclusive for these ids at the reported revision: every named suggestion is durably present. Do not run suggest list or suggest wait again for them unless a later file mutation is known. This confirms only those ids, not collaborator presence or unrelated task completion.",
             nextActions: [
                 CollaborationNextAction(
-                    condition: "verify literal Markdown once when the assigned outcome requires it",
+                    condition: "optional: read literal Markdown once when the assigned outcome requires it; this does not recheck the named suggestion ids",
                     command: "read",
                     arguments: [targetArgument, "--json"]
                 ),

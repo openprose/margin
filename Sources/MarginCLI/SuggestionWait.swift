@@ -13,6 +13,8 @@ struct SuggestionWaitMatch: Encodable, Sendable {
 
 struct SuggestionWaitResult: Encodable, Sendable {
     let complete: Bool
+    let receiptConclusiveForNamedIDs: Bool
+    let immediateRecheckRequired: Bool
     let expectedCount: Int
     let matchedCount: Int
     let matched: [SuggestionWaitMatch]
@@ -157,6 +159,8 @@ final class SuggestionWaitSession {
         let missing = expectedIDs.filter { suggestions[$0] == nil }
         return SuggestionWaitResult(
             complete: missing.isEmpty,
+            receiptConclusiveForNamedIDs: missing.isEmpty,
+            immediateRecheckRequired: !missing.isEmpty,
             expectedCount: expectedIDs.count,
             matchedCount: allMatched.count,
             matched: matched,

@@ -940,10 +940,9 @@ enum CLICommandCatalog {
                 summary: "Wait until 1 to 256 named suggestions are durably present in one Markdown file.",
                 usage: ["margin suggest wait FILE ID... [--timeout SECONDS] [--root DIRECTORY] [--pretty]"],
                 guidance: [
-                    "Use only with a complete public id set. This replaces list polling; it does not infer collaborator presence or unrelated completion.",
-                    "Success returns revision, source digest, and up to 64 compact id/status pairs with an explicit omitted count. Read Markdown separately only when required.",
-                    "Timeout defaults to 20 seconds (range 0...120); expiry is a temporary failure with bounded missing-id details.",
-                    "On demand and file-local: it starts no daemon, crawls no directory, and adds no launch work.",
+                    "Exit 0 is conclusive for a complete id set at that revision; do not list or wait again unless a later file mutation is known. This replaces polling, not presence or unrelated completion.",
+                    "Bounded success includes revision, source digest, 64 id/status pairs, and an omitted count. Read Markdown only if required.",
+                    "Timeout defaults to 20s (0...120); expiry is bounded. File-local and on demand: no daemon, crawl, or launch work.",
                 ],
                 arguments: [
                     argument("FILE", kind: "markdown-file", description: "Existing Markdown file containing every expected suggestion."),

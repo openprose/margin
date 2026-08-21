@@ -312,8 +312,10 @@ enum MarginManual {
       4. When the task supplies the complete collaborator id set, wait once for
          exactly those durable suggestions instead of polling:
          margin suggest wait FILE ID... --timeout 20
-         This confirms only those ids, not collaborator presence or unrelated
-         completion. Without a complete id set, list once instead:
+         Exit 0 is conclusive for those ids at the reported revision. Do not
+         list or wait again unless a later file mutation is known. This does
+         not confirm collaborator presence or unrelated completion. Without a
+         complete id set, list once instead:
          margin suggest list FILE
       5. If the task requires literal-source verification, read once after the
          batch: margin read FILE --json

@@ -215,3 +215,12 @@ and passed graph validation. Candidate median completion time was 9.753 to
 51.515 ms lower depending on the delay, but latency is descriptive rather than
 a pass condition. The schema-validated aggregate is retained at
 `Evals/marginbench/results/convergence/v61-model-free.json`.
+
+The v62 receipt-clarity follow-up changes only encoded result fields and static
+help/manual text. The signed CLI remains 2,842,784 bytes. In 500
+counterbalanced launches per path against the exact v59 binary, global help
+measured 5.170 ms median / 5.957 ms p95 versus 5.224 / 6.038 ms; suggestion help
+measured 5.339 / 5.972 ms versus 5.375 / 5.973 ms; and wait help measured 5.355
+/ 6.031 ms versus 5.406 / 6.055 ms. These sub-0.1 ms differences are flat
+scheduler noise, not a speedup claim. The v62 release digest is
+`7c2df67830f9a99de5f764b2092f3876ae69198f7b64943e4370537e69a6c358`.

@@ -24,6 +24,8 @@ final class SuggestionWaitTests: XCTestCase {
         )
 
         XCTAssertTrue(result.complete)
+        XCTAssertTrue(result.receiptConclusiveForNamedIDs)
+        XCTAssertFalse(result.immediateRecheckRequired)
         XCTAssertEqual(result.expectedCount, 2)
         XCTAssertEqual(result.matchedCount, 2)
         XCTAssertEqual(result.omittedMatchedCount, 0)
@@ -88,6 +90,8 @@ final class SuggestionWaitTests: XCTestCase {
         )
 
         XCTAssertFalse(result.complete)
+        XCTAssertFalse(result.receiptConclusiveForNamedIDs)
+        XCTAssertTrue(result.immediateRecheckRequired)
         XCTAssertEqual(result.matchedCount, 0)
         XCTAssertEqual(result.missingIDs, [
             "urn:uuid:\(ordinary)",

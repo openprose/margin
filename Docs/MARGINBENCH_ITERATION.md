@@ -611,6 +611,31 @@ establishes that one blocking predicate causally removes visible polling. It
 does not establish that models will trust the receipt, and it does not justify
 presence or general-completion claims.
 
+v62 separates receipt trust from wait mechanics. The successful JSON result now
+sets `receiptConclusiveForNamedIDs: true` and
+`immediateRecheckRequired: false`. Its notice says that the receipt is
+conclusive for those ids at the reported revision and names the only exception:
+a known later file mutation. It explicitly tells agents not to run another
+`suggest list` or `suggest wait`, while retaining the narrower boundary that the
+receipt proves neither collaborator presence nor unrelated work. Timeout
+results carry the inverse internal state and continue to fail temporarily.
+
+Focused help and the suggestions manual use the same language, and the only
+next action is an optional literal-source read that explicitly does not recheck
+the ids. The real CLI contract test exercises the complete add→wait JSON path,
+not merely static copy. Suggestions capability output remains bounded at 20,633
+bytes compact, 32,676 bytes pretty, and 7,784 bytes in the brief projection.
+Both fake Prime modes completed the two-role contention rehearsal at 100, and
+the nine-scenario deterministic self-test remained 100, with no paid model.
+
+The signed release digest is
+`7c2df67830f9a99de5f764b2092f3876ae69198f7b64943e4370537e69a6c358`;
+its CLI size is unchanged at 2,842,784 bytes. In 500 counterbalanced launches
+per path versus v59, median deltas were -0.054 ms for global help, -0.036 ms for
+suggestion help, and -0.050 ms for wait help. P95 deltas ranged from -0.081 to
+-0.001 ms. These are flat scheduling-scale results, not speedup evidence. No
+additional paid run is warranted until a fresh receipt-trust study is planned.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a
