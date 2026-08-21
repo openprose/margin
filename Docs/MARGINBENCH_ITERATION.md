@@ -380,9 +380,29 @@ served execution modes. In a counterbalanced 100-process sample, global-help
 median was 6.217 ms for v51 and 6.245 ms for v52 (a 0.028 ms difference);
 focused suggestion capability median was 7.027 and 7.082 ms (0.055 ms).
 Candidate batch help measured 6.365 ms median / 6.954 ms p95. These are
-scheduler-scale differences and show no material startup regression. No real
-model has evaluated v52 yet; the next admissible observation is one frozen,
-capped matched pair against v51.
+scheduler-scale differences and show no material startup regression.
+
+One fresh private Qwen matched pair then compared v51 and v52 under the same
+forced collision. Both were exact, safe, source-preserving, and free of invalid
+commands. v51 scored 97.778 with 20 commands, 22 model calls, 38.937 seconds,
+and $0.0037 reported cost. v52 scored 98.056 with 19 commands, 21 model calls,
+53.685 seconds, and $0.0051. The 0.278-point gain and one saved interaction are
+diagnostic only; v52 was 14.747 seconds slower and $0.0014 more expensive. The
+complete pair cost $0.0088, below its $0.10 hard cap, with zero retries or
+provider-bound violations.
+
+The role traces explain the mixed result. One v52 role opened batch help and
+used one atomic batch; the other used four ordinary additions. The batch role
+still made ten calls because an extra help lookup plus a second list/read pair
+replaced the three writes it saved. The other v52 role made nine calls, saving
+one preliminary source read. Both candidates still performed a state inspection
+before writing, so the v51 diagnostic failed for all four roles. The mechanism
+is safe and discoverable, but the progressive disclosure still makes agents pay
+to learn the schema, and early finishers still repeat verification instead of
+waiting for the known peer set. Before changing the product again, add explicit
+non-scoring diagnostics for batch adoption and exactly-once post-write
+verification; then put the complete bounded batch recipe in the first focused
+suggestion surface rather than requiring a third help call.
 
 ## Spend ladder
 
