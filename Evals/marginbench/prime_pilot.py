@@ -82,10 +82,14 @@ def _reasoning_limit_fields(arguments: argparse.Namespace) -> dict[str, Any]:
     ceiling = getattr(arguments, "provider_reasoning_token_ceiling", None)
     if ceiling is None:
         return {}
-    return {
+    fields = {
         "providerReasoningTokenCeiling": ceiling,
         "providerReasoningTokenCeilingSource": arguments.provider_reasoning_token_ceiling_source,
     }
+    receipt_sha256 = getattr(arguments, "provider_contract_probe_sha256", None)
+    if receipt_sha256 is not None:
+        fields["providerContractProbeSha256"] = receipt_sha256
+    return fields
 
 
 def resolve_provider_reasoning_contract(
@@ -211,6 +215,55 @@ def load_candidate_manifest(
     if value.margin_sha256 != sha256(binary):
         raise ValueError("Candidate manifest Margin digest does not match --margin-bin.")
     return value
+
+
+def load_provider_contract_receipt(
+    path: Path,
+    *,
+    model: str,
+    reasoning_token_ceiling: int,
+    reasoning_token_ceiling_source: str,
+    maximum_age_seconds: float = 86_400,
+) -> str:
+    target = path.expanduser()
+    if target.is_symlink():
+        raise ValueError("Provider-contract receipt must not be a symbolic link.")
+    target = target.resolve()
+    try:
+        with target.open("rb") as handle:
+            raw = handle.read(MAX_ARTIFACT_BYTES + 1)
+    except OSError as error:
+        raise ValueError("Provider-contract receipt could not be read.") from error
+    receipt = validate_bytes(raw)
+    if (
+        not receipt["valid"]
+        or receipt.get("artifactSchema") != "urn:marginbench:provider-contract-probe:v1"
+    ):
+        raise ValueError("Provider-contract receipt is invalid.")
+    value = json.loads(raw)
+    contract = value["contract"]
+    try:
+        started_at = datetime.fromisoformat(value["startedAt"].replace("Z", "+00:00"))
+    except (TypeError, ValueError) as error:
+        raise ValueError("Provider-contract receipt has an invalid start time.") from error
+    age_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
+    if (
+        value["status"] != "passed"
+        or value["model"] != model
+        or contract["reasoningTokenCeiling"] != reasoning_token_ceiling
+        or contract["reasoningTokenCeilingSource"] != reasoning_token_ceiling_source
+        or value["infrastructureCodes"]
+        or value["paidModelsInvoked"] is not True
+        or value["automaticRetryCount"] != 0
+        or not all(value["checks"].values())
+        or value["liveBudget"]["forwardedRequestCount"] != 1
+        or value["wallet"]["afterAvailable"] is not True
+        or not -300 <= age_seconds <= maximum_age_seconds
+    ):
+        raise ValueError(
+            "Provider-contract receipt does not prove this model and reasoning contract."
+        )
+    return hashlib.sha256(raw).hexdigest()
 
 
 def load_holdout_key(path: Path) -> tuple[str, str]:
@@ -1358,6 +1411,14 @@ def main() -> int:
         help="HTTPS provider/model contract for the hidden-reasoning ceiling",
     )
     parser.add_argument(
+        "--provider-contract-receipt",
+        type=Path,
+        help=(
+            "validated one-request receipt proving the provider accepted this model's "
+            "reasoning parameter; required for paid reasoning-model execution"
+        ),
+    )
+    parser.add_argument(
         "--provider-response-token-allowance",
         type=int,
         default=DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE,
@@ -1456,7 +1517,6 @@ def main() -> int:
         require_implemented_profile(arguments.control_profile)
     except ValueError as error:
         raise SystemExit(str(error)) from error
-
     plain_control = arguments.control_profile == PLAIN_CONTROL_PROFILE
     if plain_control:
         if arguments.margin_bin is not None:
@@ -1511,6 +1571,31 @@ def main() -> int:
         )
     except ValueError as error:
         raise SystemExit(str(error)) from error
+    arguments.provider_contract_probe_sha256 = None
+    if arguments.provider_contract_receipt is not None:
+        if arguments.provider_reasoning_token_ceiling is None:
+            raise SystemExit(
+                "provider-contract-receipt requires a provider reasoning-token ceiling"
+            )
+        try:
+            arguments.provider_contract_probe_sha256 = load_provider_contract_receipt(
+                arguments.provider_contract_receipt,
+                model=arguments.model,
+                reasoning_token_ceiling=arguments.provider_reasoning_token_ceiling,
+                reasoning_token_ceiling_source=(
+                    arguments.provider_reasoning_token_ceiling_source
+                ),
+            )
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
+    if (
+        arguments.execute
+        and arguments.provider_reasoning_token_ceiling is not None
+        and arguments.provider_contract_probe_sha256 is None
+    ):
+        raise SystemExit(
+            "paid reasoning-model execution requires --provider-contract-receipt"
+        )
     if not 0 <= arguments.provider_response_token_allowance <= 4096:
         raise SystemExit("provider-response-token-allowance must be between 0 and 4096")
     if arguments.input_price_per_million < 0 or arguments.output_price_per_million < 0:

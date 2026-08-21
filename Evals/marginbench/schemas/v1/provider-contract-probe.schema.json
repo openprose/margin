@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:provider-contract-probe:v1",
+  "title": "MarginBench provider contract probe result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "planSha256", "provider", "model", "status", "startedAt",
+    "durationMs", "requestCount", "contract", "observed", "checks",
+    "infrastructureCodes", "liveBudget", "wallet", "privacy",
+    "paidModelsInvoked", "automaticRetryCount"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:provider-contract-probe:v1"},
+    "planSha256": {"$ref": "#/$defs/prefixedSha256"},
+    "provider": {"const": "Prime Intellect"},
+    "model": {"type": "string", "minLength": 1, "maxLength": 256},
+    "status": {"enum": ["passed", "infrastructure_error"]},
+    "startedAt": {"type": "string", "format": "date-time"},
+    "durationMs": {"type": "number", "minimum": 0},
+    "requestCount": {"const": 1},
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "endpointKind", "promptSha256", "visibleTokenCeiling",
+        "reasoningTokenCeiling", "reasoningTokenCeilingSource",
+        "responseTokenAllowance"
+      ],
+      "properties": {
+        "endpointKind": {"const": "openai-chat-completions"},
+        "promptSha256": {"$ref": "#/$defs/prefixedSha256"},
+        "visibleTokenCeiling": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "reasoningTokenCeiling": {"type": "integer", "minimum": 0, "maximum": 262144},
+        "reasoningTokenCeilingSource": {"$ref": "#/$defs/httpsSource"},
+        "responseTokenAllowance": {"type": "integer", "minimum": 0, "maximum": 4096}
+      }
+    },
+    "observed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "httpStatus", "promptTokens", "completionTokens", "reasoningTokens",
+        "assistantResponsePresent"
+      ],
+      "properties": {
+        "httpStatus": {"type": "integer", "minimum": 0, "maximum": 599},
+        "promptTokens": {"type": ["integer", "null"], "minimum": 0},
+        "completionTokens": {"type": ["integer", "null"], "minimum": 0},
+        "reasoningTokens": {"type": ["integer", "null"], "minimum": 0},
+        "assistantResponsePresent": {"type": "boolean"}
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "providerReturnedSuccessForRequestWithReasoningParameter",
+        "exactlyOneRequestForwarded",
+        "usageReportedWithinFrozenBound", "assistantResponsePresent",
+        "proxyRemainedOpen"
+      ],
+      "properties": {
+        "providerReturnedSuccessForRequestWithReasoningParameter": {"type": "boolean"},
+        "exactlyOneRequestForwarded": {"type": "boolean"},
+        "usageReportedWithinFrozenBound": {"type": "boolean"},
+        "assistantResponsePresent": {"type": "boolean"},
+        "proxyRemainedOpen": {"type": "boolean"}
+      }
+    },
+    "infrastructureCodes": {
+      "type": "array", "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 128}
+    },
+    "liveBudget": {"$ref": "#/$defs/liveBudget"},
+    "wallet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observationScope", "debitAttribution", "afterAvailable",
+        "observedDebitUSD"
+      ],
+      "properties": {
+        "observationScope": {"const": "account-wide"},
+        "debitAttribution": {"const": "unattributed"},
+        "afterAvailable": {"type": "boolean"},
+        "observedDebitUSD": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["credentialsPresent", "rawPromptPublished", "rawResponsePublished"],
+      "properties": {
+        "credentialsPresent": {"const": false},
+        "rawPromptPublished": {"const": false},
+        "rawResponsePublished": {"const": false}
+      }
+    },
+    "paidModelsInvoked": {"type": "boolean"},
+    "automaticRetryCount": {"const": 0}
+  },
+  "$defs": {
+    "prefixedSha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "httpsSource": {
+      "type": "string", "minLength": 9, "maxLength": 2048,
+      "pattern": "^https://"
+    },
+    "liveBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled", "forwardedRequestCount", "rejectedRequestCount",
+        "reservedCostUpperBoundUSD", "grossReservedCostUpperBoundUSD",
+        "settledRequestCount", "outstandingReservationCount",
+        "reportedPromptTokens", "reportedCompletionTokens",
+        "reportedTokenCostUSD", "providerBoundViolationCount",
+        "latchedClosed", "policy"
+      ],
+      "properties": {
+        "enabled": {"const": true},
+        "forwardedRequestCount": {"type": "integer", "minimum": 0, "maximum": 1},
+        "rejectedRequestCount": {"type": "integer", "minimum": 0},
+        "reservedCostUpperBoundUSD": {"type": "number", "minimum": 0},
+        "grossReservedCostUpperBoundUSD": {"type": "number", "minimum": 0},
+        "settledRequestCount": {"type": "integer", "minimum": 0, "maximum": 1},
+        "outstandingReservationCount": {"type": "integer", "minimum": 0, "maximum": 1},
+        "reportedPromptTokens": {"type": "integer", "minimum": 0},
+        "reportedCompletionTokens": {"type": "integer", "minimum": 0},
+        "reportedTokenCostUSD": {"type": "number", "minimum": 0},
+        "providerBoundViolationCount": {"type": "integer", "minimum": 0},
+        "latchedClosed": {"type": "boolean"},
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "allowedModel", "maxRequestBytes", "templateTokenAllowance",
+            "inputTokenCeiling", "maxOutputTokens", "reasoningTokenCeiling",
+            "responseTokenAllowance", "inputPricePerMillion",
+            "outputPricePerMillion", "billingOverheadUSDPerCall",
+            "maxTotalCostUSD"
+          ],
+          "properties": {
+            "allowedModel": {"type": "string", "minLength": 1, "maxLength": 256},
+            "maxRequestBytes": {"type": "integer", "minimum": 1, "maximum": 16777216},
+            "templateTokenAllowance": {"type": "integer", "minimum": 0, "maximum": 1000000},
+            "inputTokenCeiling": {"type": "integer", "minimum": 1, "maximum": 4000000},
+            "maxOutputTokens": {"type": "integer", "minimum": 1, "maximum": 1000000},
+            "reasoningTokenCeiling": {"type": "integer", "minimum": 0, "maximum": 262144},
+            "responseTokenAllowance": {"type": "integer", "minimum": 0, "maximum": 4096},
+            "inputPricePerMillion": {"type": "number", "minimum": 0},
+            "outputPricePerMillion": {"type": "number", "minimum": 0},
+            "billingOverheadUSDPerCall": {"type": "number", "minimum": 0},
+            "maxTotalCostUSD": {"type": "number", "exclusiveMinimum": 0, "maximum": 0.01}
+          }
+        }
+      }
+    }
+  }
+}

@@ -169,6 +169,9 @@
           "type": "string", "minLength": 9, "maxLength": 2048,
           "pattern": "^https://"
         },
+        "providerContractProbeSha256": {
+          "type": "string", "pattern": "^[0-9a-f]{64}$"
+        },
         "providerResponseTokenAllowance": {"type": "integer", "minimum": 0, "maximum": 4096},
         "maxConcurrent": {"type": "integer", "minimum": 1},
         "rolloutTimeoutSeconds": {"type": "number", "exclusiveMinimum": 0},
@@ -195,7 +198,10 @@
       },
       "dependentRequired": {
         "providerReasoningTokenCeiling": ["providerReasoningTokenCeilingSource"],
-        "providerReasoningTokenCeilingSource": ["providerReasoningTokenCeiling"]
+        "providerReasoningTokenCeilingSource": ["providerReasoningTokenCeiling"],
+        "providerContractProbeSha256": [
+          "providerReasoningTokenCeiling", "providerReasoningTokenCeilingSource"
+        ]
       }
     }
   }

@@ -673,6 +673,27 @@ mode created neither a work directory nor a publication directory. Release
 smoke passed, and the unchanged CLI remains 2,842,784 bytes with SHA-256
 `7c2df67830f9a99de5f764b2092f3876ae69198f7b64943e4370537e69a6c358`.
 
+v64 turns that first capability check into a separate, reusable admission
+receipt instead of spending a full agent episode to discover a provider-shape
+problem. The probe is dry-run by default. Live mode permits one fixed public
+prompt, one request, zero agent processes, and zero retries; its current maximum
+reservation is $0.00097682 beneath a $0.001 hard cap. It stores no prompt or
+response text. Its schema-backed result contains only status, usage counts,
+bounded checks, timing, and an account-wide wallet observation.
+
+A paid reasoning study now refuses to start without a passing receipt from the
+last 24 hours that matches the exact model, reasoning ceiling, and evidence
+source. Direct, paired, and crossover controllers freeze the receipt's digest
+into their plans and copy the exact bytes into private frozen inputs. The check
+is intentionally modest: a successful response shows only that the gateway
+returned success for a request containing the reasoning setting. It cannot
+prove that an intermediary preserved the setting or that a provider will honor
+it later, so the local proxy still prices and bounds every study request.
+Model-free tests cover fake acceptance and rejection, censored error bodies,
+tampered reservations, stale and mismatched receipts, missing-receipt refusal,
+and digest propagation. Both supported Python suites pass 222 tests. No paid
+request was made in this iteration.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a

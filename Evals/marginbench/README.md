@@ -532,6 +532,32 @@ completion usage through its OpenAI-compatible endpoint. A provider response
 outside the complete reserved bound is therefore an infrastructure incident,
 not a model score. See [Prime's chat-completion contract](https://docs.primeintellect.ai/api-reference/inference-chat-completions).
 
+Before a reasoning-model study can execute, run the provider-contract probe.
+It uses one fixed public prompt, one non-retrying request, no agent process, and
+the same local spend proxy as the study. Dry-run is the default:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=Evals/marginbench \
+python3 Evals/marginbench/provider_contract_probe.py \
+  --model qwen/qwen3.7-flash \
+  --input-token-ceiling 1000000 \
+  --input-token-ceiling-source https://help.aliyun.com/en/model-studio/text-generation-model/ \
+  --input-price-per-million 0.03 \
+  --output-price-per-million 0.13 \
+  --pricing-source https://docs.primeintellect.ai/api-reference/inference-models
+```
+
+The current defaults reserve at most $0.00097682 and hard-stop at $0.001. A
+live invocation additionally requires `--output`, `--execute`, and the literal
+confirmation printed by `--help`. It stores only status, usage counts, checks,
+and account-wide wallet movement—never credentials, prompt text, or response
+text. A passing receipt is valid for 24 hours, is frozen by digest into the
+study, and must be supplied with `--provider-contract-receipt`. HTTP success
+shows only that the gateway returned success for a request containing the
+parameter. It does not prove that an intermediary preserved it or that the
+provider will enforce it forever, so every later study request remains
+independently bounded.
+
 The printed plan must be reviewed before adding the separately documented paid
 execution flags. Raw traces remain under ignored `runs/`; only redacted summaries
 and run manifests are publication artifacts.

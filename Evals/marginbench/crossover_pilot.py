@@ -47,6 +47,7 @@ from prime_pilot import (  # noqa: E402
     BENCHMARK_VERSION,
     CONFIRMATION as CHILD_CONFIRMATION,
     DEFAULT_PROVIDER_RESPONSE_TOKEN_ALLOWANCE,
+    load_provider_contract_receipt,
     resolve_provider_reasoning_contract,
     claim_paid_start,
     estimate_maximum_cost,
@@ -215,6 +216,17 @@ def build_crossover_prime_plan(
     if reasoning_ceiling is None and reasoning_source is not None:
         raise PrimeStudyError(
             "providerReasoningTokenCeilingSource requires providerReasoningTokenCeiling."
+        )
+    probe_sha256 = limits.get("providerContractProbeSha256")
+    if probe_sha256 is not None and (
+        not isinstance(probe_sha256, str)
+        or len(probe_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in probe_sha256)
+    ):
+        raise PrimeStudyError("providerContractProbeSha256 must be a SHA-256 digest.")
+    if probe_sha256 is not None and reasoning_ceiling is None:
+        raise PrimeStudyError(
+            "providerContractProbeSha256 requires providerReasoningTokenCeiling."
         )
     template_allowance = limits.get("liveProxyTemplateTokenAllowance")
     if (
@@ -411,6 +423,11 @@ def _expected_execution_limits(plan: dict[str, Any]) -> dict[str, Any]:
                 ],
             }
             if "providerReasoningTokenCeiling" in limits
+            else {}
+        ),
+        **(
+            {"providerContractProbeSha256": limits["providerContractProbeSha256"]}
+            if "providerContractProbeSha256" in limits
             else {}
         ),
         "maxTurns": limits["maxTurns"],
@@ -697,7 +714,17 @@ def _freeze_inputs(
             plan["candidate"]["marginSha256"],
         ),
         "holdoutKey": None,
+        "providerContractReceipt": None,
     }
+    expected_probe_sha256 = plan["limits"].get("providerContractProbeSha256")
+    if expected_probe_sha256 is not None:
+        if arguments.provider_contract_receipt is None:
+            raise PrimeStudyError("Paid reasoning study requires its planned provider receipt.")
+        frozen["providerContractReceipt"] = _frozen_bytes(
+            arguments.provider_contract_receipt,
+            root / "provider-contract-probe.json",
+            expected_probe_sha256,
+        )
     if not plan["developmentCases"]:
         if arguments.holdout_key_file is None:
             raise PrimeStudyError("Private crossover execution requires its planned key.")
@@ -772,6 +799,11 @@ def _child_command(
             str(limits["providerReasoningTokenCeiling"]),
             "--provider-reasoning-token-ceiling-source",
             limits["providerReasoningTokenCeilingSource"],
+        ]
+    if frozen.get("providerContractReceipt") is not None:
+        command += [
+            "--provider-contract-receipt",
+            str(frozen["providerContractReceipt"]),
         ]
     if frozen["holdoutKey"] is not None:
         command += ["--holdout-key-file", str(frozen["holdoutKey"])]
@@ -1081,6 +1113,7 @@ def _parser() -> argparse.ArgumentParser:
         "--provider-reasoning-token-ceiling-source",
         help="HTTPS provider contract supporting the reasoning-limit parameter",
     )
+    parser.add_argument("--provider-contract-receipt", type=Path)
     parser.add_argument(
         "--provider-response-token-allowance",
         type=int,
@@ -1123,6 +1156,31 @@ def main(argv: list[str] | None = None) -> int:
         )
     except ValueError as error:
         raise SystemExit(str(error)) from error
+    arguments.provider_contract_probe_sha256 = None
+    if arguments.provider_contract_receipt is not None:
+        if arguments.provider_reasoning_token_ceiling is None:
+            raise SystemExit(
+                "provider-contract-receipt requires a provider reasoning-token ceiling"
+            )
+        try:
+            arguments.provider_contract_probe_sha256 = load_provider_contract_receipt(
+                arguments.provider_contract_receipt,
+                model=arguments.model,
+                reasoning_token_ceiling=arguments.provider_reasoning_token_ceiling,
+                reasoning_token_ceiling_source=(
+                    arguments.provider_reasoning_token_ceiling_source
+                ),
+            )
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
+    if (
+        arguments.execute
+        and arguments.provider_reasoning_token_ceiling is not None
+        and arguments.provider_contract_probe_sha256 is None
+    ):
+        raise SystemExit(
+            "paid reasoning-model execution requires --provider-contract-receipt"
+        )
     if not 1 <= arguments.max_new_jobs <= 1000:
         raise SystemExit("max-new-jobs must be between 1 and 1000")
     if not 0 <= arguments.minimum_start_interval_seconds <= 3600:
@@ -1153,6 +1211,11 @@ def main(argv: list[str] | None = None) -> int:
                 ),
             }
             if arguments.provider_reasoning_token_ceiling is not None
+            else {}
+        ),
+        **(
+            {"providerContractProbeSha256": arguments.provider_contract_probe_sha256}
+            if arguments.provider_contract_probe_sha256 is not None
             else {}
         ),
         "maxConcurrent": 1,

@@ -318,10 +318,18 @@ recommendation, not a claim that those licenses already apply.
 
 The published product baseline is Margin 0.4.0. The current post-release
 interface candidate passes 189 native tests. Both the system and Prime Python
-runtimes pass 217 MarginBench contracts, and the real nine-scenario reference
+runtimes pass 222 MarginBench contracts, and the real nine-scenario reference
 study scores 100 with `paidModelsInvoked:false`. The isolated role server,
 neutral Markdown control, redacted publication audits, schema checks, and
 source-safety gates all pass.
+
+Paid reasoning-model studies now have a separate one-request admission check.
+It is dry-run by default, has no agent and no retry, retains no prompt or
+response content, and reserves at most $0.00097682 beneath a $0.001 hard cap.
+A paid study requires a fresh matching receipt and freezes its digest into the
+plan. This is evidence that the gateway returned success for one request
+containing the reasoning setting—not proof that every intermediary or later
+provider request will honor it—so each study call remains independently bounded.
 
 The latest CLI cycle is intentionally narrower than a release claim. Concrete
 reply, atomic reply-and-resolve, thread verification, durable handoff, and

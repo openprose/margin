@@ -1322,7 +1322,7 @@ class MarginBenchCoreTests(unittest.TestCase):
             self.assertEqual(payload["$schema"], "https://json-schema.org/draft/2020-12/schema")
             self.assertNotIn(payload["$id"], schemas)
             schemas[payload["$id"]] = payload
-        self.assertEqual(len(schemas), 48)
+        self.assertEqual(len(schemas), 50)
         self.assertIn("urn:marginbench:crossover-prime-plan:v1", schemas)
         self.assertIn("urn:marginbench:crossover-prime-completion:v1", schemas)
         self.assertIn("urn:marginbench:schema:suggestion-convergence-probe:v1", schemas)
@@ -2519,6 +2519,41 @@ class MarginBenchCoreTests(unittest.TestCase):
             ),
             ["LIVE_REASONING_LIMIT"],
         )
+
+    def test_paid_reasoning_run_requires_a_validated_provider_receipt_before_start(self) -> None:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(PACKAGE_ROOT / "prime_pilot.py"),
+                "--candidate",
+                "probe-admission-test",
+                "--margin-bin",
+                str(self.binary),
+                "--model",
+                "qwen/qwen3.7-flash",
+                "--scenario",
+                "human_agent_relay",
+                "--input-token-ceiling-per-call",
+                "1000000",
+                "--input-price-per-million",
+                "0.03",
+                "--output-price-per-million",
+                "0.13",
+                "--max-cost-usd",
+                "0.01",
+                "--execute",
+                "--confirm-paid",
+                "RUN_PAID_MARGINBENCH",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=10,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout, b"")
+        self.assertIn(b"requires --provider-contract-receipt", completed.stderr)
 
     def test_gateway_blocks_escape_gui_and_identity_override_without_raw_log(self) -> None:
         with tempfile.TemporaryDirectory(prefix="marginbench-gateway-test-") as temporary:

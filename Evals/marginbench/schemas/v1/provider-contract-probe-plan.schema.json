@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:provider-contract-probe-plan:v1",
+  "title": "MarginBench provider contract probe plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "provider", "model", "endpointKind", "requestCount",
+    "promptSha256", "limits", "pricing", "budget", "safety",
+    "paidModelsInvoked"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:provider-contract-probe-plan:v1"},
+    "provider": {"const": "Prime Intellect"},
+    "model": {"type": "string", "minLength": 1, "maxLength": 256},
+    "endpointKind": {"const": "openai-chat-completions"},
+    "requestCount": {"const": 1},
+    "promptSha256": {"$ref": "#/$defs/prefixedSha256"},
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "visibleTokenCeiling", "reasoningTokenCeiling",
+        "reasoningTokenCeilingSource", "responseTokenAllowance",
+        "maxRequestBytes", "templateTokenAllowance", "inputTokenCeiling",
+        "inputTokenCeilingSource", "timeoutSeconds",
+        "minimumStartIntervalSeconds"
+      ],
+      "properties": {
+        "visibleTokenCeiling": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "reasoningTokenCeiling": {"type": "integer", "minimum": 0, "maximum": 262144},
+        "reasoningTokenCeilingSource": {"$ref": "#/$defs/httpsSource"},
+        "responseTokenAllowance": {"type": "integer", "minimum": 0, "maximum": 4096},
+        "maxRequestBytes": {"type": "integer", "minimum": 1, "maximum": 16777216},
+        "templateTokenAllowance": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "inputTokenCeiling": {"type": "integer", "minimum": 1, "maximum": 4000000},
+        "inputTokenCeilingSource": {"$ref": "#/$defs/httpsSource"},
+        "timeoutSeconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 300},
+        "minimumStartIntervalSeconds": {"type": "number", "minimum": 0, "maximum": 3600}
+      }
+    },
+    "pricing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputPricePerMillion", "outputPricePerMillion",
+        "billingOverheadUSDPerCall", "source"
+      ],
+      "properties": {
+        "inputPricePerMillion": {"type": "number", "minimum": 0},
+        "outputPricePerMillion": {"type": "number", "minimum": 0},
+        "billingOverheadUSDPerCall": {"type": "number", "minimum": 0},
+        "source": {"$ref": "#/$defs/httpsSource"}
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "currency", "maximumReservedCostUSD", "hardCapUSD",
+        "minimumWalletReserveUSD"
+      ],
+      "properties": {
+        "currency": {"const": "USD"},
+        "maximumReservedCostUSD": {"type": "number", "minimum": 0, "maximum": 0.01},
+        "hardCapUSD": {"type": "number", "exclusiveMinimum": 0, "maximum": 0.01},
+        "minimumWalletReserveUSD": {"type": "number", "minimum": 0}
+      }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agentProcesses", "automaticRetries", "fixedPublicPrompt",
+        "rawPromptPublished", "rawResponsePublished", "credentialsPublished",
+        "explicitConfirmationRequired"
+      ],
+      "properties": {
+        "agentProcesses": {"const": 0},
+        "automaticRetries": {"const": 0},
+        "fixedPublicPrompt": {"const": true},
+        "rawPromptPublished": {"const": false},
+        "rawResponsePublished": {"const": false},
+        "credentialsPublished": {"const": false},
+        "explicitConfirmationRequired": {"const": true}
+      }
+    },
+    "paidModelsInvoked": {"const": false}
+  },
+  "$defs": {
+    "prefixedSha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "httpsSource": {
+      "type": "string", "minLength": 9, "maxLength": 2048,
+      "pattern": "^https://"
+    }
+  }
+}

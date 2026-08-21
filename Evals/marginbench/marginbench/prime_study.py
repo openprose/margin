@@ -261,6 +261,17 @@ def build_prime_study_plan(
         raise PrimeStudyError(
             "providerReasoningTokenCeilingSource requires providerReasoningTokenCeiling."
         )
+    probe_sha256 = limits.get("providerContractProbeSha256")
+    if probe_sha256 is not None and (
+        not isinstance(probe_sha256, str)
+        or len(probe_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in probe_sha256)
+    ):
+        raise PrimeStudyError("providerContractProbeSha256 must be a SHA-256 digest.")
+    if probe_sha256 is not None and reasoning_ceiling is None:
+        raise PrimeStudyError(
+            "providerContractProbeSha256 requires providerReasoningTokenCeiling."
+        )
     ceiling_source = limits.get("inputTokenCeilingSource")
     if (
         not isinstance(ceiling_source, str)
@@ -497,6 +508,15 @@ def validate_prime_job_outputs(
                 ],
             }
             if "providerReasoningTokenCeiling" in plan["limits"]
+            else {}
+        ),
+        **(
+            {
+                "providerContractProbeSha256": plan["limits"][
+                    "providerContractProbeSha256"
+                ]
+            }
+            if "providerContractProbeSha256" in plan["limits"]
             else {}
         ),
         "maxTurns": plan["limits"]["maxTurns"],

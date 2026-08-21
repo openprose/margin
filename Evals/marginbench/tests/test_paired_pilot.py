@@ -128,6 +128,7 @@ class PairedPrimeControllerTests(unittest.TestCase):
         scenario: str = "human_agent_relay",
         response_token_allowance: int = 0,
         reasoning_token_ceiling: int | None = None,
+        provider_contract_probe_sha256: str | None = None,
         inter_job_cooldown_seconds: float = 0.0,
     ) -> tuple[argparse.Namespace, dict]:
         root.mkdir(parents=True, exist_ok=True)
@@ -176,6 +177,11 @@ class PairedPrimeControllerTests(unittest.TestCase):
                     ),
                 }
                 if reasoning_token_ceiling is not None
+                else {}
+            ),
+            **(
+                {"providerContractProbeSha256": provider_contract_probe_sha256}
+                if provider_contract_probe_sha256 is not None
                 else {}
             ),
             "maxConcurrent": 1,
@@ -229,10 +235,12 @@ class PairedPrimeControllerTests(unittest.TestCase):
                 Path(temporary),
                 response_token_allowance=8,
                 reasoning_token_ceiling=4_096,
+                provider_contract_probe_sha256="a" * 64,
             )
         limits = plan["limits"]
         self.assertEqual(limits["providerReasoningTokenCeiling"], 4_096)
         self.assertEqual(limits["providerResponseTokenAllowance"], 8)
+        self.assertEqual(limits["providerContractProbeSha256"], "a" * 64)
         attempts = (
             plan["jobs"][0]["agentProcessCount"]
             * limits["maxTurns"]

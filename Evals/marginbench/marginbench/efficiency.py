@@ -145,6 +145,9 @@ def _comparison_contract(
         "provider-reasoning-token-ceiling-source": _value(
             limits, "providerReasoningTokenCeilingSource"
         ),
+        "provider-contract-probe-sha256": _value(
+            limits, "providerContractProbeSha256"
+        ),
         "provider-response-token-allowance": _value(
             limits, "providerResponseTokenAllowance"
         ),

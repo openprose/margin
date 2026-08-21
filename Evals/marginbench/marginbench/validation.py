@@ -130,6 +130,8 @@ def _schema_name(payload: Any) -> tuple[str, str]:
         "urn:marginbench:paired-comparison:v1": "paired-comparison.schema.json",
         "urn:marginbench:prime-run-summary:v1": "prime-run-summary.schema.json",
         "urn:marginbench:prime-runtime-probe:v1": "runtime-probe.schema.json",
+        "urn:marginbench:provider-contract-probe-plan:v1": "provider-contract-probe-plan.schema.json",
+        "urn:marginbench:provider-contract-probe:v1": "provider-contract-probe.schema.json",
         "urn:marginbench:prime-study-completion:v1": "prime-study-completion.schema.json",
         "urn:marginbench:prime-study-job-receipt:v1": "prime-study-job-receipt.schema.json",
         "urn:marginbench:prime-study-plan:v1": "prime-study-plan.schema.json",
@@ -322,6 +324,76 @@ def _live_budget_semantics(
         errors.append(f"{prefix}: provider reported usage outside the reserved bound")
 
 
+def _provider_probe_plan_semantics(payload: dict[str, Any], errors: list[str]) -> None:
+    limits = payload["limits"]
+    pricing = payload["pricing"]
+    maximum = (
+        min(
+            limits["inputTokenCeiling"],
+            limits["maxRequestBytes"] * 2 + limits["templateTokenAllowance"],
+        )
+        * pricing["inputPricePerMillion"]
+        / 1_000_000
+        + (
+            limits["visibleTokenCeiling"]
+            + limits["reasoningTokenCeiling"]
+            + limits["responseTokenAllowance"]
+        )
+        * pricing["outputPricePerMillion"]
+        / 1_000_000
+        + pricing["billingOverheadUSDPerCall"]
+    )
+    if not _close(round(maximum, 9), payload["budget"]["maximumReservedCostUSD"]):
+        errors.append("provider probe maximum reservation does not match its frozen bounds")
+    if maximum > payload["budget"]["hardCapUSD"] + 0.000000001:
+        errors.append("provider probe maximum reservation exceeds its hard cap")
+
+
+def _provider_probe_result_semantics(payload: dict[str, Any], errors: list[str]) -> None:
+    live = payload["liveBudget"]
+    _live_budget_semantics(
+        live,
+        "provider contract probe live budget",
+        errors,
+        allow_provider_violation=payload["status"] == "infrastructure_error",
+    )
+    observed = payload["observed"]
+    policy = live["policy"]
+    expected_checks = {
+        "providerReturnedSuccessForRequestWithReasoningParameter": (
+            observed["httpStatus"] == 200
+        ),
+        "exactlyOneRequestForwarded": live["forwardedRequestCount"] == 1,
+        "usageReportedWithinFrozenBound": (
+            observed["completionTokens"] is not None
+            and observed["completionTokens"]
+            <= policy["maxOutputTokens"]
+            + policy["reasoningTokenCeiling"]
+            + policy["responseTokenAllowance"]
+            and live["providerBoundViolationCount"] == 0
+        ),
+        "assistantResponsePresent": observed["assistantResponsePresent"],
+        "proxyRemainedOpen": live["latchedClosed"] is False,
+    }
+    if payload["checks"] != expected_checks:
+        errors.append("provider probe checks do not match the observed bounded response")
+    contract = payload["contract"]
+    if contract["visibleTokenCeiling"] != policy["maxOutputTokens"]:
+        errors.append("provider probe visible ceiling differs from its enforced policy")
+    if contract["reasoningTokenCeiling"] != policy["reasoningTokenCeiling"]:
+        errors.append("provider probe reasoning ceiling differs from its enforced policy")
+    if contract["responseTokenAllowance"] != policy["responseTokenAllowance"]:
+        errors.append("provider probe wrapper allowance differs from its enforced policy")
+    passed = all(expected_checks.values()) and not payload["infrastructureCodes"]
+    if (payload["status"] == "passed") != passed:
+        errors.append("provider probe status does not match its checks and infrastructure codes")
+    if payload["paidModelsInvoked"] != (live["forwardedRequestCount"] > 0):
+        errors.append("provider probe paidModelsInvoked disagrees with forwarded requests")
+    wallet = payload["wallet"]
+    if wallet["afterAvailable"] != (wallet["observedDebitUSD"] is not None):
+        errors.append("provider probe wallet availability disagrees with its debit observation")
+
+
 def _result_semantics(result: dict[str, Any], prefix: str, errors: list[str]) -> None:
     if result["invalid_command_count"] > result["command_count"]:
         errors.append(f"{prefix}: invalid_command_count exceeds command_count")
@@ -413,6 +485,10 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         passed = all(result["score"] == 100 for result in payload["results"])
         if payload["passed"] != passed:
             errors.append("reference-run passed flag disagrees with episode scores")
+    elif schema_name == "provider-contract-probe-plan.schema.json":
+        _provider_probe_plan_semantics(payload, errors)
+    elif schema_name == "provider-contract-probe.schema.json":
+        _provider_probe_result_semantics(payload, errors)
     elif schema_name == "candidate.schema.json":
         try:
             CandidateManifest(**payload)
