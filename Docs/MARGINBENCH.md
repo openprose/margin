@@ -359,8 +359,13 @@ The current local candidate therefore removes that measured verb switch.
 single-item flags are present, while all existing one-item syntax and the batch
 alias remain unchanged. Full native, dual-Python, isolation, privacy, audit,
 reference, and signed-release gates pass. Counterbalanced process timings show
-no material startup movement. Real-model improvement remains a hypothesis until
-a wholly fresh matched pair tests whether both roles adopt the same atomic form.
+no material startup movement. On one wholly fresh private pair, the candidate
+batched in both roles while the prior version batched in one, improving
+99.444→99.722, 14→13 commands, 16→15 model calls, and wall time by 4.387
+seconds. Both remained exact and safe. This confirms the intended mechanism on
+one case, not population performance or promotion; the benchmark requires 20
+matched cases and the next work should separate unnecessary pre-write
+inspection from redundant post-write review before buying a larger sample.
 
 The latest CLI cycle is intentionally narrower than a release claim. Concrete
 reply, atomic reply-and-resolve, thread verification, durable handoff, and

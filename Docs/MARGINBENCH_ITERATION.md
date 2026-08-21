@@ -855,6 +855,24 @@ capabilities. P95 deltas ranged from -0.075 to +0.145 ms. These are scheduler-
 scale movements and show no startup regression. The exact signed candidate
 digest is `6ef13fccb2dc8fdea4465d7d01e8a9e97c2d7fb5043903920073b3653ad72985`.
 
+v74 tested that one change on a wholly new private case against frozen v67.
+Both arms were exact, safe, source-preserving, and free of invalid commands.
+v73 improved 99.444 to 99.722, reduced commands from 14 to 13 and model calls
+from 16 to 15, finished 4.387 seconds sooner, used 1,266 fewer prompt tokens,
+and reduced reported cost from $0.0034 to $0.0033. The pair reported $0.0067
+total model cost and identical account-wide movement against a $0.013419
+conservative proxy upper sum.
+
+The content-free mechanism trace confirms the intended causal step. v67 batched
+in one role and issued four individual additions in the other; v73 performed
+one semantic batch in both roles. Both v73 roles trusted the named-wait receipt.
+The candidate’s remaining efficiency loss was orthogonal: one role inspected
+before writing and reviewed after the required source read. This is a better
+next measurement target, but one observation is not enough to justify more CLI
+copy or a larger paid run. The verified submission is `sha256:2e41eba…`; it
+retains no private document, prompt, path, identifier, raw trace, or key. Both
+private-key copies were overwritten and deleted after reproduction.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a
