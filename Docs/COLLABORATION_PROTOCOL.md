@@ -68,6 +68,12 @@ conflict rejects the entire batch. Independent annotation-only movement may be
 retried internally while the logical Markdown hash remains identical. Cross-file
 all-or-none work uses an immutable directory stage instead.
 
+`margin suggest wait FILE ID...` is an on-demand durable-state predicate for a
+known public suggestion set. It watches one Markdown file until every named
+suggestion is embedded or a bounded timeout expires. It starts no daemon and
+does not infer live presence, collaborator completion, or unlisted work. This
+keeps durable document truth separate from any future opt-in presence transport.
+
 Stage listing is metadata-only and bounded by both entry count and aggregate
 canonical bytes. Explicit stage inspection returns bounded semantic previews and
 digests for contribution bodies, suggestions, tasks, and handoffs; raw staged

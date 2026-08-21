@@ -543,6 +543,37 @@ discard every expected id and timeout value. The next product candidate should
 therefore be a bounded on-demand process, with no daemon, startup polling, or
 background initialization.
 
+v59 implements that exact contract. `margin suggest wait FILE ID...` accepts a
+complete public set of 1–256 distinct suggestion ids and a 0–120 second bound.
+On macOS it registers a parent-directory event source before its first snapshot,
+so atomic file replacement cannot be missed; a periodic recheck is only a
+coalesced-event safety net. The process reads one file, starts no daemon, and
+owns no watcher outside the explicit invocation. Success reports the observed
+revision and source digest, up to 64 id/status pairs, and an explicit omitted
+count. Timeout is a bounded temporary failure rather than a false success.
+
+The exact real-CLI reference now completes suggestion contention at 100 in six
+calls: each role makes one atomic batch, waits once for all eight public ids,
+and reads literal source once. Both any-role and all-role wait diagnostics pass.
+All 188 Swift tests and both 209-test Python suites pass, including atomic
+replacement, non-suggestion exclusion, timeout, adversarial input bounds, and
+the bounded success projection. Both supported fake-Prime execution modes also
+complete 2/2 roles without paid inference.
+
+Startup remains unchanged in the intended sense. A counterbalanced
+same-toolchain release sample used 500 launches per arm for global help,
+suggestion help, and add help. Median candidate deltas versus frozen v56 were
++0.029, -0.013, and +0.014 ms; p95 deltas were +0.079, -0.023, and +0.104 ms.
+The stripped signed executable grows by 33,456 bytes. These are recorded as a
+flat startup distribution and a small artifact cost, not as a speed claim.
+
+This is still mechanism evidence. Deterministic reference agents are designed
+to use the new path, so they cannot establish discoverability or behavior in a
+real model. One cheap frozen matched case is the maximum justified next spend:
+the old arm must use durable list fallback, the candidate may use wait, and the
+comparison must report adoption, repeated verification, commands, model turns,
+latency, cost, correctness, and source preservation without changing scoring.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a

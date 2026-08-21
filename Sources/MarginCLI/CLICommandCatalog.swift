@@ -204,7 +204,7 @@ enum CLICapabilityWorkflow: String, CaseIterable, Encodable {
             ])
         case .suggestions:
             selected = Set([
-                "context", "suggest add", "suggest batch", "suggest list",
+                "context", "suggest add", "suggest batch", "suggest list", "suggest wait",
                 "suggest accept", "suggest reject",
             ])
         case .handoff:
@@ -878,13 +878,14 @@ enum CLICommandCatalog {
         let contributionCommands: [CLICommandContract] = [
             command(
                 "suggest",
-                summary: "Create one or an atomic batch, list, accept, or reject source replacement suggestions.",
+                summary: "Create, list, await, accept, or reject source replacement suggestions.",
                 usage: ["margin suggest COMMAND ..."],
                 guidance: [
                     "Several exact assignments for one file: send {\"schema\":\"urn:margin:suggestion-batch:v1\",\"version\":1,\"items\":[{\"id\":\"UUID\",\"exact\":\"current text\",\"replacement\":\"proposed text\",\"body\":\"Why\"}]} to margin suggest add FILE --items-file - for one atomic all-or-none write.",
                     "One exact assignment: use margin suggest add FILE --quote EXACT --expect EXACT --replacement TEXT -m MESSAGE --id UUID.",
+                    "For a complete public id set, use margin suggest wait FILE ID... --timeout 20 once instead of polling; this confirms ids, not presence.",
                 ],
-                arguments: [argument("COMMAND", kind: "subcommand", description: "add, batch, list, accept, or reject.")],
+                arguments: [argument("COMMAND", kind: "subcommand", description: "add, batch, list, wait, accept, or reject.")],
                 output: output
             ),
             command(
@@ -899,7 +900,7 @@ enum CLICommandCatalog {
                     "For several supplied exact assignments, choose the first usage: send {\"schema\":\"urn:margin:suggestion-batch:v1\",\"version\":1,\"items\":[{\"id\":\"UUID\",\"exact\":\"current text\",\"replacement\":\"proposed text\",\"body\":\"Why\"}]} to margin suggest add FILE --items-file - for one atomic all-or-none write.",
                     "For one supplied exact assignment, add directly; --quote plus --expect validate the source atomically.",
                     "Add each independent item with --quote, --expect, --replacement, -m, and a stable --id; a matching success or already-applied receipt is conclusive.",
-                    "After the batch, run margin suggest list FILE once; if literal-source verification is required, run margin read FILE --json once after the batch.",
+                    "For a complete collaborator id set, run margin suggest wait FILE ID... --timeout 20 once; otherwise run margin suggest list FILE once. Run margin read FILE --json once only when literal-source verification is required.",
                     "Skip preliminary context, inspect, review, list, and read calls unless the assignment is incomplete, a command reports drift, or an external edit is known.",
                 ],
                 arguments: [target],
@@ -918,7 +919,7 @@ enum CLICommandCatalog {
                     "Input schema: {\"schema\":\"urn:margin:suggestion-batch:v1\",\"version\":1,\"items\":[{\"id\":\"UUID\",\"exact\":\"current text\",\"replacement\":\"proposed text\",\"body\":\"Why\"}]}",
                     "Each exact value is both the quote and expected-text guard; one missing or changed passage rejects the whole batch without a partial write.",
                     "Stable item ids derive a deterministic retry identity; --batch-id may name the atomic group explicitly. Do not combine it with advanced --request-id. Matching replay returns already-applied.",
-                    "After success, list once; read literal source once only when the assigned outcome requires it.",
+                    "After success, wait once for a supplied complete collaborator id set or list once; read literal source once only when the assigned outcome requires it.",
                 ],
                 arguments: [argument("FILE", kind: "markdown-file", description: "Existing Markdown file receiving every suggestion in the batch.")],
                 options: [requiredOption("--items-file", value: "BATCH_JSON_OR_-", description: "Bounded v1 batch JSON path, or - for standard input; maximum 1 MiB and 256 items."), option("--batch-id", value: "ID", description: "Optional stable atomic-group identity; otherwise derived from the sorted item ids. Mutually exclusive with --request-id."), option("--root", value: "DIRECTORY", description: "Use an explicit directory collaboration boundary.")] + actorOptions + identities + presentation,
@@ -932,6 +933,27 @@ enum CLICommandCatalog {
                 arguments: [target],
                 options: selection + presentation,
                 sideEffects: "reads-selected-files",
+                output: output
+            ),
+            command(
+                "suggest", "wait",
+                summary: "Wait until 1 to 256 named suggestions are durably present in one Markdown file.",
+                usage: ["margin suggest wait FILE ID... [--timeout SECONDS] [--root DIRECTORY] [--pretty]"],
+                guidance: [
+                    "Use only with a complete public id set. This replaces list polling; it does not infer collaborator presence or unrelated completion.",
+                    "Success returns revision, source digest, and up to 64 compact id/status pairs with an explicit omitted count. Read Markdown separately only when required.",
+                    "Timeout defaults to 20 seconds (range 0...120); expiry is a temporary failure with bounded missing-id details.",
+                    "On demand and file-local: it starts no daemon, crawls no directory, and adds no launch work.",
+                ],
+                arguments: [
+                    argument("FILE", kind: "markdown-file", description: "Existing Markdown file containing every expected suggestion."),
+                    argument("ID", kind: "annotation-id", variadic: true, description: "Bare UUID or full annotation id; provide 1 to 256 distinct ids, at most 512 UTF-8 bytes each."),
+                ],
+                options: [
+                    option("--timeout", value: "SECONDS", description: "Whole seconds to wait: default 20, range 0...120."),
+                    option("--root", value: "DIRECTORY", description: "Use an explicit directory collaboration boundary."),
+                ] + presentation,
+                sideEffects: "waits-for-named-file-state",
                 output: output
             ),
             suggestionDispositionCommand("accept", output: output, mutationTarget: mutationTarget, actor: actorOptions, identities: identities, presentation: presentation),

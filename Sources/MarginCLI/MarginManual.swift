@@ -309,7 +309,11 @@ enum MarginManual {
          so a complete exact assignment needs no preliminary read or inspection.
       3. A successful or already-applied matching receipt is conclusive. Do not
          replay that suggestion.
-      4. After the batch, list once to verify every stable id:
+      4. When the task supplies the complete collaborator id set, wait once for
+         exactly those durable suggestions instead of polling:
+         margin suggest wait FILE ID... --timeout 20
+         This confirms only those ids, not collaborator presence or unrelated
+         completion. Without a complete id set, list once instead:
          margin suggest list FILE
       5. If the task requires literal-source verification, read once after the
          batch: margin read FILE --json

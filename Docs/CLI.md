@@ -152,6 +152,7 @@ margin suggest add architecture.md \
   --id UUID
 
 margin suggest list architecture.md --pretty
+margin suggest wait architecture.md UUID-1 UUID-2 --timeout 20
 margin suggest accept architecture.md SUGGESTION_ID \
   --actor-type person --actor-name reviewer
 ```
@@ -162,6 +163,14 @@ commits all 1 to 256 proposals in one document revision. One missing or changed
 passage rejects the whole batch. Stable item IDs make exact replay safe, and
 literal Markdown is never changed by creation. `suggest batch` remains an exact
 alias. Use directory staging instead when one all-or-none decision spans files.
+
+When collaborators already share a complete public set of expected suggestion
+IDs, `suggest wait FILE ID... --timeout 20` replaces repeated list polling. It
+watches that one file only while the command is running and returns the observed
+revision, source digest, and up to 64 compact ID/status pairs (with an explicit
+omitted count) once all named suggestions are durable. Success says nothing about
+whether another collaborator is online, finished with unrelated work, or free of
+additional assignments. With no complete ID set, use `suggest list` instead.
 
 Independent suggestion additions retry bounded annotation-only races inside one
 CLI call when the logical Markdown is unchanged. Independent rejections do the

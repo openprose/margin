@@ -182,3 +182,26 @@ The operation-aware model-free study separately exercised 400 real contention
 episodes across 2, 4, 8, 16, and 32 simultaneous actors. Its complete aggregate
 result, including end-to-end duration deltas, is retained at
 `Evals/marginbench/results/contention/v45-model-free.json`.
+
+### Named-suggestion wait follow-up
+
+The named-suggestion convergence candidate adds no daemon, startup polling,
+directory discovery, or global initialization. Its file watcher is constructed
+only after an explicit `margin suggest wait` invocation and is destroyed when
+that process returns.
+
+A counterbalanced same-toolchain release comparison used 500 measured launches
+per arm for each of three static paths, after ten warmups per binary. The frozen
+v56 checkpoint and the exact signed candidate measured as follows:
+
+| Static path | v56 median | Candidate median | Median delta | v56 p95 | Candidate p95 |
+|---|---:|---:|---:|---:|---:|
+| Global help | 5.179 ms | 5.208 ms | +0.029 ms | 5.754 ms | 5.833 ms |
+| Suggestion help | 5.333 ms | 5.320 ms | -0.013 ms | 6.034 ms | 6.011 ms |
+| Suggestion-add help | 5.343 ms | 5.356 ms | +0.014 ms | 5.939 ms | 6.043 ms |
+
+These scheduling-scale differences show no material startup regression. The
+stripped, ad-hoc-signed release CLI grew from 2,809,328 to 2,842,784 bytes
+(33,456 bytes); its `__TEXT` segment grew by 32 KiB. The exact candidate digest
+for this measurement is
+`4ffa7d215b637f3b7f529e43d28dd1fdb75de9196feb413ed7c8940d545fad35`.

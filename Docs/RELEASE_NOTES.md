@@ -14,6 +14,11 @@
   dependency. The ordinary `suggest add --help` page includes the complete
   bounded stdin recipe, so agents do not need another discovery call.
   Counterbalanced process measurements found no material CLI startup regression.
+- Added `margin suggest wait FILE ID... --timeout N` as a bounded, on-demand
+  replacement for repeated list polling when collaborators share a complete
+  public suggestion-ID set. It watches one file only while invoked, reports
+  compact durable state, and deliberately makes no presence or broader
+  completion claim.
 - Made the README's protocol illustration non-literal so the example itself is
   not mistaken for a nonterminal embedded metadata block.
 

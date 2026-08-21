@@ -179,6 +179,30 @@ class SuggestionContentionBatchDriver:
             gateway.call(["read", "review.md", "--json"])
 
 
+class SuggestionContentionWaitDriver:
+    def run(self, episode, role, gateway) -> None:
+        assignments = episode.oracle["reference"]["assignments"][role.actor.id]
+        plan = json.dumps({
+            "schema": "urn:margin:suggestion-batch:v1",
+            "version": 1,
+            "items": assignments,
+        }, sort_keys=True, separators=(",", ":"))
+        response = gateway.call(
+            ["suggest", "add", "review.md", "--items-file", "-"],
+            stdin=plan,
+        )
+        if response.exit_code != 0:
+            raise RuntimeError(f"Suggestion batch failed: {response.error_code}")
+        waited = gateway.call([
+            "suggest", "wait", "review.md",
+            *episode.oracle["reference"]["allIDs"],
+            "--timeout", "3",
+        ])
+        if waited.exit_code != 0:
+            raise RuntimeError(f"Suggestion wait failed: {waited.error_code}")
+        gateway.call(["read", "review.md", "--json"])
+
+
 class MarginBenchCoreTests(unittest.TestCase):
     def test_completed_durable_work_is_not_mislabeled_as_budget_exhaustion(self) -> None:
         complete = {
@@ -2746,6 +2770,21 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertFalse(batched.checks["diagnostic_known_peer_wait_used_anywhere"])
         self.assertFalse(batched.checks["diagnostic_known_peer_wait_used_by_all_roles"])
         self.assertTrue(batched.checks["diagnostic_one_postwrite_verification_per_role"])
+
+        with tempfile.TemporaryDirectory(prefix="marginbench-suggestion-wait-") as temporary:
+            waited = run_episode(
+                episode,
+                self.binary,
+                Path(temporary) / "workspace",
+                SuggestionContentionWaitDriver(),
+            )
+        self.assertEqual(waited.score, 100.0)
+        self.assertEqual(waited.command_count, 6)
+        self.assertTrue(waited.checks["diagnostic_no_prewrite_state_reads"])
+        self.assertTrue(waited.checks["diagnostic_atomic_batch_used_by_all_roles"])
+        self.assertTrue(waited.checks["diagnostic_known_peer_wait_used_anywhere"])
+        self.assertTrue(waited.checks["diagnostic_known_peer_wait_used_by_all_roles"])
+        self.assertTrue(waited.checks["diagnostic_one_postwrite_verification_per_role"])
 
         synthetic_wait_events = (
             CommandEvent("author", "suggest batch", 0, 1.0, 1, 1, 0, None, False),

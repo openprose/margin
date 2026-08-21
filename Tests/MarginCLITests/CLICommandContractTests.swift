@@ -104,8 +104,9 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertTrue(suggestionGuidance[0].contains("\"exact\":\"current text\""))
         XCTAssertTrue(suggestionGuidance[1].contains("add directly"))
         XCTAssertTrue(suggestionGuidance[1].contains("validate the source atomically"))
+        XCTAssertTrue(suggestionGuidance[3].contains("suggest wait FILE ID..."))
         XCTAssertTrue(suggestionGuidance[3].contains("suggest list FILE once"))
-        XCTAssertTrue(suggestionGuidance[3].contains("once after the batch"))
+        XCTAssertTrue(suggestionGuidance[3].contains("read FILE --json once"))
         let suggestionBatch = try XCTUnwrap(
             suggestions.commands.first { $0.path == ["suggest", "batch"] }
         )
@@ -113,6 +114,11 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertEqual(batchGuidance.count, 4)
         XCTAssertTrue(batchGuidance[0].contains("urn:margin:suggestion-batch:v1"))
         XCTAssertTrue(batchGuidance[1].contains("rejects the whole batch"))
+        let suggestionWait = try XCTUnwrap(
+            suggestions.commands.first { $0.path == ["suggest", "wait"] }
+        )
+        XCTAssertTrue(suggestionWait.usage[0].contains("FILE ID..."))
+        XCTAssertEqual(suggestionWait.sideEffects, "waits-for-named-file-state")
         XCTAssertFalse(suggestions.commands.contains { $0.path == ["inbox"] })
         XCTAssertFalse(suggestions.commands.contains { $0.path == ["merge"] })
 
@@ -1443,6 +1449,7 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertTrue(parent.contains("Several exact assignments"))
         XCTAssertTrue(parent.contains("urn:margin:suggestion-batch:v1"))
         XCTAssertTrue(parent.contains("margin suggest add FILE --items-file -"))
+        XCTAssertTrue(parent.contains("margin suggest wait FILE ID... --timeout 20"))
 
         let add = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "add"]))
         XCTAssertTrue(add.contains("metadata races retry internally"))
@@ -1459,8 +1466,8 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertTrue(add.contains("\"replacement\":\"proposed text\""))
         XCTAssertTrue(add.contains("add directly"))
         XCTAssertTrue(add.contains("validate the source atomically"))
+        XCTAssertTrue(add.contains("suggest wait FILE ID... --timeout 20"))
         XCTAssertTrue(add.contains("suggest list FILE once"))
-        XCTAssertTrue(add.contains("once after the batch"))
         XCTAssertTrue(add.contains("Skip preliminary context, inspect, review, list, and read"))
         XCTAssertFalse(add.contains("read FILE --json once and confirm every quoted passage"))
 
@@ -1469,6 +1476,12 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertTrue(batch.contains("urn:margin:suggestion-batch:v1"))
         XCTAssertTrue(batch.contains("rejects the whole batch"))
         XCTAssertTrue(batch.contains("source drift fails closed"))
+
+        let wait = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "wait"]))
+        XCTAssertTrue(wait.contains("margin suggest wait FILE ID..."))
+        XCTAssertTrue(wait.contains("1 to 256"))
+        XCTAssertTrue(wait.contains("not infer collaborator presence"))
+        XCTAssertTrue(wait.contains("starts no daemon"))
 
         let accept = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "accept"]))
         XCTAssertTrue(accept.contains("never silently rebased"))
@@ -1494,7 +1507,10 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertTrue(manual.contains("--expect \"current text\""))
         XCTAssertTrue(manual.contains("validate the source in the same operation"))
         XCTAssertTrue(manual.contains("successful or already-applied matching receipt is conclusive"))
-        XCTAssertTrue(manual.contains("After the batch, list once"))
+        XCTAssertTrue(manual.contains("wait once for"))
+        XCTAssertTrue(manual.contains("margin suggest wait FILE ID... --timeout 20"))
+        XCTAssertTrue(manual.contains("not collaborator presence"))
+        XCTAssertTrue(manual.contains("Without a complete id set, list once"))
         XCTAssertTrue(manual.contains("read once after the"))
         XCTAssertTrue(manual.contains("Skip preliminary context, inspect, review, list, and read calls"))
         XCTAssertTrue(manual.contains("margin context TARGET --json --brief"))

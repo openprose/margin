@@ -799,6 +799,7 @@ enum CollaborationCLI {
             }
         case "batch": try suggestBatch(&cursor)
         case "list": try suggestList(&cursor)
+        case "wait": try suggestWait(&cursor)
         case "accept": try suggestDisposition(&cursor, disposition: .accept)
         case "reject": try suggestDisposition(&cursor, disposition: .reject)
         default:
@@ -1114,6 +1115,57 @@ enum CollaborationCLI {
             truncation: loaded.truncation
         )
         try write(command: "suggest.list", root: selection.root, result: result, pretty: pretty)
+    }
+
+    private static func suggestWait(_ cursor: inout ArgumentCursor) throws {
+        let pretty = cursor.takeFlag("--pretty")
+        _ = cursor.takeFlag("--json")
+        let explicitRoot = try cursor.takeValue("--root")
+        let timeoutSeconds = try cursor.takeInt("--timeout") ?? 20
+        let targetArgument = try cursor.require("Markdown file")
+        let target = try PathResolver.existingFile(targetArgument)
+        let expectedIDs = cursor.takeRemaining()
+        let selection = try resolveMutationSelection(
+            target: target,
+            explicitRoot: explicitRoot,
+            explicitPath: nil
+        )
+        let result = try SuggestionWaitSession(file: target).wait(
+            expectedIDs: expectedIDs,
+            timeoutSeconds: timeoutSeconds
+        )
+        guard result.complete else {
+            let shown = Array(result.missingIDs.prefix(16))
+            throw CLIError(
+                "SUGGESTION_WAIT_TIMEOUT",
+                "Timed out waiting for \(result.missingIDs.count) of \(result.expectedCount) named suggestions.",
+                exit: .temporaryFailure,
+                details: [
+                    "expectedCount": String(result.expectedCount),
+                    "matchedCount": String(result.matchedCount),
+                    "missingCount": String(result.missingIDs.count),
+                    "missingIDs": shown.joined(separator: ","),
+                    "omittedMissingIDCount": String(result.missingIDs.count - shown.count),
+                    "revision": String(result.revision),
+                    "contentSha256": result.contentSha256,
+                ]
+            )
+        }
+        try write(
+            command: "suggest.wait",
+            root: selection.root,
+            result: result,
+            pretty: pretty,
+            maximumBytes: 65_536,
+            notice: "Every named suggestion is durably present in this file. This confirms only those ids, not collaborator presence or unrelated task completion.",
+            nextActions: [
+                CollaborationNextAction(
+                    condition: "verify literal Markdown once when the assigned outcome requires it",
+                    command: "read",
+                    arguments: [targetArgument, "--json"]
+                ),
+            ]
+        )
     }
 
     private static func suggestDisposition(
