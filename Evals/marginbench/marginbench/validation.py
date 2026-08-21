@@ -121,6 +121,7 @@ def _schema_name(payload: Any) -> tuple[str, str]:
         "urn:marginbench:neutral-assessment:v1": "neutral-assessment.schema.json",
         "urn:marginbench:neutral-feasibility:v1": "neutral-feasibility.schema.json",
         "urn:marginbench:no-exchange-feasibility:v1": "no-exchange-feasibility.schema.json",
+        "urn:marginbench:no-exchange-isolation-preflight:v1": "no-exchange-isolation-preflight.schema.json",
         "urn:marginbench:neutral-isolation-preflight:v1": "neutral-isolation-preflight.schema.json",
         "urn:marginbench:neutral-prompt-audit:v1": "neutral-prompt-audit.schema.json",
         "urn:marginbench:neutral-production-preflight:v1": "neutral-production-preflight.schema.json",
@@ -638,6 +639,27 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 totals[name] += value
         if payload["totals"] != totals:
             errors.append("no-exchange report totals are inconsistent")
+    elif schema_name == "no-exchange-isolation-preflight.schema.json":
+        assessments = payload["assessments"]
+        if payload["assessmentCount"] != len(assessments):
+            errors.append("no-exchange isolation assessment count is inconsistent")
+        if payload["assessmentCount"] != payload["scenarioCount"] * payload["repetitionCount"]:
+            errors.append("no-exchange isolation selection totals are inconsistent")
+        identities = [(item["scenario"], item["repetition"]) for item in assessments]
+        if len(identities) != len(set(identities)):
+            errors.append("no-exchange isolation contains duplicate assessments")
+        role_count = sum(item["roleWorkspaceCount"] for item in assessments)
+        if payload["roleWorkspaceCount"] != role_count:
+            errors.append("no-exchange isolation role-workspace count is inconsistent")
+        if payload["servedSessionCount"] != role_count:
+            errors.append("no-exchange isolation served-session count is inconsistent")
+        for assessment in assessments:
+            if assessment["passed"] != all(assessment["checks"].values()):
+                errors.append("no-exchange isolation assessment pass flag is inconsistent")
+            if assessment["fileCopyCount"] < assessment["roleWorkspaceCount"]:
+                errors.append("no-exchange isolation file-copy count is inconsistent")
+        if payload["passed"] != all(item["passed"] for item in assessments):
+            errors.append("no-exchange isolation overall pass flag is inconsistent")
     elif schema_name == "neutral-served-preflight.schema.json":
         assessments = payload["assessments"]
         if payload["assessmentCount"] != len(assessments):

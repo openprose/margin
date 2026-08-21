@@ -122,6 +122,10 @@ PYTHONPATH=Evals/marginbench python3 -m marginbench.cli \
 
 PYTHONPATH=Evals/marginbench \
   ~/.local/share/uv/tools/prime/bin/python -m marginbench.cli \
+  no-exchange-isolation-preflight
+
+PYTHONPATH=Evals/marginbench \
+  ~/.local/share/uv/tools/prime/bin/python -m marginbench.cli \
   neutral-served-preflight
 
 PYTHONPATH=Evals/marginbench \
@@ -158,7 +162,14 @@ state. Its public receipt contains only scenario names, role seats, fixed
 outcome categories, and counts—never prompts, bodies, paths, actor IDs, fact
 IDs, or case fingerprints. It reports each role separately and sets
 `overallScore` to null, so impossible handoffs cannot become artificial zeros.
-The control remains non-runnable until the independent-workspace proof passes.
+The companion `no-exchange-isolation-preflight` creates a physically distinct
+copy of the initial files for every role and serves each through a fresh
+read-only tool session. Without a model, it verifies different file identities,
+identical initial bytes, one-sided mutation isolation, private state outside the
+workspace, no collaboration metadata, absent transcript canaries, and blocked
+write, parent-path, absolute-path, and symlink attempts. The profile still
+remains non-runnable until these proven pieces are integrated with the
+role-specific exact oracles in the actual served profile runner.
 
 `wide-directory-probe` invokes no model. It creates byte-identical copies of a
 deterministic 16-document, 64-item workspace; alternates baseline and candidate
@@ -673,10 +684,10 @@ show what evidence is still missing without attempting a run. The primary
 role-separated Margin profile, compute-matched single continuing-agent profile,
 and ordinary-Markdown representation profile are runnable. Margin-plus-shell
 remains gated on remote safety. The no-exchange control now has exact per-role
-neutral slices and non-scalar aggregation, but still fails closed until
-independent workspace and no-state-exchange isolation are proven. This prevents
-an attractive but incomparable control result from quietly entering the main
-track.
+neutral slices, non-scalar aggregation, and a served read-only workspace
+isolation proof, but still fails closed until the actual profile runner binds
+those pieces to separate agent processes. This prevents an attractive but
+incomparable control result from quietly entering the main track.
 
 Before model execution, freeze the paired cases and counterbalanced candidate
 order without exposing prompts or answers:

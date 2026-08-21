@@ -283,10 +283,20 @@ handoff, suggestion decision, staged commit, directory review, and distributed
 synthesis contain explicit dependencies. This is the breadth signal the floor
 was designed to expose.
 
-One gate remains: prove that each served role receives a physically independent
-initial workspace and cannot observe another role's transcript, writes, or
-durable state. Until that proof and its adversarial tests pass, the catalog and
-every runner continue to reject this profile.
+The independent-workspace component now also passes a served, model-free
+adversarial preflight. Every role receives a separately materialized mode-0700
+workspace whose corresponding files have distinct filesystem identities and
+identical initial bytes. A fresh read-only tool server per role blocks writes,
+parent and absolute paths, and symlink escape; private state and transcript
+canaries remain outside every workspace; no Margin, ledger, stage, or later-role
+state is present; and a trusted mutation to one copy does not affect another.
+The receipt retains only checks and counts.
+
+One integration gate remains. The production no-exchange profile runner must
+bind these independent served workspaces to separate agent processes, collect
+each response through a bounded submission channel, and grade only that role's
+exact private oracle. Until the complete fake-agent run and its privacy checks
+pass, the catalog and every paid runner continue to reject this profile.
 
 ## Implementation order
 

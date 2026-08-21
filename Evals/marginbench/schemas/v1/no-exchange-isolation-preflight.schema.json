@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:no-exchange-isolation-preflight:v1",
+  "title": "MarginBench served no-exchange workspace isolation preflight v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "passed", "paidModelsInvoked", "controlProfile",
+    "controlRunnable", "component", "toolSurface", "allowedActions",
+    "rawPromptsRetained", "rawTranscriptsRetained", "scenarioCount",
+    "repetitionCount", "assessmentCount", "roleWorkspaceCount",
+    "servedSessionCount", "durationMs", "assessments", "nextBlockingGate"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:no-exchange-isolation-preflight:v1"},
+    "passed": {"type": "boolean"},
+    "paidModelsInvoked": {"const": false},
+    "controlProfile": {"const": "role-separated-no-exchange-v1"},
+    "controlRunnable": {"const": false},
+    "component": {"const": "served-independent-workspace-proof"},
+    "toolSurface": {"const": ["workspace"]},
+    "allowedActions": {"const": ["guide", "list", "read"]},
+    "rawPromptsRetained": {"const": false},
+    "rawTranscriptsRetained": {"const": false},
+    "scenarioCount": {"type": "integer", "minimum": 1, "maximum": 9},
+    "repetitionCount": {"type": "integer", "minimum": 1, "maximum": 5},
+    "assessmentCount": {"type": "integer", "minimum": 1, "maximum": 45},
+    "roleWorkspaceCount": {"type": "integer", "minimum": 1, "maximum": 90},
+    "servedSessionCount": {"type": "integer", "minimum": 1, "maximum": 90},
+    "durationMs": {"type": "number", "minimum": 0, "maximum": 3600000},
+    "assessments": {
+      "type": "array", "minItems": 1, "maxItems": 45,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scenario", "repetition", "roleWorkspaceCount", "fileCopyCount",
+          "checks", "passed"
+        ],
+        "properties": {
+          "scenario": {
+            "enum": [
+              "human_agent_relay", "agent_agent_handoff", "concurrent_review",
+              "suggestion_decision", "staged_multifile", "directory_handoff",
+              "parallel_shards", "specialist_audit", "distributed_synthesis"
+            ]
+          },
+          "repetition": {"type": "integer", "minimum": 0, "maximum": 999999},
+          "roleWorkspaceCount": {"type": "integer", "minimum": 1, "maximum": 2},
+          "fileCopyCount": {"type": "integer", "minimum": 1, "maximum": 64},
+          "checks": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "distinctFileInodes", "distinctWorkspaceRoots", "guideAvailable",
+              "identicalInitialBytes", "initialFilesReadable",
+              "noCollaborationMetadata", "oneSidedMutationIsolated",
+              "pathEscapeBlocked", "privateStateOutsideWorkspaces",
+              "singleReadOnlyTool", "symlinkEscapeBlocked",
+              "transcriptCanariesAbsent", "writeChannelAbsent"
+            ],
+            "properties": {
+              "distinctFileInodes": {"type": "boolean"},
+              "distinctWorkspaceRoots": {"type": "boolean"},
+              "guideAvailable": {"type": "boolean"},
+              "identicalInitialBytes": {"type": "boolean"},
+              "initialFilesReadable": {"type": "boolean"},
+              "noCollaborationMetadata": {"type": "boolean"},
+              "oneSidedMutationIsolated": {"type": "boolean"},
+              "pathEscapeBlocked": {"type": "boolean"},
+              "privateStateOutsideWorkspaces": {"type": "boolean"},
+              "singleReadOnlyTool": {"type": "boolean"},
+              "symlinkEscapeBlocked": {"type": "boolean"},
+              "transcriptCanariesAbsent": {"type": "boolean"},
+              "writeChannelAbsent": {"type": "boolean"}
+            }
+          },
+          "passed": {"type": "boolean"}
+        }
+      }
+    },
+    "nextBlockingGate": {"const": "integrated-no-exchange-profile-runner"}
+  }
+}

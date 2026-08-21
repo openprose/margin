@@ -130,6 +130,14 @@ def main(argv: list[str] | None = None) -> int:
     no_exchange_feasibility.add_argument("--repetitions", type=int, default=1)
     no_exchange_feasibility.add_argument("--key-file")
 
+    no_exchange_isolation = subparsers.add_parser(
+        "no-exchange-isolation-preflight",
+        help="prove served role workspaces are independent and read-only without a model",
+    )
+    no_exchange_isolation.add_argument("--scenario", action="append", choices=SCENARIO_IDS)
+    no_exchange_isolation.add_argument("--repetitions", type=int, default=1)
+    no_exchange_isolation.add_argument("--key-file")
+
     neutral_served = subparsers.add_parser(
         "neutral-served-preflight",
         help="run the no-model Prime served check for the plain-Markdown control",
@@ -532,6 +540,20 @@ def main(argv: list[str] | None = None) -> int:
         )
         _write(build_no_exchange_feasibility(episodes))
         return 0
+    if arguments.command == "no-exchange-isolation-preflight":
+        try:
+            from .no_exchange_isolation import run_no_exchange_isolation_preflight
+        except ImportError as error:
+            raise ValueError(
+                "Prime Verifiers dependencies are required for the no-exchange isolation preflight."
+            ) from error
+        receipt = run_no_exchange_isolation_preflight(
+            scenarios=arguments.scenario or list(SCENARIO_IDS),
+            repetitions=arguments.repetitions,
+            key=_key(arguments.key_file),
+        )
+        _write(receipt)
+        return 0 if receipt["passed"] else 1
     if arguments.command == "neutral-served-preflight":
         try:
             from .plain_prime_preflight import run_plain_served_preflight

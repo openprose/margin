@@ -92,8 +92,8 @@ _PROFILES: tuple[dict[str, Any], ...] = (
         "purpose": "Establish what each role can accomplish without any collaborator state exchange.",
         "blockingGates": [
             {
-                "id": "independent-workspace-proof",
-                "requirement": "Prove roles receive independent initial files and no transcript or durable state exchange.",
+                "id": "integrated-no-exchange-profile-runner",
+                "requirement": "Run the role-specific oracles through separate served agent processes using the proven independent workspaces.",
             },
         ],
     },
