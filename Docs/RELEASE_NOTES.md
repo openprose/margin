@@ -8,8 +8,9 @@
   replay, and absorbs safe annotation-only contention internally.
 - Taught focused help, the progressive manual, machine-readable capabilities,
   and MarginBench about the batch path without adding background work or a new
-  dependency. Counterbalanced process measurements found no material CLI
-  startup regression.
+  dependency. The ordinary `suggest add --help` page includes the complete
+  bounded stdin recipe, so agents do not need another discovery call.
+  Counterbalanced process measurements found no material CLI startup regression.
 - Made the README's protocol illustration non-literal so the example itself is
   not mistaken for a nonterminal embedded metadata block.
 

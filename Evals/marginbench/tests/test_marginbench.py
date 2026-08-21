@@ -2510,11 +2510,17 @@ class MarginBenchCoreTests(unittest.TestCase):
             messages = [{"role": "user", "content": role.prompt}]
             self.assertEqual(
                 scripted_response(messages)["arguments"],
-                ["suggest", "batch", "--help"],
+                ["suggest", "add", "--help"],
             )
             messages.append({
                 "role": "tool",
-                "content": json.dumps({"exitCode": 0, "stdout": "batch help"}),
+                "content": json.dumps({
+                    "exitCode": 0,
+                    "stdout": (
+                        "send {\"schema\":\"urn:margin:suggestion-batch:v1\"} "
+                        "to margin suggest batch FILE --items-file -"
+                    ),
+                }),
             })
             invocation = scripted_response(messages)
             self.assertEqual(
@@ -2549,11 +2555,14 @@ class MarginBenchCoreTests(unittest.TestCase):
         fallback_messages = [{"role": "user", "content": fallback_role.prompt}]
         self.assertEqual(
             scripted_response(fallback_messages)["arguments"],
-            ["suggest", "batch", "--help"],
+            ["suggest", "add", "--help"],
         )
         fallback_messages.append({
             "role": "tool",
-            "content": json.dumps({"exitCode": 64, "stdout": ""}),
+            "content": json.dumps({
+                "exitCode": 0,
+                "stdout": "focused add help without an atomic batch recipe",
+            }),
         })
         for index in range(4):
             invocation = scripted_response(fallback_messages)

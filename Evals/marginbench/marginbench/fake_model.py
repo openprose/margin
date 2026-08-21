@@ -31,6 +31,11 @@ def _stdout(message: dict) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def _stdout_text(message: dict) -> str:
+    value = _tool_payload(message).get("stdout")
+    return value if isinstance(value, str) else ""
+
+
 def _invocation(arguments: list[str], stdin: str | None = None) -> dict:
     value = {"arguments": arguments}
     if stdin is not None:
@@ -222,8 +227,13 @@ def scripted_suggestion_contention(prompt: str, tools: list[dict]) -> dict | Non
     if not isinstance(assignments, list) or len(assignments) != 4:
         raise ValueError("Suggestion-contention assignment must contain four items.")
     if not tools:
-        return _invocation(["suggest", "batch", "--help"])
-    batch_available = _tool_payload(tools[0]).get("exitCode") == 0
+        return _invocation(["suggest", "add", "--help"])
+    first_help = _stdout_text(tools[0])
+    batch_available = (
+        _tool_payload(tools[0]).get("exitCode") == 0
+        and "urn:margin:suggestion-batch:v1" in first_help
+        and "--items-file -" in first_help
+    )
     if batch_available:
         if len(tools) == 1:
             plan = {

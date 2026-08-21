@@ -892,7 +892,7 @@ enum CLICommandCatalog {
                 ],
                 guidance: [
                     "For one supplied exact assignment, add directly; --quote plus --expect validate the source atomically.",
-                    "For several exact assignments in one file, use suggest batch so every proposal is committed together in one tool call.",
+                    "For several exact assignments in one file, send {\"schema\":\"urn:margin:suggestion-batch:v1\",\"version\":1,\"items\":[{\"id\":\"UUID\",\"exact\":\"current text\",\"replacement\":\"proposed text\",\"body\":\"Why\"}]} to margin suggest batch FILE --items-file - so every proposal is committed together in one tool call.",
                     "Add each independent item with --quote, --expect, --replacement, -m, and a stable --id; a matching success or already-applied receipt is conclusive.",
                     "After the batch, run margin suggest list FILE once; if literal-source verification is required, run margin read FILE --json once after the batch.",
                     "Skip preliminary context, inspect, review, list, and read calls unless the assignment is incomplete, a command reports drift, or an external edit is known.",

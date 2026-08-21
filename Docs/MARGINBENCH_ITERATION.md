@@ -419,6 +419,30 @@ Both 206-test Python suites and both fake-model execution modes pass; the fake
 candidate uses batch for both roles and satisfies all three new checks. No
 product binary changed and no paid model was invoked for v53.
 
+v54 moves the complete atomic-batch recipe onto the first focused surface that
+the real traces actually opened. `margin suggest add --help` now contains the
+bounded v1 JSON shape, the required per-item fields, and the executable
+`margin suggest batch FILE --items-file -` command. An agent with several exact
+assignments no longer needs a third help lookup to learn the input contract.
+The existing single-add route remains first and unchanged.
+
+The fake-model rehearsal now starts from `suggest add --help`, adopts batching
+only when that ordinary page contains both the schema and stdin command, and
+falls back to four individual additions when an older binary lacks the recipe.
+This mirrors the observed real-model discovery route without making old
+candidates fail a speculative command. The reference remains at 100, and both
+in-process and environment-server Prime rehearsals complete two collaborators
+at full reward with no paid model call.
+
+All 182 Swift tests and both 206-test Python suites pass, as do release,
+package, signed-bundle smoke, and source-preservation checks. Detailed
+suggestion capabilities remain bounded at 29,182 bytes, the brief projection
+at 5,183 bytes, and focused add help at 3,222 bytes. Against the frozen v52
+debug binary, a counterbalanced 200-process sample measured a 0.079 ms focused-
+help median difference and a 0.115 ms global-help difference. The optimized
+focused help remains about 6 ms. These are scheduler-scale differences, not a
+speed regression or speedup claim.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a
