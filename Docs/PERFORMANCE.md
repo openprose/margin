@@ -168,3 +168,17 @@ enumeration do not block the first window. Target readiness scales with the
 requested work and remains within the checked-in 1,250 ms local p95 envelope
 for this matrix. These warm-launch figures support “a few hundred milliseconds
 to a visible window” on the reference system, not a sub-200 ms claim.
+
+### v0.4.0 CLI contention follow-up
+
+The later contention candidate changes only mutation paths that run after a
+suggestion, rejection, or typed contribution is requested. Static startup stays
+filesystem-free. In a counterbalanced 200-process sample after ten warmups,
+`suggest add --help` measured **5.970 ms median / 7.431 ms p95** for checkpoint
+`d718545` and **5.934 ms / 7.460 ms** for the candidate. The distributions are
+equivalent and show no CLI startup regression from the bounded retry logic.
+
+The operation-aware model-free study separately exercised 400 real contention
+episodes across 2, 4, 8, 16, and 32 simultaneous actors. Its complete aggregate
+result, including end-to-end duration deltas, is retained at
+`Evals/marginbench/results/contention/v45-model-free.json`.

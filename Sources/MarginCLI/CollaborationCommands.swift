@@ -23,6 +23,7 @@ enum CollaborationCLICommand: String, CaseIterable {
 }
 
 enum CollaborationCLI {
+    private static let maximumCommutativeAttempts = 32
     private static let rootResolver = CollaborationRootResolver()
     private static let cursorService = CollaborationCursorService()
     private static let contextService = CollaborationContextService()
@@ -141,8 +142,7 @@ enum CollaborationCLI {
         )
         let identities = RequestIdentities(requestID: requestID, stageID: stageID)
         var currentCursor = baseCursor
-        let maximumAnnotationOnlyAttempts = 8
-        for attempt in 0..<maximumAnnotationOnlyAttempts {
+        for attempt in 0..<maximumCommutativeAttempts {
             let changeSet = try makeChangeSet(
                 root: root,
                 cursor: currentCursor,
@@ -182,7 +182,7 @@ enum CollaborationCLI {
             } catch let error as CollaborationError {
                 guard case .preconditionFailed = error,
                       preconditions.revision == nil,
-                      attempt + 1 < maximumAnnotationOnlyAttempts else {
+                      attempt + 1 < maximumCommutativeAttempts else {
                     throw error
                 }
 
@@ -202,7 +202,7 @@ enum CollaborationCLI {
             }
         }
         throw CollaborationError.transactionFailed(
-            "The typed contribution did not converge after \(maximumAnnotationOnlyAttempts) annotation-only attempts."
+            "The typed contribution did not converge after \(maximumCommutativeAttempts) annotation-only attempts."
         )
     }
 
@@ -840,18 +840,53 @@ enum CollaborationCLI {
             id: contributionID,
             audience: audience
         )
-        let changeSet = try makeChangeSet(
-            root: selection.root,
-            cursor: baseCursor,
-            actor: actor,
-            identities: identities,
-            created: contribution.created,
-            operation: .contribution(
-                id: "\(identities.requestID)#operation",
-                CollaborationContributionOperation(contribution: contribution)
+        guard let baseFileCursor = baseCursor[selection.path] else {
+            throw CollaborationError.invalidCursor(
+                "The suggestion target is not cursor-bound."
             )
-        )
-        let receipt = try submit(changeSet)
+        }
+        let expectedContentSha256 = baseFileCursor.contentSha256
+        var currentCursor = baseCursor
+        var receipt: CollaborationTransactionReceipt?
+        for attempt in 0..<maximumCommutativeAttempts {
+            let changeSet = try makeChangeSet(
+                root: selection.root,
+                cursor: currentCursor,
+                actor: actor,
+                identities: identities,
+                created: contribution.created,
+                operation: .contribution(
+                    id: "\(identities.requestID)#operation",
+                    CollaborationContributionOperation(contribution: contribution)
+                )
+            )
+            do {
+                receipt = try submit(changeSet)
+                break
+            } catch let error as CollaborationError {
+                guard case .preconditionFailed = error,
+                      attempt + 1 < maximumCommutativeAttempts else {
+                    throw error
+                }
+                let refreshed = try loadDocumentBase(
+                    root: selection.root,
+                    path: selection.path
+                )
+                guard let refreshedFile = refreshed.cursor[selection.path],
+                      refreshedFile.contentSha256 == expectedContentSha256 else {
+                    throw CollaborationError.preconditionFailed(
+                        path: selection.path,
+                        reason: "The logical Markdown changed during concurrent suggestion creation."
+                    )
+                }
+                currentCursor = refreshed.cursor
+            }
+        }
+        guard let receipt else {
+            throw CollaborationError.transactionFailed(
+                "The suggestion did not converge after \(maximumCommutativeAttempts) annotation-only attempts."
+            )
+        }
         try write(
             command: "suggest.add",
             root: selection.root,
@@ -944,7 +979,18 @@ enum CollaborationCLI {
             explicitRoot: explicitRoot,
             explicitPath: explicitPath
         )
-        let baseCursor = try cursorService.capture(root: selection.root, paths: [selection.path])
+        let base = try loadDocumentBase(root: selection.root, path: selection.path)
+        let baseCursor = base.cursor
+        guard let baseFileCursor = baseCursor[selection.path] else {
+            throw CollaborationError.invalidCursor(
+                "The suggestion disposition target is not cursor-bound."
+            )
+        }
+        let expectedContentSha256 = baseFileCursor.contentSha256
+        let expectedContribution = try contributionPayload(
+            in: base.document,
+            id: contributionID
+        )
         let operation = CollaborationOperation.suggestionDisposition(
             id: "\(identities.requestID)#operation",
             CollaborationSuggestionDispositionOperation(
@@ -953,14 +999,49 @@ enum CollaborationCLI {
                 disposition: disposition
             )
         )
-        let changeSet = try makeChangeSet(
-            root: selection.root,
-            cursor: baseCursor,
-            actor: actor,
-            identities: identities,
-            operation: operation
-        )
-        let receipt = try submit(changeSet)
+        var currentCursor = baseCursor
+        var receipt: CollaborationTransactionReceipt?
+        for attempt in 0..<maximumCommutativeAttempts {
+            let changeSet = try makeChangeSet(
+                root: selection.root,
+                cursor: currentCursor,
+                actor: actor,
+                identities: identities,
+                operation: operation
+            )
+            do {
+                receipt = try submit(changeSet)
+                break
+            } catch let error as CollaborationError {
+                guard disposition == .reject,
+                      case .preconditionFailed = error,
+                      attempt + 1 < maximumCommutativeAttempts else {
+                    throw error
+                }
+                let refreshed = try loadDocumentBase(
+                    root: selection.root,
+                    path: selection.path
+                )
+                let refreshedContribution = try contributionPayload(
+                    in: refreshed.document,
+                    id: contributionID
+                )
+                guard let refreshedFile = refreshed.cursor[selection.path],
+                      refreshedFile.contentSha256 == expectedContentSha256,
+                      refreshedContribution == expectedContribution else {
+                    throw CollaborationError.preconditionFailed(
+                        path: selection.path,
+                        reason: "The source or reviewed suggestion changed during a concurrent rejection."
+                    )
+                }
+                currentCursor = refreshed.cursor
+            }
+        }
+        guard let receipt else {
+            throw CollaborationError.transactionFailed(
+                "The suggestion rejection did not converge after \(maximumCommutativeAttempts) annotation-only attempts."
+            )
+        }
         try write(
             command: "suggest.\(disposition.rawValue)",
             root: selection.root,

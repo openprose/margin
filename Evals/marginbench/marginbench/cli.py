@@ -15,6 +15,7 @@ from .challenges import challenge_catalog
 from .checkpoint import CheckpointPromotionError, promote_checkpoint
 from .controls import DEFAULT_CONTROL_PROFILE, control_catalog
 from .concurrency_probe import ConcurrencyProbeLimits, run_concurrency_probe
+from .contention_matrix import ContentionMatrixLimits, run_contention_matrix
 from .crossover import (
     CONTINUING_PROFILE,
     ROLE_SEPARATED_PROFILE,
@@ -170,6 +171,25 @@ def main(argv: list[str] | None = None) -> int:
     concurrency_probe.add_argument("--baseline-bin", required=True)
     concurrency_probe.add_argument("--candidate-bin", required=True)
     concurrency_probe.add_argument("--repetitions", type=int, default=100)
+
+    contention_matrix = subparsers.add_parser(
+        "contention-matrix",
+        help=(
+            "compare operation-aware contention for typed work, suggestions, "
+            "decisions, and handoffs"
+        ),
+    )
+    contention_matrix.add_argument("--baseline-bin", required=True)
+    contention_matrix.add_argument("--candidate-bin", required=True)
+    contention_matrix.add_argument("--repetitions", type=int, default=8)
+    contention_matrix.add_argument(
+        "--group-size",
+        action="append",
+        type=int,
+        help="writer group size; repeat to replace the default 2,4,8,16 matrix",
+    )
+    contention_matrix.add_argument("--recovery-rounds", type=int, default=4)
+    contention_matrix.add_argument("--timeout-seconds", type=float, default=30.0)
 
     candidate = subparsers.add_parser("candidate", help="freeze a CLI/manual/settings candidate by digest")
     candidate.add_argument("--id", required=True)
@@ -371,6 +391,18 @@ def main(argv: list[str] | None = None) -> int:
             _binary(arguments.baseline_bin),
             _binary(arguments.candidate_bin),
             limits=ConcurrencyProbeLimits(repetitions=arguments.repetitions),
+        ))
+        return 0
+    if arguments.command == "contention-matrix":
+        _write(run_contention_matrix(
+            _binary(arguments.baseline_bin),
+            _binary(arguments.candidate_bin),
+            limits=ContentionMatrixLimits(
+                repetitions=arguments.repetitions,
+                group_sizes=tuple(arguments.group_size or (2, 4, 8, 16)),
+                recovery_rounds=arguments.recovery_rounds,
+                timeout_seconds=arguments.timeout_seconds,
+            ),
         ))
         return 0
     if arguments.command == "generate":

@@ -140,6 +140,7 @@ def _schema_name(payload: Any) -> tuple[str, str]:
         "urn:marginbench:study-plan:v1": "study-plan.schema.json",
         "urn:marginbench:trace-shape-report:v1": "trace-shape-report.schema.json",
         "urn:marginbench:concurrency-probe:v1": "concurrency-probe.schema.json",
+        "urn:marginbench:contention-matrix:v1": "contention-matrix.schema.json",
         "urn:marginbench:wide-directory-probe:v1": "wide-directory-probe.schema.json",
         "urn:marginbench:submission:v1": "submission.schema.json",
         "urn:marginbench:submission-verification:v1": "submission-verification.schema.json",
@@ -1973,6 +1974,235 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             errors.append("trace scenario write-attempt count disagrees with the report")
         if sum(item["count"] for item in payload["sequences"]) > payload["traceCount"]:
             errors.append("trace sequence counts exceed traceCount")
+    elif schema_name == "contention-matrix.schema.json":
+        method = payload["method"]
+        arms = payload["arms"]
+        family_names = [item["name"] for item in method["families"]]
+        group_sizes = method["groupSizes"]
+        repetitions = method["repetitionsPerCase"]
+        expected_keys = {
+            (family, group_size)
+            for family in family_names
+            for group_size in group_sizes
+        }
+        expected_episode_count = len(expected_keys) * repetitions
+        if family_names != [
+            "typed-add",
+            "suggestion-add",
+            "suggestion-reject",
+            "suggestion-accept",
+            "handoff-add",
+        ]:
+            errors.append("contention family catalog is inconsistent")
+        if group_sizes != sorted(set(group_sizes)):
+            errors.append("contention group sizes are not unique and increasing")
+        if payload["fixture"]["caseCountPerArm"] != len(expected_keys) * repetitions:
+            errors.append("contention fixture case count is inconsistent")
+        expected_case_digest = hashlib.sha256(
+            "\n".join(
+                f"{family}:{group_size}:{repetition}"
+                for family in family_names
+                for group_size in group_sizes
+                for repetition in range(repetitions)
+            ).encode("ascii")
+        ).hexdigest()
+        if payload["fixture"]["caseSetSha256"] != expected_case_digest:
+            errors.append("contention fixture case digest is inconsistent")
+
+        indexed_arms: dict[str, dict[tuple[str, int], dict[str, Any]]] = {}
+        for label in ("baseline", "candidate"):
+            arm = arms[label]
+            if arm["episodeCount"] != expected_episode_count:
+                errors.append(f"contention {label} episode count is inconsistent")
+            indexed: dict[tuple[str, int], dict[str, Any]] = {}
+            for case in arm["cases"]:
+                key = (case["family"], case["groupSize"])
+                if key in indexed:
+                    errors.append(f"contention {label} repeats a family/group case")
+                indexed[key] = case
+                if case["repetitionCount"] != repetitions:
+                    errors.append(f"contention {label} repetition count is inconsistent")
+                if case["writerIntentCount"] != case["groupSize"] * repetitions:
+                    errors.append(f"contention {label} writer-intent count is inconsistent")
+                if not (
+                    0 <= case["initialSuccessCount"] <= case["finalSuccessCount"]
+                    <= case["writerIntentCount"]
+                ):
+                    errors.append(f"contention {label} success totals are inconsistent")
+                if case["mutationCallCount"] != (
+                    case["writerIntentCount"] + case["retryCallCount"]
+                ):
+                    errors.append(f"contention {label} mutation-call total is inconsistent")
+                if case["agentVisibleCallCount"] != (
+                    case["mutationCallCount"] + case["recoveryReadCount"]
+                ):
+                    errors.append(f"contention {label} visible-call total is inconsistent")
+                if case["retryCallCount"] > case["recoveryReadCount"]:
+                    errors.append(f"contention {label} recovery-call total is inconsistent")
+                for prefix in ("initial", "final"):
+                    histogram = case[f"{prefix}SuccessHistogram"]
+                    if sum(histogram.values()) != repetitions:
+                        errors.append(
+                            f"contention {label} {prefix} histogram count is inconsistent"
+                        )
+                    if sum(
+                        int(value) * count for value, count in histogram.items()
+                    ) != case[f"{prefix}SuccessCount"]:
+                        errors.append(
+                            f"contention {label} {prefix} histogram total is inconsistent"
+                        )
+                    if any(
+                        int(value) > case["groupSize"] for value in histogram
+                    ):
+                        errors.append(
+                            f"contention {label} {prefix} histogram range is inconsistent"
+                        )
+                if case["visibleConflictEpisodeCount"] > repetitions:
+                    errors.append(f"contention {label} conflict episodes are inconsistent")
+                if case["visibleConflictEpisodeCount"] > case["visibleConflictCount"]:
+                    errors.append(f"contention {label} conflict totals are inconsistent")
+                possible_conflict_episodes = sum(
+                    count
+                    for value, count in case["initialSuccessHistogram"].items()
+                    if int(value) < case["groupSize"]
+                )
+                if case["visibleConflictEpisodeCount"] > possible_conflict_episodes:
+                    errors.append(
+                        f"contention {label} conflict histogram is inconsistent"
+                    )
+                if (case["visibleConflictEpisodeCount"] == 0) != (
+                    case["visibleConflictCount"] == 0
+                ):
+                    errors.append(
+                        f"contention {label} conflict presence is inconsistent"
+                    )
+                if sum(case["errorCounts"].values()) != (
+                    case["visibleConflictCount"] + case["otherFailureCount"]
+                ):
+                    errors.append(f"contention {label} error totals are inconsistent")
+                if not set(case["errorCounts"]).issubset({
+                    "COLLABORATION_PRECONDITION_FAILED",
+                    "CONCURRENT_MODIFICATION",
+                    "REVISION_CONFLICT",
+                    "OTHER_ERROR",
+                }):
+                    errors.append(f"contention {label} error code is inconsistent")
+                if case["durationMs"]["median"] > case["durationMs"]["p95"]:
+                    errors.append(f"contention {label} duration percentiles are inconsistent")
+                if case["family"] in {
+                    "typed-add",
+                    "suggestion-add",
+                    "suggestion-reject",
+                }:
+                    expected_case_completion = all(
+                        int(value) == case["groupSize"]
+                        for value in case["finalSuccessHistogram"]
+                    )
+                elif case["family"] == "suggestion-accept":
+                    expected_case_completion = all(
+                        int(value) == 1
+                        for value in case["finalSuccessHistogram"]
+                    )
+                else:
+                    expected_case_completion = all(
+                        int(value) >= 1
+                        for value in case["finalSuccessHistogram"]
+                    )
+                if case["checks"]["completionPassed"] != expected_case_completion:
+                    errors.append(
+                        f"contention {label} case completion flag is inconsistent"
+                    )
+                if case["checks"]["noUnexpectedFailures"] != (
+                    case["otherFailureCount"] == 0
+                ):
+                    errors.append(
+                        f"contention {label} unexpected-failure flag is inconsistent"
+                    )
+                if case["family"] in {"suggestion-accept", "handoff-add"}:
+                    if case["recoveryReadCount"] != 0 or case["retryCallCount"] != 0:
+                        errors.append(
+                            f"contention {label} nonrecoverable calls are inconsistent"
+                        )
+                    if (
+                        case["visibleConflictCount"] + case["otherFailureCount"]
+                        != case["writerIntentCount"] - case["finalSuccessCount"]
+                    ):
+                        errors.append(
+                            f"contention {label} nonrecoverable outcomes are inconsistent"
+                        )
+            if set(indexed) != expected_keys:
+                errors.append(f"contention {label} case coverage is inconsistent")
+            expected_safety_passed = all(
+                all(
+                    case["checks"][name]
+                    for name in (
+                        "documentsValid",
+                        "sourcePolicyPassed",
+                        "graphIntegrityPassed",
+                        "noUnexpectedFailures",
+                    )
+                )
+                for case in arm["cases"]
+            )
+            expected_completion_passed = all(
+                case["checks"]["completionPassed"] for case in arm["cases"]
+            )
+            if arm["safetyPassed"] != expected_safety_passed:
+                errors.append(f"contention {label} safety flag is inconsistent")
+            if arm["completionPassed"] != expected_completion_passed:
+                errors.append(f"contention {label} completion flag is inconsistent")
+            if arm["passed"] != (
+                expected_safety_passed and expected_completion_passed
+            ):
+                errors.append(f"contention {label} pass flag is inconsistent")
+            indexed_arms[label] = indexed
+
+        comparisons: dict[tuple[str, int], dict[str, Any]] = {}
+        for row in payload["comparison"]:
+            key = (row["family"], row["groupSize"])
+            if key in comparisons:
+                errors.append("contention comparison repeats a family/group case")
+            comparisons[key] = row
+            baseline = indexed_arms["baseline"].get(key)
+            candidate = indexed_arms["candidate"].get(key)
+            if baseline is None or candidate is None:
+                continue
+            expected_deltas = {
+                "candidateMinusBaselineFinalSuccesses": (
+                    candidate["finalSuccessCount"] - baseline["finalSuccessCount"]
+                ),
+                "candidateMinusBaselineVisibleConflicts": (
+                    candidate["visibleConflictCount"] - baseline["visibleConflictCount"]
+                ),
+                "candidateMinusBaselineMutationCalls": (
+                    candidate["mutationCallCount"] - baseline["mutationCallCount"]
+                ),
+                "candidateMinusBaselineRecoveryReads": (
+                    candidate["recoveryReadCount"] - baseline["recoveryReadCount"]
+                ),
+                "candidateMinusBaselineAgentVisibleCalls": (
+                    candidate["agentVisibleCallCount"]
+                    - baseline["agentVisibleCallCount"]
+                ),
+                "candidateMinusBaselineMedianDurationMs": round(
+                    candidate["durationMs"]["median"]
+                    - baseline["durationMs"]["median"],
+                    3,
+                ),
+                "candidateMinusBaselineP95DurationMs": round(
+                    candidate["durationMs"]["p95"]
+                    - baseline["durationMs"]["p95"],
+                    3,
+                ),
+            }
+            if any(row[name] != value for name, value in expected_deltas.items()):
+                errors.append("contention comparison delta is inconsistent")
+        if set(comparisons) != expected_keys:
+            errors.append("contention comparison coverage is inconsistent")
+        if payload["passed"] != (
+            arms["baseline"]["safetyPassed"] and arms["candidate"]["passed"]
+        ):
+            errors.append("contention matrix pass flag is inconsistent")
     elif schema_name == "concurrency-probe.schema.json":
         fixture = payload["fixture"]
         method = payload["method"]

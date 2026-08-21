@@ -107,6 +107,10 @@ PYTHONPATH=Evals/marginbench python3 -m marginbench.cli wide-directory-probe \
 PYTHONPATH=Evals/marginbench python3 -m marginbench.cli concurrency-probe \
   --baseline-bin PATH_TO_BASELINE --candidate-bin build/margin --repetitions 100
 
+PYTHONPATH=Evals/marginbench python3 -m marginbench.cli contention-matrix \
+  --baseline-bin PATH_TO_BASELINE --candidate-bin build/margin \
+  --repetitions 8
+
 PYTHONPATH=Evals/marginbench python3 -m marginbench.cli neutral-feasibility
 
 PYTHONPATH=Evals/marginbench \
@@ -164,6 +168,25 @@ schema-bound report is
 of `make marginbench-audit`, so a stale or hand-edited report fails the normal
 publication gate. The current 1,000-pair development result is
 `results/concurrency/v41-model-free.json`.
+
+`contention-matrix` invokes no model and uses real, simultaneous CLI processes.
+By default it tests groups of 2, 4, 8, and 16 actors across five meanings of
+concurrent work: independent typed additions, independent suggestion additions,
+independent suggestion rejections, competing source-changing acceptances, and
+cursor-bound handoffs. The first three should converge without making agents
+perform a read/retry storm. Suggestion acceptance must leave exactly one source
+winner, and handoff conflicts must stay visible because silently changing a
+handoff's starting state would falsify its provenance. The report separates
+source and graph safety from completion, independently recomputes every total,
+and retains only aggregate counts, end-to-end timings, binary digests, and
+static error codes. Internal retry counts are not exposed by the product, so
+the report measures the calls an agent must make and the total elapsed cost of
+the complete operation. Baseline incompletion is descriptive; baseline safety
+and all candidate safety/completion checks remain mandatory. The schema-bound report is
+`urn:marginbench:contention-matrix:v1`, retained reports are checked by
+`make marginbench-audit`, and the current model-free result adds the supported
+32-actor ceiling with repeated `--group-size` flags at
+`results/contention/v45-model-free.json`.
 
 `wide_directory_triage` is an opt-in experimental scenario rather than a tenth
 default family. It requires brief orientation, recovery through a filtered

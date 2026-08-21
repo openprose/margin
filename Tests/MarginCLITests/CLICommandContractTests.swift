@@ -1152,6 +1152,105 @@ final class CLICommandContractTests: XCTestCase {
         XCTAssertEqual(String(data: decoded.bodyData, encoding: .utf8), source)
     }
 
+    func testConcurrentSuggestionAddsAndIndependentRejectionsConvergeInternally() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("suggestions.md")
+        let source = (0..<16).map {
+            "Anchor \(String(format: "%02d", $0)) retains original value \(String(format: "%02d", $0))."
+        }.joined(separator: "\n\n") + "\n"
+        try Data(source.utf8).write(to: file)
+
+        let null = try XCTUnwrap(FileHandle(forWritingAtPath: "/dev/null"))
+        let savedStandardOutput = dup(STDOUT_FILENO)
+        XCTAssertGreaterThanOrEqual(savedStandardOutput, 0)
+        XCTAssertGreaterThanOrEqual(dup2(null.fileDescriptor, STDOUT_FILENO), 0)
+        defer {
+            _ = dup2(savedStandardOutput, STDOUT_FILENO)
+            close(savedStandardOutput)
+            try? null.close()
+        }
+
+        let failures = NSLock()
+        var capturedErrors: [String] = []
+        DispatchQueue.concurrentPerform(iterations: 16) { index in
+            do {
+                let identifier = String(
+                    format: "00000000-0000-4000-8000-%012d",
+                    90_000 + index
+                )
+                let anchor = "Anchor \(String(format: "%02d", index)) retains original value \(String(format: "%02d", index))."
+                var cursor = ArgumentCursor([
+                    "add", file.path, "--quote", anchor, "--expect", anchor,
+                    "--replacement", "Accepted value \(index)",
+                    "-m", "Independent suggestion \(index)",
+                    "--id", identifier,
+                    "--request-id", "urn:test:request:suggestion-add:\(index)",
+                    "--actor-id", "urn:test:agent:suggestion:\(index)",
+                    "--actor-type", "software",
+                ])
+                try CollaborationCLI.run(command: "suggest", cursor: &cursor)
+            } catch {
+                failures.lock()
+                capturedErrors.append("add \(index): \(error.localizedDescription)")
+                failures.unlock()
+            }
+        }
+        XCTAssertTrue(capturedErrors.isEmpty, capturedErrors.joined(separator: "\n"))
+        XCTAssertEqual(try CommentService().list(at: file).comments.count, 16)
+
+        capturedErrors = []
+        DispatchQueue.concurrentPerform(iterations: 16) { index in
+            do {
+                let identifier = String(
+                    format: "00000000-0000-4000-8000-%012d",
+                    90_000 + index
+                )
+                var cursor = ArgumentCursor([
+                    "reject", file.path, identifier,
+                    "--request-id", "urn:test:request:suggestion-reject:\(index)",
+                    "--actor-id", "urn:test:agent:reviewer:\(index)",
+                    "--actor-type", "software",
+                ])
+                try CollaborationCLI.run(command: "suggest", cursor: &cursor)
+            } catch {
+                failures.lock()
+                capturedErrors.append("reject \(index): \(error.localizedDescription)")
+                failures.unlock()
+            }
+        }
+
+        XCTAssertTrue(capturedErrors.isEmpty, capturedErrors.joined(separator: "\n"))
+        let snapshot = try CommentService().list(at: file)
+        XCTAssertEqual(snapshot.comments.count, 16)
+        XCTAssertTrue(snapshot.comments.allSatisfy { listed in
+            guard case .object(let details)? =
+                    listed.annotation.extensions["margin:suggestion"],
+                  case .string("rejected")? = details["status"] else {
+                return false
+            }
+            return true
+        })
+        let decoded = try EmbeddedCommentCodec().decode(Data(contentsOf: file))
+        XCTAssertEqual(String(data: decoded.bodyData, encoding: .utf8), source)
+    }
+
+    func testSuggestionAndHandoffHelpExplainContentionSafety() throws {
+        let add = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "add"]))
+        XCTAssertTrue(add.contains("metadata races retry internally"))
+        XCTAssertTrue(add.contains("source drift fails closed"))
+
+        let accept = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "accept"]))
+        XCTAssertTrue(accept.contains("never silently rebased"))
+
+        let reject = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["suggest", "reject"]))
+        XCTAssertTrue(reject.contains("metadata races retry internally"))
+        XCTAssertTrue(reject.contains("target drift fails closed"))
+
+        let handoff = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["handoff", "add"]))
+        XCTAssertTrue(handoff.contains("provenance is never silently rewritten"))
+    }
+
     func testDirectoryContextReturnsReusablePerFilePathsAndNeverInventsRevisionZero() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

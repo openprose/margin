@@ -875,7 +875,7 @@ enum CLICommandCatalog {
             ),
             command(
                 "suggest", "add",
-                summary: "Add a resilient passage replacement suggestion with base provenance.",
+                summary: "Add a passage replacement suggestion; unchanged-source metadata races retry internally, while source drift fails closed.",
                 usage: ["margin suggest add TARGET (--quote EXACT [--prefix P --suffix S] [--occurrence N] | --range START:END | --from LINE:COL --to LINE:COL) [--expect TEXT] --replacement TEXT -m MESSAGE [OPTIONS]"],
                 arguments: [target],
                 options: mutationTarget + [option("--quote", value: "EXACT", description: "Resolve a unique exact passage without coordinate arithmetic."), option("--prefix", value: "TEXT", description: "Text immediately before --quote for disambiguation."), option("--suffix", value: "TEXT", description: "Text immediately after --quote for disambiguation."), option("--occurrence", value: "N", description: "One-based duplicate quote occurrence."), option("--range", value: "START:END", description: "Half-open Unicode-scalar range."), option("--from", value: "LINE:COL", description: "One-based grapheme start; requires --to."), option("--to", value: "LINE:COL", description: "One-based grapheme end; requires --from."), option("--expect", value: "TEXT", description: "Optional exact-match precondition; derived from the resolved passage when omitted."), requiredOption("--replacement", value: "TEXT", description: "Replacement logical Markdown."), option("--id", "--contribution-id", value: "ID", description: "Stable contribution and retry identity."), option("--audience", value: "ACTOR_ID", repeatable: true, description: "Intended actor audience.")] + messageOptions + actorOptions + identities + presentation,
@@ -902,7 +902,7 @@ enum CLICommandCatalog {
             ),
             command(
                 "handoff", "add",
-                summary: "Record a handoff with start/finish cursors and explicit follow-up references.",
+                summary: "Record a cursor-bound handoff; concurrent root drift stays visible so provenance is never silently rewritten.",
                 usage: [
                     "margin handoff add TARGET -m MESSAGE [HANDOFF_OPTIONS] [ACTOR_OPTIONS] [IDENTITY_OPTIONS]",
                     "margin handoff add FILE -m TEXT --next-actor ACTOR_ID --contribution-id UUID --request-id UUID",
@@ -954,9 +954,12 @@ enum CLICommandCatalog {
         identities: [CLIOptionContract],
         presentation: [CLIOptionContract]
     ) -> CLICommandContract {
-        command(
+        let summary = name == "accept"
+            ? "Accept a proposed source change; concurrent drift fails visibly and is never silently rebased."
+            : "Reject an unchanged reviewed suggestion; independent metadata races retry internally, while source or target drift fails closed."
+        return command(
             "suggest", name,
-            summary: "\(name.capitalized) a proposed suggestion through the shared semantic transaction evaluator.",
+            summary: summary,
             usage: ["margin suggest \(name) TARGET ID [OPTIONS]"],
             arguments: [argument("TARGET", kind: "file-or-directory", description: "Target file or root."), argument("ID", kind: "contribution-id", description: "Suggestion contribution id.")],
             options: mutationTarget + actor + identities + presentation,

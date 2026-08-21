@@ -145,6 +145,13 @@ margin suggest accept architecture.md SUGGESTION_ID \
   --actor-type person --actor-name reviewer
 ```
 
+Independent suggestion additions retry bounded annotation-only races inside one
+CLI call when the logical Markdown is unchanged. Independent rejections do the
+same only while both the source and the exact reviewed suggestion are unchanged.
+Accepting a suggestion changes source and never silently rebases: a concurrent
+change remains a visible conflict that must be reread. This makes metadata-only
+collaboration convenient without weakening source decisions.
+
 A durable handoff carries the current state without requiring the next agent to
 receive the previous agent's transcript:
 
@@ -159,6 +166,10 @@ margin handoff add . --path architecture.md \
   --id UUID
 ```
 
+Handoffs remain bound to the state the author actually observed. Margin does not
+hide a concurrent root change by silently refreshing that state; reread and
+reauthor the handoff so its provenance remains truthful.
+
 ## Safe automation
 
 Agents and scripts should:
@@ -168,6 +179,8 @@ Agents and scripts should:
 - copy observed revisions and cursors exactly—zero is valid—and use them as
   compare-and-swap preconditions;
 - give actors and retryable mutations stable IDs;
+- let independent additions and rejections use Margin's bounded internal retry,
+  but treat accept and handoff conflicts as instructions to reread;
 - follow returned actions and truncation metadata rather than guessing paths;
 - validate a document after an unfamiliar workflow;
 - use `--request-id` only for commands whose help advertises it.

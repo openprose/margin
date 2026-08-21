@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:contention-matrix:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "version",
+    "paidModelsInvoked",
+    "passed",
+    "fixture",
+    "method",
+    "arms",
+    "comparison"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:contention-matrix:v1"},
+    "version": {"const": 1},
+    "paidModelsInvoked": {"const": false},
+    "passed": {"type": "boolean"},
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caseSetSha256", "caseCountPerArm"],
+      "properties": {
+        "caseSetSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "caseCountPerArm": {"type": "integer", "minimum": 5, "maximum": 4000}
+      }
+    },
+    "method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "families",
+        "groupSizes",
+        "repetitionsPerCase",
+        "maximumRecoveryRounds",
+        "writerStartsSynchronized",
+        "armOrderCounterbalanced",
+        "baselineCompletionRequired",
+        "timeoutSeconds",
+        "rawArgumentsRetained",
+        "pathsBodiesAndIdentifiersRetained"
+      ],
+      "properties": {
+        "families": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "semanticClass", "scriptedRecovery"],
+            "properties": {
+              "name": {
+                "enum": [
+                  "typed-add",
+                  "suggestion-add",
+                  "suggestion-reject",
+                  "suggestion-accept",
+                  "handoff-add"
+                ]
+              },
+              "semanticClass": {"type": "string", "minLength": 1, "maxLength": 96},
+              "scriptedRecovery": {"type": "string", "minLength": 1, "maxLength": 128}
+            }
+          }
+        },
+        "groupSizes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 2, "maximum": 32}
+        },
+        "repetitionsPerCase": {"type": "integer", "minimum": 1, "maximum": 100},
+        "maximumRecoveryRounds": {"type": "integer", "minimum": 0, "maximum": 8},
+        "writerStartsSynchronized": {"const": true},
+        "armOrderCounterbalanced": {"const": true},
+        "baselineCompletionRequired": {"const": false},
+        "timeoutSeconds": {"type": "number", "minimum": 1, "maximum": 120},
+        "rawArgumentsRetained": {"const": false},
+        "pathsBodiesAndIdentifiersRetained": {"const": false}
+      }
+    },
+    "arms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "candidate"],
+      "properties": {
+        "baseline": {"$ref": "#/$defs/arm"},
+        "candidate": {"$ref": "#/$defs/arm"}
+      }
+    },
+    "comparison": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 40,
+      "items": {"$ref": "#/$defs/comparison"}
+    }
+  },
+  "$defs": {
+    "counts": {
+      "type": "object",
+      "propertyNames": {"pattern": "^(0|[1-9][0-9]*)$"},
+      "additionalProperties": {"type": "integer", "minimum": 1}
+    },
+    "errors": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[A-Z][A-Z0-9_]{0,63}$"},
+      "additionalProperties": {"type": "integer", "minimum": 1}
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "documentsValid",
+        "sourcePolicyPassed",
+        "graphIntegrityPassed",
+        "completionPassed",
+        "noUnexpectedFailures"
+      ],
+      "properties": {
+        "documentsValid": {"type": "boolean"},
+        "sourcePolicyPassed": {"type": "boolean"},
+        "graphIntegrityPassed": {"type": "boolean"},
+        "completionPassed": {"type": "boolean"},
+        "noUnexpectedFailures": {"type": "boolean"}
+      }
+    },
+    "duration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["median", "p95"],
+      "properties": {
+        "median": {"type": "number", "minimum": 0},
+        "p95": {"type": "number", "minimum": 0}
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "groupSize",
+        "repetitionCount",
+        "writerIntentCount",
+        "initialSuccessCount",
+        "finalSuccessCount",
+        "visibleConflictCount",
+        "visibleConflictEpisodeCount",
+        "otherFailureCount",
+        "mutationCallCount",
+        "recoveryReadCount",
+        "retryCallCount",
+        "agentVisibleCallCount",
+        "initialSuccessHistogram",
+        "finalSuccessHistogram",
+        "errorCounts",
+        "durationMs",
+        "checks"
+      ],
+      "properties": {
+        "family": {
+          "enum": [
+            "typed-add",
+            "suggestion-add",
+            "suggestion-reject",
+            "suggestion-accept",
+            "handoff-add"
+          ]
+        },
+        "groupSize": {"type": "integer", "minimum": 2, "maximum": 32},
+        "repetitionCount": {"type": "integer", "minimum": 1, "maximum": 100},
+        "writerIntentCount": {"type": "integer", "minimum": 2, "maximum": 3200},
+        "initialSuccessCount": {"type": "integer", "minimum": 0, "maximum": 3200},
+        "finalSuccessCount": {"type": "integer", "minimum": 0, "maximum": 3200},
+        "visibleConflictCount": {"type": "integer", "minimum": 0, "maximum": 28800},
+        "visibleConflictEpisodeCount": {"type": "integer", "minimum": 0, "maximum": 100},
+        "otherFailureCount": {"type": "integer", "minimum": 0, "maximum": 28800},
+        "mutationCallCount": {"type": "integer", "minimum": 2, "maximum": 28800},
+        "recoveryReadCount": {"type": "integer", "minimum": 0, "maximum": 25600},
+        "retryCallCount": {"type": "integer", "minimum": 0, "maximum": 25600},
+        "agentVisibleCallCount": {"type": "integer", "minimum": 2, "maximum": 54400},
+        "initialSuccessHistogram": {"$ref": "#/$defs/counts"},
+        "finalSuccessHistogram": {"$ref": "#/$defs/counts"},
+        "errorCounts": {"$ref": "#/$defs/errors"},
+        "durationMs": {"$ref": "#/$defs/duration"},
+        "checks": {"$ref": "#/$defs/checks"}
+      }
+    },
+    "arm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binarySha256",
+        "episodeCount",
+        "safetyPassed",
+        "completionPassed",
+        "passed",
+        "cases"
+      ],
+      "properties": {
+        "binarySha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "episodeCount": {"type": "integer", "minimum": 5, "maximum": 4000},
+        "safetyPassed": {"type": "boolean"},
+        "completionPassed": {"type": "boolean"},
+        "passed": {"type": "boolean"},
+        "cases": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 40,
+          "items": {"$ref": "#/$defs/case"}
+        }
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "groupSize",
+        "candidateMinusBaselineFinalSuccesses",
+        "candidateMinusBaselineVisibleConflicts",
+        "candidateMinusBaselineMutationCalls",
+        "candidateMinusBaselineRecoveryReads",
+        "candidateMinusBaselineAgentVisibleCalls",
+        "candidateMinusBaselineMedianDurationMs",
+        "candidateMinusBaselineP95DurationMs"
+      ],
+      "properties": {
+        "family": {
+          "enum": [
+            "typed-add",
+            "suggestion-add",
+            "suggestion-reject",
+            "suggestion-accept",
+            "handoff-add"
+          ]
+        },
+        "groupSize": {"type": "integer", "minimum": 2, "maximum": 32},
+        "candidateMinusBaselineFinalSuccesses": {"type": "integer"},
+        "candidateMinusBaselineVisibleConflicts": {"type": "integer"},
+        "candidateMinusBaselineMutationCalls": {"type": "integer"},
+        "candidateMinusBaselineRecoveryReads": {"type": "integer"},
+        "candidateMinusBaselineAgentVisibleCalls": {"type": "integer"},
+        "candidateMinusBaselineMedianDurationMs": {"type": "number"},
+        "candidateMinusBaselineP95DurationMs": {"type": "number"}
+      }
+    }
+  }
+}
