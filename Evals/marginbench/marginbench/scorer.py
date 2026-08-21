@@ -303,6 +303,34 @@ def _used_known_peer_wait(
     return all(adopted) if require_every_role else any(adopted)
 
 
+def _used_no_reverification_after_successful_wait(
+    events: tuple[CommandEvent, ...],
+) -> bool:
+    """Treat a successful named wait as conclusive durable-state evidence.
+
+    Roles that never wait are outside this diagnostic. Once a role has a
+    successful wait, another successful wait or list is redundant; the task's
+    separately required literal-source read remains allowed.
+    """
+    roles = sorted({event.role for event in events})
+    for role in roles:
+        role_events = [event for event in events if event.role == role]
+        first_wait = next((
+            index
+            for index, event in enumerate(role_events)
+            if event.command == "suggest wait" and event.exit_code == 0
+        ), None)
+        if first_wait is None:
+            continue
+        if any(
+            event.command in {"suggest list", "suggest wait"}
+            and event.exit_code == 0
+            for event in role_events[first_wait + 1:]
+        ):
+            return False
+    return True
+
+
 def _used_expected_context_then_inbox(events: tuple[CommandEvent, ...]) -> bool:
     """Require the intentional broad-to-filtered discovery order before action."""
     found_pair = False
@@ -445,6 +473,9 @@ def score_episode(
             ),
             "diagnostic_known_peer_wait_used_by_all_roles": _used_known_peer_wait(
                 events, require_every_role=True
+            ),
+            "diagnostic_no_reverification_after_successful_wait": (
+                _used_no_reverification_after_successful_wait(events)
             ),
         }
     elif isinstance(reference, dict) and episode.scenario_id == "specialist_audit":

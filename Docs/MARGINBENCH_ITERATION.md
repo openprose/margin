@@ -567,12 +567,31 @@ suggestion help, and add help. Median candidate deltas versus frozen v56 were
 The stripped signed executable grows by 33,456 bytes. These are recorded as a
 flat startup distribution and a small artifact cost, not as a speed claim.
 
-This is still mechanism evidence. Deterministic reference agents are designed
-to use the new path, so they cannot establish discoverability or behavior in a
-real model. One cheap frozen matched case is the maximum justified next spend:
-the old arm must use durable list fallback, the candidate may use wait, and the
-comparison must report adoption, repeated verification, commands, model turns,
-latency, cost, correctness, and source preservation without changing scoring.
+The one justified private Qwen pair then tested discoverability without changing
+the score contract. Both v59 roles used the named wait. Relative to frozen v56,
+score changed 97.500→98.611, commands 21→17, model calls 23→19, prompt tokens
+94,140→66,410, and reported cost $0.0046→$0.0033. Both arms were exact, safe,
+source-preserving, and free of invalid calls. Candidate task duration rose from
+42.335 to 43.947 seconds, so this is not latency evidence. The matched pair cost
+$0.0079 total and the independently verified publication retained no prompts,
+paths, ids, arguments, or document content. Both private key copies were
+overwritten and removed afterward.
+
+The trace shapes bound the conclusion. One v59 role used batch, wait, and the
+required source read in six calls. The other used four individual additions,
+then wait and read, but still listed once afterward. v59 therefore achieved
+all-role wait adoption and removed four total commands, yet did not make the
+successful receipt conclusive for every agent. This is useful one-case evidence,
+not a promotion result; the frozen threshold remains at least 20 matched cases.
+
+v60 corrects the benchmark diagnosis exposed by that trace. The old generic
+finding still recommended adding a named wait whenever post-write verification
+repeated—even if a successful wait was already in the sequence. A new non-
+scoring check is vacuously true for roles that never wait, permits the separately
+required literal-source read, and fails only when a role runs another successful
+wait or list after its first successful wait. The corresponding finding now
+targets receipt finality and next actions. This changes no correctness score and
+does not retroactively rewrite the signed v59 evidence.
 
 ## Spend ladder
 

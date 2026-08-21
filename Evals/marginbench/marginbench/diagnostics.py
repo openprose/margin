@@ -576,6 +576,26 @@ def _findings(
                 "completion, and total interactions against the frozen candidate."
             ),
         ))
+    wait_reverification, _ = _affected(
+        episodes,
+        lambda item: item["checks"].get(
+            "diagnostic_no_reverification_after_successful_wait"
+        ) is False,
+    )
+    if wait_reverification:
+        findings.append(_finding(
+            "wait-reverification",
+            "medium",
+            "A collaborator rechecked durable state after a successful named wait",
+            wait_reverification,
+            failed_checks={"diagnostic_no_reverification_after_successful_wait"},
+            surfaces=["wait receipt", "next actions", "focused suggestion help"],
+            experiment=(
+                "Keep the task and wait predicate fixed, make a successful receipt explicitly "
+                "terminal for the named ids, and compare later list/wait calls, completion, "
+                "latency, and model input without weakening the separate source-read requirement."
+            ),
+        ))
     repeated_postwrite_verification, _ = _affected(
         episodes,
         lambda item: item["checks"].get(
@@ -591,9 +611,9 @@ def _findings(
             failed_checks={"diagnostic_one_postwrite_verification_per_role"},
             surfaces=["known-peer convergence", "mutation receipts", "bounded watch"],
             experiment=(
-                "Keep writes and final checks fixed, expose an on-demand bounded way to await a "
-                "known peer contribution set, and compare repeated list/read calls, latency, and "
-                "completion without adding background work to startup."
+                "Keep writes and final checks fixed. Where no named wait exists, compare one "
+                "bounded wait with list polling; where a wait already succeeded, make its receipt "
+                "conclusive and compare later state checks, latency, and completion."
             ),
         ))
     if write_latency_evidence is not None:

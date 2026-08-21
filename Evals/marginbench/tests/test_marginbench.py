@@ -66,6 +66,7 @@ from marginbench.schema import Actor, CommandEvent, EpisodeResult, RoleTask, can
 from marginbench.scorer import (
     _id_matches,
     _used_known_peer_wait,
+    _used_no_reverification_after_successful_wait,
     _used_one_postwrite_verification_per_role,
     score_episode,
 )
@@ -180,6 +181,9 @@ class SuggestionContentionBatchDriver:
 
 
 class SuggestionContentionWaitDriver:
+    def __init__(self, *, reverify_after_wait: bool = False) -> None:
+        self.reverify_after_wait = reverify_after_wait
+
     def run(self, episode, role, gateway) -> None:
         assignments = episode.oracle["reference"]["assignments"][role.actor.id]
         plan = json.dumps({
@@ -201,6 +205,8 @@ class SuggestionContentionWaitDriver:
         if waited.exit_code != 0:
             raise RuntimeError(f"Suggestion wait failed: {waited.error_code}")
         gateway.call(["read", "review.md", "--json"])
+        if self.reverify_after_wait:
+            gateway.call(["suggest", "list", "review.md"])
 
 
 class MarginBenchCoreTests(unittest.TestCase):
@@ -2784,6 +2790,9 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertTrue(waited.checks["diagnostic_atomic_batch_used_by_all_roles"])
         self.assertTrue(waited.checks["diagnostic_known_peer_wait_used_anywhere"])
         self.assertTrue(waited.checks["diagnostic_known_peer_wait_used_by_all_roles"])
+        self.assertTrue(
+            waited.checks["diagnostic_no_reverification_after_successful_wait"]
+        )
         self.assertTrue(waited.checks["diagnostic_one_postwrite_verification_per_role"])
 
         synthetic_wait_events = (
@@ -2800,6 +2809,41 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertTrue(_used_one_postwrite_verification_per_role(
             synthetic_wait_events, frozenset({"suggest add", "suggest batch"})
         ))
+        self.assertTrue(_used_no_reverification_after_successful_wait(
+            synthetic_wait_events
+        ))
+
+        synthetic_wait_then_list = synthetic_wait_events + (
+            CommandEvent("reviewer", "suggest list", 0, 1.0, 0, 1, 0, None, False),
+        )
+        self.assertFalse(_used_no_reverification_after_successful_wait(
+            synthetic_wait_then_list
+        ))
+
+        with tempfile.TemporaryDirectory(prefix="marginbench-wait-reverify-") as temporary:
+            wait_reverified = run_episode(
+                episode,
+                self.binary,
+                Path(temporary) / "workspace",
+                SuggestionContentionWaitDriver(reverify_after_wait=True),
+            )
+        self.assertEqual(wait_reverified.score, 100.0)
+        self.assertFalse(
+            wait_reverified.checks[
+                "diagnostic_no_reverification_after_successful_wait"
+            ]
+        )
+        with tempfile.TemporaryDirectory(prefix="marginbench-wait-diagnostics-") as temporary:
+            wait_path = Path(temporary) / "wait-reverified.json"
+            wait_path.write_bytes(canonical_json(wait_reverified.to_dict()))
+            wait_diagnostic = diagnose_artifacts([wait_path])
+        self.assertEqual(wait_diagnostic["topOpportunity"], "wait-reverification")
+        self.assertEqual(
+            wait_diagnostic["findings"][0]["nextExperiment"],
+            "Keep the task and wait predicate fixed, make a successful receipt explicitly "
+            "terminal for the named ids, and compare later list/wait calls, completion, "
+            "latency, and model input without weakening the separate source-read requirement.",
+        )
 
         with tempfile.TemporaryDirectory(prefix="marginbench-suggestion-repeat-") as temporary:
             repeated_verification = run_episode(
