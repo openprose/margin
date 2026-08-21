@@ -72,6 +72,7 @@
     },
     "writeLatency": {"$ref": "#/$defs/writeLatency"},
     "suggestionMechanisms": {"$ref": "#/$defs/suggestionMechanisms"},
+    "handoffRecovery": {"$ref": "#/$defs/handoffRecovery"},
     "scenarios": {
       "type": "array", "maxItems": 128,
       "items": {
@@ -108,7 +109,8 @@
             "items": {"$ref": "#/$defs/sequenceCount"}
           },
           "writeLatency": {"$ref": "#/$defs/writeLatency"},
-          "suggestionMechanisms": {"$ref": "#/$defs/suggestionMechanisms"}
+          "suggestionMechanisms": {"$ref": "#/$defs/suggestionMechanisms"},
+          "handoffRecovery": {"$ref": "#/$defs/handoffRecovery"}
         }
       }
     },
@@ -244,6 +246,31 @@
         "postWaitReverificationTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
         "preWriteStateReadTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
         "extraPostWriteStateReadTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000}
+      }
+    },
+    "handoffRecovery": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "applicableTraceCount",
+        "allConflictReceiptsActionableTraceCount",
+        "contextAfterConflictTraceCount",
+        "handoffReviewAfterConflictTraceCount",
+        "bothReadsAfterConflictTraceCount",
+        "safeReauthorAttemptTraceCount",
+        "successfulRecoveryTraceCount",
+        "blindRetryTraceCount",
+        "unresolvedConflictTraceCount"
+      ],
+      "properties": {
+        "applicableTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "allConflictReceiptsActionableTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "contextAfterConflictTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "handoffReviewAfterConflictTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "bothReadsAfterConflictTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "safeReauthorAttemptTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "successfulRecoveryTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "blindRetryTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "unresolvedConflictTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000}
       }
     }
   }

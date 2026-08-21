@@ -2033,6 +2033,41 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             ):
                 errors.append(f"{context} wait receipt partition is inconsistent")
 
+        handoff_recovery_fields = (
+            "applicableTraceCount",
+            "allConflictReceiptsActionableTraceCount",
+            "contextAfterConflictTraceCount",
+            "handoffReviewAfterConflictTraceCount",
+            "bothReadsAfterConflictTraceCount",
+            "safeReauthorAttemptTraceCount",
+            "successfulRecoveryTraceCount",
+            "blindRetryTraceCount",
+            "unresolvedConflictTraceCount",
+        )
+
+        def validate_handoff_recovery(
+            recovery: dict[str, int], maximum_traces: int, context: str
+        ) -> None:
+            applicable = recovery["applicableTraceCount"]
+            if applicable > maximum_traces:
+                errors.append(f"{context} applicable handoff traces exceed trace count")
+            for field in handoff_recovery_fields[1:]:
+                if recovery[field] > applicable:
+                    errors.append(f"{context} {field} exceeds applicable traces")
+            if recovery["bothReadsAfterConflictTraceCount"] > min(
+                recovery["contextAfterConflictTraceCount"],
+                recovery["handoffReviewAfterConflictTraceCount"],
+            ):
+                errors.append(f"{context} paired handoff recovery reads are inconsistent")
+            if recovery["safeReauthorAttemptTraceCount"] > recovery[
+                "bothReadsAfterConflictTraceCount"
+            ]:
+                errors.append(f"{context} safe handoff reauthor attempts are inconsistent")
+            if recovery["successfulRecoveryTraceCount"] > recovery[
+                "safeReauthorAttemptTraceCount"
+            ]:
+                errors.append(f"{context} successful handoff recovery is inconsistent")
+
         if payload["sourceCount"] != len(payload["sources"]):
             errors.append("trace shape sourceCount does not equal sources length")
         if payload["successCount"] + payload["failureCount"] != payload["toolCallCount"]:
@@ -2184,6 +2219,9 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         scenario_suggestion_totals = {
             field: 0 for field in all_suggestion_mechanism_fields
         }
+        scenario_handoff_totals = {
+            field: 0 for field in handoff_recovery_fields
+        }
         top_suggestion_mechanisms = payload.get("suggestionMechanisms")
         scenario_suggestion_presence = [
             "suggestionMechanisms" in item for item in payload["scenarios"]
@@ -2205,6 +2243,20 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             != all(scenario_suggestion_presence)
         ):
             errors.append("trace report and scenarios disagree on suggestion-mechanism details")
+        top_handoff_recovery = payload.get("handoffRecovery")
+        scenario_handoff_presence = [
+            "handoffRecovery" in item for item in payload["scenarios"]
+        ]
+        if top_handoff_recovery is not None:
+            validate_handoff_recovery(
+                top_handoff_recovery, payload["traceCount"], "trace report"
+            )
+        if any(scenario_handoff_presence) and not all(scenario_handoff_presence):
+            errors.append("trace scenarios have incomplete handoff-recovery details")
+        if payload["scenarios"] and (
+            (top_handoff_recovery is not None) != all(scenario_handoff_presence)
+        ):
+            errors.append("trace report and scenarios disagree on handoff-recovery details")
         for scenario in payload["scenarios"]:
             key = (scenario["scenario"], scenario["seat"])
             if key in scenario_keys:
@@ -2232,6 +2284,15 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                 )
                 for field in all_suggestion_mechanism_fields:
                     scenario_suggestion_totals[field] += scenario_suggestion.get(field, 0)
+            scenario_handoff = scenario.get("handoffRecovery")
+            if scenario_handoff is not None:
+                validate_handoff_recovery(
+                    scenario_handoff,
+                    scenario["traceCount"],
+                    f"trace scenario {scenario['scenario']}:{scenario['seat']}",
+                )
+                for field in handoff_recovery_fields:
+                    scenario_handoff_totals[field] += scenario_handoff[field]
             scenario_size_presence = [field in scenario for field in size_fields]
             if any(scenario_size_presence) and not all(scenario_size_presence):
                 errors.append("trace scenario has incomplete result-size details")
@@ -2313,6 +2374,11 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             }
         ):
             errors.append("trace scenario suggestion mechanisms disagree with the report")
+        if (
+            top_handoff_recovery is not None
+            and scenario_handoff_totals != top_handoff_recovery
+        ):
+            errors.append("trace scenario handoff recovery disagrees with the report")
         if sum(item["count"] for item in payload["sequences"]) > payload["traceCount"]:
             errors.append("trace sequence counts exceed traceCount")
     elif schema_name == "contention-matrix.schema.json":

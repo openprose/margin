@@ -384,6 +384,22 @@ The paired Prime controller creates `diagnostic.json` automatically when a study
 finishes, verifies that it covers exactly the published redacted runs, and binds
 its digest and top-ranked opportunity into the completion receipt.
 
+Private agent traces can be reduced to the same content-free evidence before
+diagnosis or publication:
+
+```sh
+marginbench trace-shapes private-run/traces.jsonl > trace-shapes.json
+marginbench validate trace-shapes.json
+```
+
+Alongside generic command shapes, this summary now records safe handoff-conflict
+recovery as a fixed state machine. It counts traces in which the conflict receipt
+was actionable, current context was reread, existing handoffs were reviewed, a
+new attempt occurred only after both reads, recovery succeeded, a blind retry
+occurred, or the conflict remained unresolved. These are trace-level counts, not
+claims about intent. The report retains none of the recovery target, command
+arguments, handoff text, actor IDs, prompts, stdout, stderr, or source paths.
+
 ## Validate publication artifacts
 
 Every current publication format has a bundled JSON Schema plus bounded

@@ -118,6 +118,17 @@ SUGGESTION_MECHANISM_FIELDS = (
     "preWriteStateReadTraceCount",
     "extraPostWriteStateReadTraceCount",
 )
+HANDOFF_RECOVERY_FIELDS = (
+    "applicableTraceCount",
+    "allConflictReceiptsActionableTraceCount",
+    "contextAfterConflictTraceCount",
+    "handoffReviewAfterConflictTraceCount",
+    "bothReadsAfterConflictTraceCount",
+    "safeReauthorAttemptTraceCount",
+    "successfulRecoveryTraceCount",
+    "blindRetryTraceCount",
+    "unresolvedConflictTraceCount",
+)
 
 
 class TraceShapeError(ValueError):
@@ -415,6 +426,96 @@ def _suggestion_mechanism_report(counts: Counter[str]) -> dict[str, int]:
     return {field: counts[field] for field in SUGGESTION_MECHANISM_FIELDS}
 
 
+def _actionable_handoff_conflict(result: dict[str, Any]) -> bool:
+    """Recognize only Margin's fixed, content-free safe-recovery contract."""
+    for stream in (result.get("stderr"), result.get("stdout")):
+        if not isinstance(stream, dict):
+            continue
+        error = stream.get("error")
+        details = error.get("details") if isinstance(error, dict) else None
+        if not isinstance(details, dict):
+            continue
+        if (
+            details.get("operation") == "handoff.add"
+            and details.get("handoffWritten") == "false"
+            and details.get("automaticRetrySafe") == "false"
+            and details.get("recoveryCommand") == "margin context TARGET --json"
+            and details.get("reviewCommand") == "margin handoff list TARGET"
+            and details.get("provenancePolicy") == "never-silently-rebase"
+            and isinstance(details.get("recoveryTarget"), str)
+            and bool(details["recoveryTarget"])
+        ):
+            return True
+    return False
+
+
+def _handoff_recovery_counts(
+    events: list[tuple[str, bool, str | None, bool]],
+) -> Counter[str]:
+    """Project one trace into safe handoff-conflict recovery behavior."""
+    conflict_count = 0
+    actionable_count = 0
+    needs_recovery = False
+    context_seen = False
+    review_seen = False
+    any_context = False
+    any_review = False
+    any_both = False
+    safe_reauthor = False
+    successful_recovery = False
+    blind_retry = False
+
+    for command, ok, error, actionable in events:
+        if command == "context" and ok and needs_recovery:
+            context_seen = True
+            any_context = True
+            any_both = any_both or review_seen
+            continue
+        if command == "handoff list" and ok and needs_recovery:
+            review_seen = True
+            any_review = True
+            any_both = any_both or context_seen
+            continue
+        if command != "handoff add":
+            continue
+
+        recovering = needs_recovery
+        recovery_was_safe = recovering and context_seen and review_seen
+        if recovering:
+            safe_reauthor = safe_reauthor or recovery_was_safe
+            blind_retry = blind_retry or not recovery_was_safe
+
+        if error == "COLLABORATION_PRECONDITION_FAILED":
+            conflict_count += 1
+            actionable_count += int(actionable)
+            needs_recovery = True
+            context_seen = False
+            review_seen = False
+        elif ok and recovering:
+            successful_recovery = successful_recovery or recovery_was_safe
+            needs_recovery = False
+
+    if conflict_count == 0:
+        return Counter()
+    return Counter({
+        "applicableTraceCount": 1,
+        "allConflictReceiptsActionableTraceCount": int(
+            actionable_count == conflict_count
+        ),
+        "contextAfterConflictTraceCount": int(any_context),
+        "handoffReviewAfterConflictTraceCount": int(any_review),
+        "bothReadsAfterConflictTraceCount": int(any_both),
+        "safeReauthorAttemptTraceCount": int(safe_reauthor),
+        "successfulRecoveryTraceCount": int(successful_recovery),
+        "blindRetryTraceCount": int(blind_retry),
+        "unresolvedConflictTraceCount": int(needs_recovery),
+    })
+
+
+def _handoff_recovery_report(counts: Counter[str]) -> dict[str, int]:
+    return {field: counts[field] for field in HANDOFF_RECOVERY_FIELDS}
+
+
 def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
     sources = _sources(paths)
     source_receipts = []
@@ -494,6 +595,8 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
     scenario_write_attempt_count: Counter[str] = Counter()
     suggestion_mechanisms: Counter[str] = Counter()
     scenario_suggestion_mechanisms: dict[str, Counter[str]] = defaultdict(Counter)
+    handoff_recovery: Counter[str] = Counter()
+    scenario_handoff_recovery: dict[str, Counter[str]] = defaultdict(Counter)
     tool_calls = successes = failures = blocked = leading_count = 0
 
     for trace in traces:
@@ -516,6 +619,7 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
         pending: dict[str, tuple[str, bool, list[str], str]] = {}
         sequence: list[str] = []
         successful_sequence: list[str] = []
+        handoff_events: list[tuple[str, bool, str | None, bool]] = []
         issued_before_first_write = 0
         first_write_after: int | None = None
         trace_write_attempt_count = 0
@@ -596,6 +700,13 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
             command_signature_result_size_buckets[signature_key][size_bucket] += 1
             if error is not None:
                 command_signature_errors[signature_key][error] += 1
+            if command in {"context", "handoff add", "handoff list"}:
+                handoff_events.append((
+                    command,
+                    ok,
+                    error,
+                    _actionable_handoff_conflict(result),
+                ))
             if len(sequence) < MAX_SEQUENCE_LENGTH:
                 sequence.append(command)
             # The published generic sequence is deliberately capped, but these
@@ -610,6 +721,9 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
             mechanism_counts = _suggestion_mechanism_counts(successful_sequence)
             suggestion_mechanisms.update(mechanism_counts)
             scenario_suggestion_mechanisms[scenario_key].update(mechanism_counts)
+        recovery_counts = _handoff_recovery_counts(handoff_events)
+        handoff_recovery.update(recovery_counts)
+        scenario_handoff_recovery[scenario_key].update(recovery_counts)
         write_attempt_count += trace_write_attempt_count
         scenario_write_attempt_count[scenario_key] += trace_write_attempt_count
         pre_write_bucket = _pre_write_bucket(first_write_after)
@@ -667,6 +781,9 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
             "suggestionMechanisms": _suggestion_mechanism_report(
                 scenario_suggestion_mechanisms[key]
             ),
+            "handoffRecovery": _handoff_recovery_report(
+                scenario_handoff_recovery[key]
+            ),
         })
     sequence_rows = _sequence_rows(sequences, maximum=256)
     return {
@@ -698,6 +815,7 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
         "suggestionMechanisms": _suggestion_mechanism_report(
             suggestion_mechanisms
         ),
+        "handoffRecovery": _handoff_recovery_report(handoff_recovery),
         "privacy": {
             "rawArgumentsRetained": False,
             "stdinRetained": False,

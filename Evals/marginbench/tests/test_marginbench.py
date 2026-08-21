@@ -588,6 +588,121 @@ class MarginBenchCoreTests(unittest.TestCase):
             mechanisms.pop("extraPostWriteStateReadTraceCount")
         self.assertTrue(validate_bytes(canonical_json(backward_compatible))["valid"])
 
+    def test_trace_shape_quantifies_safe_handoff_conflict_recovery(self) -> None:
+        secret = "private-handoff-recovery-4d91"
+
+        def result(ok: bool, *, actionable: bool = False) -> dict[str, Any]:
+            if ok:
+                return {"ok": True, "exitCode": 0}
+            details: dict[str, str] = {}
+            if actionable:
+                details = {
+                    "operation": "handoff.add",
+                    "handoffWritten": "false",
+                    "automaticRetrySafe": "false",
+                    "recoveryCommand": "margin context TARGET --json",
+                    "reviewCommand": "margin handoff list TARGET",
+                    "recoveryTarget": f"{secret}.md",
+                    "provenancePolicy": "never-silently-rebase",
+                }
+            return {
+                "ok": False,
+                "exitCode": 75,
+                "errorCode": "COLLABORATION_PRECONDITION_FAILED",
+                "stderr": {
+                    "ok": False,
+                    "error": {
+                        "code": "COLLABORATION_PRECONDITION_FAILED",
+                        "details": details,
+                    },
+                },
+            }
+
+        def nodes_for(
+            commands: list[tuple[list[str], dict[str, Any]]],
+        ) -> list[dict[str, Any]]:
+            nodes: list[dict[str, Any]] = []
+            for index, (arguments, tool_result) in enumerate(commands):
+                identifier = f"private-handoff-call-{index}"
+                nodes.extend([
+                    {"message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": identifier,
+                            "name": "margin",
+                            "arguments": json.dumps({"arguments": arguments}),
+                        }],
+                    }},
+                    {"message": {
+                        "role": "tool",
+                        "tool_call_id": identifier,
+                        "content": json.dumps(tool_result),
+                    }},
+                ])
+            return nodes
+
+        handoff = ["handoff", "add", f"{secret}.md", "-m", secret]
+        trace = {"traces": [
+            {
+                "task": {"data": {"scenario_id": "agent_agent_handoff"}},
+                "agent": {"name": "author"},
+                "nodes": nodes_for([
+                    (handoff, result(False, actionable=True)),
+                    (["context", f"{secret}.md", "--json"], result(True)),
+                    (["handoff", "list", f"{secret}.md"], result(True)),
+                    (handoff, result(True)),
+                ]),
+            },
+            {
+                "task": {"data": {"scenario_id": "agent_agent_handoff"}},
+                "agent": {"name": "reviewer"},
+                "nodes": nodes_for([
+                    (handoff, result(False)),
+                    (handoff, result(True)),
+                ]),
+            },
+            {
+                "task": {"data": {"scenario_id": "directory_handoff"}},
+                "agent": {"name": "author"},
+                "nodes": nodes_for([
+                    (handoff, result(False, actionable=True)),
+                    (["context", f"{secret}.md", "--json"], result(True)),
+                ]),
+            },
+        ]}
+        with tempfile.TemporaryDirectory(prefix="marginbench-handoff-recovery-") as temporary:
+            path = Path(temporary) / "traces.jsonl"
+            path.write_text(json.dumps(trace) + "\n", encoding="utf-8")
+            report = summarize_trace_shapes([path])
+        encoded = canonical_json(report)
+        self.assertTrue(validate_bytes(encoded)["valid"])
+        self.assertNotIn(secret.encode("utf-8"), encoded)
+        self.assertEqual(report["handoffRecovery"], {
+            "applicableTraceCount": 3,
+            "allConflictReceiptsActionableTraceCount": 2,
+            "contextAfterConflictTraceCount": 2,
+            "handoffReviewAfterConflictTraceCount": 1,
+            "bothReadsAfterConflictTraceCount": 1,
+            "safeReauthorAttemptTraceCount": 1,
+            "successfulRecoveryTraceCount": 1,
+            "blindRetryTraceCount": 1,
+            "unresolvedConflictTraceCount": 1,
+        })
+
+        tampered = json.loads(encoded)
+        tampered["handoffRecovery"]["bothReadsAfterConflictTraceCount"] = 2
+        receipt = validate_bytes(canonical_json(tampered))
+        self.assertFalse(receipt["valid"])
+        self.assertTrue(any(
+            "paired handoff recovery reads" in error for error in receipt["errors"]
+        ))
+
+        backward_compatible = json.loads(encoded)
+        backward_compatible.pop("handoffRecovery")
+        for scenario in backward_compatible["scenarios"]:
+            scenario.pop("handoffRecovery")
+        self.assertTrue(validate_bytes(canonical_json(backward_compatible))["valid"])
+
     @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
     def test_diagnostics_attach_suggestion_mechanisms_to_batch_finding(self) -> None:
         result = EpisodeResult(
