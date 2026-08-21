@@ -330,6 +330,23 @@ experimental contention traces in both modes. No paid model was invoked for
 these gates. The next paid experiment must rerun both candidate surfaces under
 this corrected benchmark rather than compare against an older prompt digest.
 
+That corrected public pair cost $0.0087. v48 scored 98.056 with 19 commands,
+18 model calls, 50.135 seconds, and $0.0038; v49 scored 98.333 with 18 commands,
+20 model calls, 56.290 seconds, and $0.0049. Both were exact, safe, and
+source-preserving. The one-case score gain of 0.278 and one saved command are
+diagnostic only; v49 was slower and more expensive in this sample.
+
+The command order is the causal evidence. Both v48 roles performed a source
+read before their four writes. Neither v49 role did. One v49 role completed in
+the intended shape—focused discovery, four writes, one list, one source read.
+The other repeated its final list and read after reaching verification before
+its concurrent peer had finished. v49 therefore fixes the preliminary-read
+problem exactly, while exposing the next collaboration cost: an early finisher
+has no cheap way to wait for a known set of peer contributions. Before changing
+the CLI again, add a benchmark diagnostic that separates pre-write reads from
+legitimate post-write convergence checks. Then evaluate an on-demand wait or
+batch primitive without adding any work to ordinary CLI startup.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a
