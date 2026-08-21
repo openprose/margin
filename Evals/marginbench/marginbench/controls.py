@@ -93,7 +93,7 @@ _PROFILES: tuple[dict[str, Any], ...] = (
         "blockingGates": [
             {
                 "id": "integrated-no-exchange-profile-runner",
-                "requirement": "Run the role-specific oracles through separate served agent processes using the proven independent workspaces.",
+                "requirement": "Publish a schema-bound redacted non-scalar receipt and production controller path for separate served agent rollouts using the proven independent workspaces.",
             },
         ],
     },

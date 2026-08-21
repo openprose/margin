@@ -27,7 +27,11 @@ from .schema import Actor, EpisodeDefinition, RoleTask
 from .scorer import score_episode
 from .neutral import NeutralLedger
 from .neutral_scorer import score_neutral_state
+from .no_exchange import NO_EXCHANGE_PROFILE
+from .no_exchange_isolation import materialize_independent_workspaces
+from .no_exchange_runner import no_exchange_role_task, score_no_exchange_responses
 from .servers.gateway import MarginGatewayConfig, MarginGatewayToolset
+from .servers.no_exchange_gateway import NoExchangeGatewayConfig, NoExchangeGatewayToolset
 from .servers.plain_gateway import PlainGatewayConfig, PlainGatewayToolset
 
 
@@ -228,6 +232,9 @@ class MarginBenchEnv(vf.Env[MarginBenchEnvConfig]):
         self.taskset.scrub_generation_key()
         if task.data.control_profile == "role-separated-plain-markdown-v1":
             await self._run_gated_plain_profile(task, agents, episode)
+            return
+        if task.data.control_profile == NO_EXCHANGE_PROFILE:
+            await self._run_gated_no_exchange_profile(task, agents, episode)
             return
         binary = resolve_margin_binary(self.taskset.config.margin_binary)
         started = time.perf_counter()
@@ -510,6 +517,62 @@ class MarginBenchEnv(vf.Env[MarginBenchEnvConfig]):
                 # development alias keeps older no-model gates compatible.
                 trace.info["marginbenchNeutral"] = assessment
                 trace.info["marginbenchNeutralDevelopment"] = assessment
+
+    async def _run_gated_no_exchange_profile(
+        self,
+        task: MarginBenchTask,
+        agents: vf.Agents,
+        episode: EpisodeDefinition,
+    ) -> None:
+        """Exercise the integrated runner while the official profile remains gated."""
+        started = time.perf_counter()
+        with tempfile.TemporaryDirectory(prefix="marginbench-no-exchange-runner-") as temporary:
+            root = Path(temporary)
+            control = root / "control"
+            states = control / "states"
+            states.mkdir(mode=0o700, parents=True)
+            workspaces, _ = materialize_independent_workspaces(episode, root)
+            traces: dict[str, vf.Trace] = {}
+
+            async def run_role(role: RoleTask) -> None:
+                agent = getattr(agents, role.seat)
+                projected = no_exchange_role_task(episode, role)
+                toolset = NoExchangeGatewayToolset(NoExchangeGatewayConfig(
+                    workspace=str(workspaces[role.seat]),
+                    state_directory=str(states / role.seat),
+                    actor_id=role.actor.id,
+                    actor_name=role.actor.name,
+                    actor_type=role.actor.type,
+                ))
+                async with serve_shared(
+                    [toolset],
+                    harness_is_local=runtime_is_local(agent.runtime_config),
+                ) as tools:
+                    traces[role.seat] = await agent.run(task.for_role(projected), tools=tools)
+
+            # Every call to agent.run is an independent served rollout. Phases are
+            # intentionally ignored because no role can observe a predecessor.
+            await asyncio.gather(*(run_role(role) for role in episode.roles))
+            assessment = score_no_exchange_responses(
+                episode,
+                {seat: trace.last_reply for seat, trace in traces.items()},
+                workspaces,
+            )
+            assessment.update({
+                "durationMs": round((time.perf_counter() - started) * 1_000, 3),
+                "controlProfile": NO_EXCHANGE_PROFILE,
+                "controlRunnable": False,
+                "component": "integrated-profile-runner-development",
+                "separateAgentRolloutCount": len(traces),
+                "toolSurface": ["workspace"],
+                "allowedActions": ["guide", "list", "read"],
+                **planned_topology(
+                    NO_EXCHANGE_PROFILE,
+                    [role.seat for role in episode.roles],
+                ),
+            })
+            for trace in traces.values():
+                trace.info["marginbenchNoExchangeDevelopment"] = assessment
 
     def _policy(self):
         from .gateway import ToolPolicy

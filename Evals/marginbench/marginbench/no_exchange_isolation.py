@@ -69,10 +69,11 @@ def _snapshot(episode: EpisodeDefinition, workspace: Path) -> dict[str, tuple[st
     return result
 
 
-def _materialize(
+def materialize_independent_workspaces(
     episode: EpisodeDefinition,
     root: Path,
 ) -> tuple[dict[str, Path], dict[str, dict[str, tuple[str, int, int]]]]:
+    """Create one inode-independent, private initial workspace for every role."""
     workspaces: dict[str, Path] = {}
     snapshots: dict[str, dict[str, tuple[str, int, int]]] = {}
     for role in sorted(episode.roles, key=lambda item: (item.phase, item.seat)):
@@ -181,7 +182,7 @@ async def _run(
                     states = control / "states"
                     transcripts.mkdir(mode=0o700, parents=True)
                     states.mkdir(mode=0o700)
-                    workspaces, snapshots = _materialize(episode, root)
+                    workspaces, snapshots = materialize_independent_workspaces(episode, root)
                     roles = sorted(episode.roles, key=lambda item: (item.phase, item.seat))
                     canaries: dict[str, bytes] = {}
                     for role in roles:

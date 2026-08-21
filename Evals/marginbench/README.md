@@ -168,8 +168,25 @@ read-only tool session. Without a model, it verifies different file identities,
 identical initial bytes, one-sided mutation isolation, private state outside the
 workspace, no collaboration metadata, absent transcript canaries, and blocked
 write, parent-path, absolute-path, and symlink attempts. The profile still
-remains non-runnable until these proven pieces are integrated with the
-role-specific exact oracles in the actual served profile runner.
+remains non-runnable for official or paid studies. A development-only integrated
+path now runs every role as a separate served rollout over its own proven copy,
+accepts only one strict bounded semantic response, scores each role against its
+own exact independent oracle, verifies unchanged initial sources, and emits no
+combined scalar. Its focused integration test passes. The remaining release
+gate is a schema-bound, redacted production receipt and controller path that
+preserves that non-scalar meaning; the development result cannot enter study
+aggregation.
+
+The production gate is intentionally separate from the existing plain-control
+artifact path. It must (1) summarize `marginbenchNoExchangeDevelopment` traces
+without retaining final responses, (2) count read-only tool calls and blocked
+actions, (3) publish dedicated no-exchange summary and run schemas, (4) omit a
+Margin binary and candidate manifest while binding the benchmark implementation
+digest, (5) keep per-role outcomes and `overallScore: null`, and (6) pass an
+all-workflow dry run through the same paid-controller code before the control
+catalog may change to `implemented`. Reusing the plain-control schema by merely
+renaming the profile is forbidden because its writable ledger and checks mean
+something different.
 
 `wide-directory-probe` invokes no model. It creates byte-identical copies of a
 deterministic 16-document, 64-item workspace; alternates baseline and candidate
@@ -703,10 +720,12 @@ show what evidence is still missing without attempting a run. The primary
 role-separated Margin profile, compute-matched single continuing-agent profile,
 and ordinary-Markdown representation profile are runnable. Margin-plus-shell
 remains gated on remote safety. The no-exchange control now has exact per-role
-neutral slices, non-scalar aggregation, and a served read-only workspace
-isolation proof, but still fails closed until the actual profile runner binds
-those pieces to separate agent processes. This prevents an attractive but
-incomparable control result from quietly entering the main track.
+neutral slices, non-scalar aggregation, a served read-only workspace isolation
+proof, and a development runner binding those pieces to separate served agent
+rollouts. It still fails closed in official study planning until the production
+controller publishes a schema-bound redacted non-scalar receipt. This prevents
+an attractive but incomparable control result from quietly entering the main
+track.
 
 Before model execution, freeze the paired cases and counterbalanced candidate
 order without exposing prompts or answers:
