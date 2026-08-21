@@ -120,6 +120,7 @@ def _schema_name(payload: Any) -> tuple[str, str]:
         "urn:marginbench:neutral-facts:v1": "neutral-facts.schema.json",
         "urn:marginbench:neutral-assessment:v1": "neutral-assessment.schema.json",
         "urn:marginbench:neutral-feasibility:v1": "neutral-feasibility.schema.json",
+        "urn:marginbench:no-exchange-feasibility:v1": "no-exchange-feasibility.schema.json",
         "urn:marginbench:neutral-isolation-preflight:v1": "neutral-isolation-preflight.schema.json",
         "urn:marginbench:neutral-prompt-audit:v1": "neutral-prompt-audit.schema.json",
         "urn:marginbench:neutral-production-preflight:v1": "neutral-production-preflight.schema.json",
@@ -568,6 +569,75 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         )
         if payload["implementedChecksPassed"] != passed:
             errors.append("neutral feasibility pass flag is inconsistent")
+    elif schema_name == "no-exchange-feasibility.schema.json":
+        assessments = payload["assessments"]
+        if payload["assessmentCount"] != len(assessments):
+            errors.append("no-exchange assessment count is inconsistent")
+        if payload["scenarioCount"] != len({item["scenario"] for item in assessments}):
+            errors.append("no-exchange scenario count is inconsistent")
+        if payload["repetitionCount"] != len({item["repetition"] for item in assessments}):
+            errors.append("no-exchange repetition count is inconsistent")
+        identities = [(item["scenario"], item["repetition"]) for item in assessments]
+        if len(identities) != len(set(identities)):
+            errors.append("no-exchange report contains duplicate assessments")
+        if identities != sorted(identities, key=lambda item: (item[1], item[0])):
+            errors.append("no-exchange assessments are not canonical")
+        if payload["assessmentCount"] != payload["scenarioCount"] * payload["repetitionCount"]:
+            errors.append("no-exchange selection is not a complete scenario/repetition grid")
+        totals = {"independent": 0, "collaborationDependent": 0, "external": 0}
+        for assessment in assessments:
+            role_independent = 0
+            role_dependent = 0
+            seats: set[str] = set()
+            for role in assessment["roles"]:
+                seats.add(role["seat"])
+                if any(item["dependency"] != "none" for item in role["independentOutcomes"]):
+                    errors.append("no-exchange independent outcome has a dependency")
+                if any(item["dependency"] == "none" for item in role["dependentOutcomes"]):
+                    errors.append("no-exchange dependent outcome lacks a dependency")
+                if role["independentOutcomes"] != sorted(
+                    role["independentOutcomes"],
+                    key=lambda item: (item["outcome"], item["kind"], item["dependency"]),
+                ) or role["dependentOutcomes"] != sorted(
+                    role["dependentOutcomes"],
+                    key=lambda item: (item["outcome"], item["kind"], item["dependency"]),
+                ):
+                    errors.append("no-exchange role outcomes are not canonical")
+                independent = sum(item["count"] for item in role["independentOutcomes"])
+                dependent = sum(item["count"] for item in role["dependentOutcomes"])
+                if independent != role["independentOutcomeCount"]:
+                    errors.append("no-exchange independent role count is inconsistent")
+                if dependent != role["dependentOutcomeCount"]:
+                    errors.append("no-exchange dependent role count is inconsistent")
+                if role["independentOracleFactCount"] != sum(
+                    item["count"] for item in role["independentOutcomes"]
+                    if item["outcome"] == "create-fact"
+                ):
+                    errors.append("no-exchange role oracle count is inconsistent")
+                role_independent += independent
+                role_dependent += dependent
+            if len(seats) != len(assessment["roles"]):
+                errors.append("no-exchange assessment contains duplicate role seats")
+            if assessment["roles"] != sorted(
+                assessment["roles"], key=lambda item: (item["phase"], item["seat"])
+            ):
+                errors.append("no-exchange roles are not canonical")
+            if any(
+                item["dependency"] != "external-nonfile-state"
+                for item in assessment["externalOutcomes"]
+            ):
+                errors.append("no-exchange external outcome has an invalid dependency")
+            expected = {
+                "independent": role_independent,
+                "collaborationDependent": role_dependent,
+                "external": sum(item["count"] for item in assessment["externalOutcomes"]),
+            }
+            if assessment["totals"] != expected:
+                errors.append("no-exchange assessment totals are inconsistent")
+            for name, value in expected.items():
+                totals[name] += value
+        if payload["totals"] != totals:
+            errors.append("no-exchange report totals are inconsistent")
     elif schema_name == "neutral-served-preflight.schema.json":
         assessments = payload["assessments"]
         if payload["assessmentCount"] != len(assessments):

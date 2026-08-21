@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marginbench:no-exchange-feasibility:v1",
+  "title": "MarginBench no-exchange role feasibility report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "paidModelsInvoked", "controlProfile", "controlRunnable",
+    "aggregation", "gateStatus", "scenarioCount", "repetitionCount",
+    "assessmentCount", "assessments", "totals", "nextBlockingGate"
+  ],
+  "properties": {
+    "schema": {"const": "urn:marginbench:no-exchange-feasibility:v1"},
+    "paidModelsInvoked": {"const": false},
+    "controlProfile": {"const": "role-separated-no-exchange-v1"},
+    "controlRunnable": {"const": false},
+    "aggregation": {"const": "per-role-only-no-overall-score"},
+    "gateStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roleSpecificNeutralOracle", "independentWorkspaceProof",
+        "nonVacuousAggregation"
+      ],
+      "properties": {
+        "roleSpecificNeutralOracle": {"const": "complete"},
+        "independentWorkspaceProof": {"const": "blocked"},
+        "nonVacuousAggregation": {"const": "complete"}
+      }
+    },
+    "scenarioCount": {"type": "integer", "minimum": 1, "maximum": 9},
+    "repetitionCount": {"type": "integer", "minimum": 1, "maximum": 100},
+    "assessmentCount": {"type": "integer", "minimum": 1, "maximum": 900},
+    "assessments": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 900,
+      "items": {"$ref": "#/$defs/assessment"}
+    },
+    "totals": {"$ref": "#/$defs/totals"},
+    "nextBlockingGate": {"const": "independent-workspace-proof"}
+  },
+  "$defs": {
+    "countedOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "kind", "dependency", "count"],
+      "properties": {
+        "outcome": {
+          "enum": [
+            "accept-suggestion", "change-source", "create-fact",
+            "reject-suggestion", "resolve-thread"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "approval", "comment", "decision", "handoff", "issue",
+            "question", "reply", "suggestion", "task"
+          ]
+        },
+        "dependency": {
+          "enum": [
+            "none", "prior-shared-parent", "prior-shared-suggestion",
+            "later-collaborator-commit", "external-nonfile-state"
+          ]
+        },
+        "count": {"type": "integer", "minimum": 1, "maximum": 512}
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["independent", "collaborationDependent", "external"],
+      "properties": {
+        "independent": {"type": "integer", "minimum": 0, "maximum": 100000},
+        "collaborationDependent": {"type": "integer", "minimum": 0, "maximum": 100000},
+        "external": {"type": "integer", "minimum": 0, "maximum": 100000}
+      }
+    },
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "seat", "phase", "independentOracleFactCount",
+        "independentOutcomeCount", "dependentOutcomeCount",
+        "independentOutcomes", "dependentOutcomes"
+      ],
+      "properties": {
+        "seat": {"enum": ["author", "reviewer"]},
+        "phase": {"type": "integer", "minimum": 0, "maximum": 31},
+        "independentOracleFactCount": {"type": "integer", "minimum": 0, "maximum": 512},
+        "independentOutcomeCount": {"type": "integer", "minimum": 0, "maximum": 512},
+        "dependentOutcomeCount": {"type": "integer", "minimum": 0, "maximum": 512},
+        "independentOutcomes": {
+          "type": "array", "maxItems": 64,
+          "items": {"$ref": "#/$defs/countedOutcome"}
+        },
+        "dependentOutcomes": {
+          "type": "array", "maxItems": 64,
+          "items": {"$ref": "#/$defs/countedOutcome"}
+        }
+      }
+    },
+    "assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenario", "repetition", "roles", "externalOutcomes", "totals",
+        "overallScore"
+      ],
+      "properties": {
+        "scenario": {
+          "enum": [
+            "human_agent_relay", "agent_agent_handoff", "concurrent_review",
+            "suggestion_decision", "staged_multifile", "directory_handoff",
+            "parallel_shards", "specialist_audit", "distributed_synthesis"
+          ]
+        },
+        "repetition": {"type": "integer", "minimum": 0, "maximum": 999999},
+        "roles": {
+          "type": "array", "minItems": 1, "maxItems": 2,
+          "items": {"$ref": "#/$defs/role"}
+        },
+        "externalOutcomes": {
+          "type": "array", "maxItems": 64,
+          "items": {"$ref": "#/$defs/countedOutcome"}
+        },
+        "totals": {"$ref": "#/$defs/totals"},
+        "overallScore": {"type": "null"}
+      }
+    }
+  }
+}

@@ -117,6 +117,9 @@ PYTHONPATH=Evals/marginbench python3 -m marginbench.cli contention-matrix \
 
 PYTHONPATH=Evals/marginbench python3 -m marginbench.cli neutral-feasibility
 
+PYTHONPATH=Evals/marginbench python3 -m marginbench.cli \
+  no-exchange-feasibility
+
 PYTHONPATH=Evals/marginbench \
   ~/.local/share/uv/tools/prime/bin/python -m marginbench.cli \
   neutral-served-preflight
@@ -146,6 +149,16 @@ gateway, then validates exact facts, source integrity, historical all-or-none
 visibility, trusted attribution, read-before-action continuity, and required
 stale-write recovery. It lists agent efficiency as not evaluated because no
 model runs in this check.
+
+`no-exchange-feasibility` also invokes no model, but answers a different
+question. It decomposes each final neutral result into the work its original
+role can create from its own brief and initial files, the work that requires a
+prior parent/suggestion or later collaborator commit, and externally seeded
+state. Its public receipt contains only scenario names, role seats, fixed
+outcome categories, and counts—never prompts, bodies, paths, actor IDs, fact
+IDs, or case fingerprints. It reports each role separately and sets
+`overallScore` to null, so impossible handoffs cannot become artificial zeros.
+The control remains non-runnable until the independent-workspace proof passes.
 
 `wide-directory-probe` invokes no model. It creates byte-identical copies of a
 deterministic 16-document, 64-item workspace; alternates baseline and candidate
@@ -657,11 +670,13 @@ should be reported as separate tracks rather than mixed into one claim.
 `marginbench controls` publishes the frozen control catalog. Every unfinished
 profile includes stable, machine-readable `blockingGates`, so automation can
 show what evidence is still missing without attempting a run. The primary
-role-separated Margin profile and the compute-matched single continuing-agent
-profile are runnable. Plain-Markdown, Margin-plus-shell, and no-exchange
-controls remain specified but fail closed until their task-neutral scoring or
-isolation requirements are implemented. This prevents an attractive but
-incomparable control result from quietly entering the main track.
+role-separated Margin profile, compute-matched single continuing-agent profile,
+and ordinary-Markdown representation profile are runnable. Margin-plus-shell
+remains gated on remote safety. The no-exchange control now has exact per-role
+neutral slices and non-scalar aggregation, but still fails closed until
+independent workspace and no-state-exchange isolation are proven. This prevents
+an attractive but incomparable control result from quietly entering the main
+track.
 
 Before model execution, freeze the paired cases and counterbalanced candidate
 order without exposing prompts or answers:

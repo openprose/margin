@@ -92,16 +92,8 @@ _PROFILES: tuple[dict[str, Any], ...] = (
         "purpose": "Establish what each role can accomplish without any collaborator state exchange.",
         "blockingGates": [
             {
-                "id": "role-specific-neutral-oracle",
-                "requirement": "Define only the representation-neutral outcomes each isolated role can satisfy alone.",
-            },
-            {
                 "id": "independent-workspace-proof",
                 "requirement": "Prove roles receive independent initial files and no transcript or durable state exchange.",
-            },
-            {
-                "id": "non-vacuous-aggregation",
-                "requirement": "Define reporting that cannot reward or punish structurally impossible handoffs.",
             },
         ],
     },

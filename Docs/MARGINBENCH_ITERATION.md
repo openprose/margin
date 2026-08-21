@@ -102,6 +102,15 @@ handoff can also cause phase interference: options, assumptions, or unfinished
 plans from one role may leak into the next. Reports should describe that
 mechanism rather than saying only that “multi-agent won.”
 
+The no-exchange floor must decompose outcomes before measurement. An author may
+be able to create a suggestion independently even though accepting it requires
+a later reviewer; a handoff root may be independently authorable while its
+reply and resolution are not. Grade those slices per role and keep impossible
+dependencies out of that role's exact oracle. Publish counts by outcome and
+dependency class, never one overall score. A no-exchange run is invalid unless
+each role starts from an independently materialized workspace and cannot read
+another role's transcript, writes, or durable collaboration state.
+
 Two historical trace diagnoses illustrate the required level of care. In one
 distributed-resolution case, the fresh reviewer successfully read the prior
 work and posted the requested reply, but stopped before the clearly advertised

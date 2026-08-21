@@ -226,8 +226,11 @@ agent subprocesses start; only its one-way ID is published. The runnable
   controls are role-separated Margin collaboration, the compute-matched single
   continuing Margin agent, and the role-separated ordinary-Markdown control on
   the representation track. Margin-plus-shell and no-exchange controls are
-  specified publicly but refuse to run until their scoring and isolation rules
-  are implemented; they cannot silently enter the main track.
+  specified publicly but refuse to run until their remaining isolation rules
+  are implemented; they cannot silently enter the main track. The no-exchange
+  profile now has role-specific neutral oracles and explicitly non-scalar
+  reporting. Its only remaining gate is proof that served roles receive
+  independent initial workspaces with no transcript or durable-state exchange.
 `marginbench controls` reports their remaining release gates in structured
 form. Their exact fairness and release contract is in
 [`MARGINBENCH_CONTROLS.md`](MARGINBENCH_CONTROLS.md); the first neutral-fact

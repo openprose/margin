@@ -33,6 +33,7 @@ from .crossover import (
 from .diagnostics import DiagnosticError, diagnose_artifacts
 from .entropy import PUBLIC_DEVELOPMENT_KEY
 from .keys import create_holdout_key
+from .no_exchange import build_no_exchange_feasibility
 from .plain_reference import run_plain_reference_episode
 from .publication import audit_crossover_publication
 from .reference_study import ReferenceStudyError, run_reference_study
@@ -120,6 +121,14 @@ def main(argv: list[str] | None = None) -> int:
     neutral_feasibility.add_argument("--scenario", action="append", choices=SCENARIO_IDS)
     neutral_feasibility.add_argument("--repetitions", type=int, default=1)
     neutral_feasibility.add_argument("--key-file")
+
+    no_exchange_feasibility = subparsers.add_parser(
+        "no-exchange-feasibility",
+        help="classify per-role outcomes that are possible without collaborator state",
+    )
+    no_exchange_feasibility.add_argument("--scenario", action="append", choices=SCENARIO_IDS)
+    no_exchange_feasibility.add_argument("--repetitions", type=int, default=1)
+    no_exchange_feasibility.add_argument("--key-file")
 
     neutral_served = subparsers.add_parser(
         "neutral-served-preflight",
@@ -511,6 +520,18 @@ def main(argv: list[str] | None = None) -> int:
             "assessments": assessments,
         })
         return 0 if passed else 1
+    if arguments.command == "no-exchange-feasibility":
+        if not 1 <= arguments.repetitions <= 100:
+            raise ValueError("No-exchange feasibility repetitions must be between 1 and 100.")
+        scenarios = arguments.scenario or list(SCENARIO_IDS)
+        key = _key(arguments.key_file)
+        episodes = (
+            generate_episode(scenario, key, repetition)
+            for repetition in range(arguments.repetitions)
+            for scenario in scenarios
+        )
+        _write(build_no_exchange_feasibility(episodes))
+        return 0
     if arguments.command == "neutral-served-preflight":
         try:
             from .plain_prime_preflight import run_plain_served_preflight

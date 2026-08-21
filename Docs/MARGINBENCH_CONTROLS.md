@@ -257,6 +257,37 @@ Do not assign a single aggregate score across all nine scenarios until those
 per-role neutral checks exist. Otherwise the control merely encodes that a
 handoff task is impossible without a handoff, which is true but not informative.
 
+The role-specific neutral oracle and non-vacuous reporting gates are now
+implemented. `marginbench no-exchange-feasibility` decomposes final state into:
+
+- facts the original role can author from its brief and initial files;
+- replies or resolutions that require a prior shared parent;
+- accept/reject/source outcomes that require a prior shared suggestion;
+- staged facts that require a later collaborator to commit them; and
+- external comment state that is not present in the initial Markdown files.
+
+For private execution, independently authorable roots are normalized to their
+pre-collaboration state: resolved roots become open, and decided suggestions
+become open proposals with no decision actor. Replies and transaction-bound
+facts are omitted from that role's exact oracle instead of counted as failures.
+The public feasibility receipt retains only scenario, role seat, outcome kind,
+dependency class, and counts. It contains no prompt, body, path, actor ID, fact
+ID, fingerprint, or scalar score.
+
+Across one public-development repetition of the frozen nine scenarios, the
+taxonomy contains 11 independently authorable outcome slices, 15
+collaboration-dependent slices, and 3 externally seeded facts. Those counts are
+not weights and must not be summed into a quality score. Parallel shards and
+specialist audit are fully independent under this structural test; relay,
+handoff, suggestion decision, staged commit, directory review, and distributed
+synthesis contain explicit dependencies. This is the breadth signal the floor
+was designed to expose.
+
+One gate remains: prove that each served role receives a physically independent
+initial workspace and cannot observe another role's transcript, writes, or
+durable state. Until that proof and its adversarial tests pass, the catalog and
+every runner continue to reject this profile.
+
 ## Implementation order
 
 1. Implement the single continuing-agent profile locally because it reuses the
