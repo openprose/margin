@@ -694,6 +694,56 @@ tampered reservations, stale and mismatched receipts, missing-receipt refusal,
 and digest propagation. Both supported Python suites pass 222 tests. No paid
 request was made in this iteration.
 
+v65 uses that admission path once and then resumes the frozen receipt-trust
+comparison on a fresh private case. The probe returned success for one request
+containing the 4,000-token thinking setting. Prime reported 17 input tokens and
+189 completion tokens, including 183 reasoning tokens. No request was rejected
+or retried, no prompt or response text was retained, and the account-wide wallet
+moved by $0.0001. Its independently validated receipt has SHA-256
+`86948bb5c58b423c223f795d89f7e13b298bb57005b25695adea2415234590d4`.
+
+The matched plan then froze that receipt, one private suggestion-contention
+case, six-second request pacing, a $0.025 proxy cap per job, and a $0.05 study
+cap. Each job was released separately and inspected before the next. Both
+completed without retry or infrastructure error, preserved every source byte,
+used only valid commands, and produced the complete durable outcome. The v59
+baseline scored 100 in 11 commands and 13 model calls. The v62 candidate scored
+99.444 in 14 commands and 16 model calls. Total trace-reported cost and
+account-wide debit were $0.0065; the proxy-accounted upper bounds summed to
+$0.012609.
+
+The intended receipt mechanism did not explain the difference. Both versions
+used one named wait per role and neither listed or waited again afterward, so
+receipt trust was already perfect in the baseline. The extra work came from one
+v62 role that opened the focused batch-teaching help but still issued four
+individual suggestions; its peer used the atomic batch. Both v59 roles batched.
+This single pair rejects a benefit claim for the stronger receipt wording on
+this case, but it does not establish a v62 regression. The next benchmark turn
+must expose per-role teaching, batch adoption, and receipt-trust counts before
+another CLI change or larger paid sample. Both private-key copies were
+overwritten and deleted after the redacted submission reproduced successfully.
+
+v66 turns that interpretation into a reusable measurement instead of leaving it
+as a manual trace reading. Content-free trace-shape reports now separate five
+questions for every suggestion-contention role: Was focused batch teaching seen
+before the first write? Was atomic batch adopted? Were individual additions
+used instead? Was a named wait observed? Was its success trusted or followed by
+another list/wait? The report retains only fixed command categories and counts;
+it still excludes arguments, bodies, paths, identifiers, prompts, and results.
+Schema and semantic checks bind every subset, the wait partition, each role, and
+the global totals. The diagnostic report carries the same evidence alongside an
+incomplete-batch finding, so the proposed next experiment can distinguish
+discoverability from adoption.
+
+Reprocessing the v65 traces confirms the intended separation. Both v59 roles
+saw the focused batch teaching, both batched, and both trusted their wait. Both
+v62 roles also saw the teaching and trusted their wait, but only the reviewer
+batched; the author chose individual additions. That makes another wording-only
+change poorly motivated. It points instead to the cost of expressing the batch
+input through the agent tool boundary. Both supported Python environments pass
+224 tests, including privacy and semantic-tamper checks. No paid request was
+made for v66.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a

@@ -382,12 +382,43 @@ def _write_latency_evidence(
     }
 
 
+def _suggestion_mechanism_evidence(
+    reports: list[dict[str, Any]],
+) -> dict[str, int] | None:
+    fields = (
+        "applicableTraceCount",
+        "batchTeachingViewedBeforeWriteTraceCount",
+        "batchAdoptionTraceCount",
+        "batchAdoptionAfterTeachingTraceCount",
+        "individualAddTraceCount",
+        "individualAddAfterTeachingTraceCount",
+        "waitReceiptObservedTraceCount",
+        "waitReceiptTrustedTraceCount",
+        "postWaitReverificationTraceCount",
+    )
+    totals: Counter[str] = Counter()
+    for report in reports:
+        mechanisms = report.get("suggestionMechanisms")
+        if not isinstance(mechanisms, dict):
+            continue
+        for field in fields:
+            totals[field] += int(mechanisms[field])
+    if totals["applicableTraceCount"] == 0:
+        return None
+    if totals["applicableTraceCount"] > MAX_SUPPLEMENTARY_TOOL_CALLS:
+        raise DiagnosticError(
+            "Supplementary suggestion evidence exceeds the diagnostic trace limit."
+        )
+    return {field: totals[field] for field in fields}
+
+
 def _findings(
     episodes: list[dict[str, Any]],
     *,
     context_response_evidence: dict[str, Any] | None = None,
     capability_response_evidence: dict[str, Any] | None = None,
     write_latency_evidence: dict[str, Any] | None = None,
+    suggestion_mechanism_evidence: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     integrity, _ = _affected(
@@ -563,7 +594,7 @@ def _findings(
         ) is False,
     )
     if incomplete_batch_adoption:
-        findings.append(_finding(
+        finding = _finding(
             "incomplete-batch-adoption",
             "medium",
             "Some collaborators did not use the available atomic batch path",
@@ -575,7 +606,12 @@ def _findings(
                 "the first focused suggestion surface, and compare per-role adoption, help calls, "
                 "completion, and total interactions against the frozen candidate."
             ),
-        ))
+        )
+        if suggestion_mechanism_evidence is not None:
+            finding["evidence"]["suggestionMechanismEvidence"] = (
+                suggestion_mechanism_evidence
+            )
+        findings.append(finding)
     wait_reverification, _ = _affected(
         episodes,
         lambda item: item["checks"].get(
@@ -895,6 +931,9 @@ def diagnose_artifacts(
         context_response_evidence=_context_response_evidence(focus_trace_reports),
         capability_response_evidence=_capability_response_evidence(focus_trace_reports),
         write_latency_evidence=_write_latency_evidence(focus_trace_reports),
+        suggestion_mechanism_evidence=_suggestion_mechanism_evidence(
+            focus_trace_reports
+        ),
     )
     safety_failures = sum(_is_unsafe(episode) for episode in episodes)
     source_failures = sum(_source_failed(episode) for episode in episodes)

@@ -92,6 +92,24 @@ WRITE_COMMANDS = frozenset({
     "workspace init",
     "workspace write",
 })
+SUGGESTION_BATCH_TEACHING_COMMANDS = frozenset({
+    "help suggest add",
+    "help suggest batch",
+    "man suggestions",
+})
+SUGGESTION_WRITE_COMMANDS = frozenset({"suggest add", "suggest batch"})
+SUGGESTION_REVERIFICATION_COMMANDS = frozenset({"suggest list", "suggest wait"})
+SUGGESTION_MECHANISM_FIELDS = (
+    "applicableTraceCount",
+    "batchTeachingViewedBeforeWriteTraceCount",
+    "batchAdoptionTraceCount",
+    "batchAdoptionAfterTeachingTraceCount",
+    "individualAddTraceCount",
+    "individualAddAfterTeachingTraceCount",
+    "waitReceiptObservedTraceCount",
+    "waitReceiptTrustedTraceCount",
+    "postWaitReverificationTraceCount",
+)
 
 
 class TraceShapeError(ValueError):
@@ -306,6 +324,56 @@ def _write_latency(trace_count: int, write_attempt_count: int, buckets: Counter[
     }
 
 
+def _suggestion_mechanism_counts(successful_sequence: list[str]) -> Counter[str]:
+    """Project one suggestion-contention role into content-free mechanism counts."""
+    counts: Counter[str] = Counter({"applicableTraceCount": 1})
+    first_write = next(
+        (
+            index
+            for index, command in enumerate(successful_sequence)
+            if command in SUGGESTION_WRITE_COMMANDS
+        ),
+        None,
+    )
+    teaching_viewed = first_write is not None and any(
+        command in SUGGESTION_BATCH_TEACHING_COMMANDS
+        for command in successful_sequence[:first_write]
+    )
+    batch_adopted = "suggest batch" in successful_sequence
+    individual_add_used = "suggest add" in successful_sequence
+    counts["batchTeachingViewedBeforeWriteTraceCount"] += int(teaching_viewed)
+    counts["batchAdoptionTraceCount"] += int(batch_adopted)
+    counts["batchAdoptionAfterTeachingTraceCount"] += int(
+        teaching_viewed and batch_adopted
+    )
+    counts["individualAddTraceCount"] += int(individual_add_used)
+    counts["individualAddAfterTeachingTraceCount"] += int(
+        teaching_viewed and individual_add_used
+    )
+
+    first_wait = next(
+        (
+            index
+            for index, command in enumerate(successful_sequence)
+            if command == "suggest wait"
+        ),
+        None,
+    )
+    wait_observed = first_wait is not None
+    reverified = wait_observed and any(
+        command in SUGGESTION_REVERIFICATION_COMMANDS
+        for command in successful_sequence[first_wait + 1 :]
+    )
+    counts["waitReceiptObservedTraceCount"] += int(wait_observed)
+    counts["waitReceiptTrustedTraceCount"] += int(wait_observed and not reverified)
+    counts["postWaitReverificationTraceCount"] += int(reverified)
+    return counts
+
+
+def _suggestion_mechanism_report(counts: Counter[str]) -> dict[str, int]:
+    return {field: counts[field] for field in SUGGESTION_MECHANISM_FIELDS}
+
+
 def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
     sources = _sources(paths)
     source_receipts = []
@@ -383,6 +451,8 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
     scenario_pre_write_tool_call_buckets: dict[str, Counter[str]] = defaultdict(Counter)
     write_attempt_count = 0
     scenario_write_attempt_count: Counter[str] = Counter()
+    suggestion_mechanisms: Counter[str] = Counter()
+    scenario_suggestion_mechanisms: dict[str, Counter[str]] = defaultdict(Counter)
     tool_calls = successes = failures = blocked = leading_count = 0
 
     for trace in traces:
@@ -404,6 +474,7 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
             scenario_stop_conditions[scenario_key][stop] += 1
         pending: dict[str, tuple[str, bool, list[str], str]] = {}
         sequence: list[str] = []
+        successful_sequence: list[str] = []
         issued_before_first_write = 0
         first_write_after: int | None = None
         trace_write_attempt_count = 0
@@ -486,9 +557,18 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
                 command_signature_errors[signature_key][error] += 1
             if len(sequence) < MAX_SEQUENCE_LENGTH:
                 sequence.append(command)
+            # The published generic sequence is deliberately capped, but these
+            # fixed mechanism counters must still see every bounded tool call.
+            # Otherwise a long orientation phase could hide later adoption.
+            if ok:
+                successful_sequence.append(command)
         if sequence:
             sequences[tuple(sequence)] += 1
             scenario_sequences[scenario_key][tuple(sequence)] += 1
+        if scenario == "suggestion_contention":
+            mechanism_counts = _suggestion_mechanism_counts(successful_sequence)
+            suggestion_mechanisms.update(mechanism_counts)
+            scenario_suggestion_mechanisms[scenario_key].update(mechanism_counts)
         write_attempt_count += trace_write_attempt_count
         scenario_write_attempt_count[scenario_key] += trace_write_attempt_count
         pre_write_bucket = _pre_write_bucket(first_write_after)
@@ -543,6 +623,9 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
                 scenario_write_attempt_count[key],
                 scenario_pre_write_tool_call_buckets[key],
             ),
+            "suggestionMechanisms": _suggestion_mechanism_report(
+                scenario_suggestion_mechanisms[key]
+            ),
         })
     sequence_rows = _sequence_rows(sequences, maximum=256)
     return {
@@ -570,6 +653,9 @@ def summarize_trace_shapes(paths: list[Path]) -> dict[str, Any]:
         "scenarios": scenario_rows,
         "writeLatency": _write_latency(
             len(traces), write_attempt_count, pre_write_tool_call_buckets
+        ),
+        "suggestionMechanisms": _suggestion_mechanism_report(
+            suggestion_mechanisms
         ),
         "privacy": {
             "rawArgumentsRetained": False,

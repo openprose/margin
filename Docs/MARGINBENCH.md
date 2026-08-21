@@ -331,6 +331,19 @@ plan. This is evidence that the gateway returned success for one request
 containing the reasoning setting—not proof that every intermediary or later
 provider request will honor it—so each study call remains independently bounded.
 
+One admitted private pair now tests the latest receipt wording. Both old and new
+CLI arms completed exact, safe work and trusted the named-wait result without an
+immediate recheck. The v59 arm scored 100 in 11 commands; v62 scored 99.444 in
+14 because one role chose four individual additions after seeing the batch help.
+This is one diagnostic pair, not evidence of a product regression or a
+population effect. It redirects the next benchmark iteration toward per-role
+batch-teaching and adoption measurements rather than more receipt prose.
+Those measurements are now part of the content-free trace report and diagnostic
+contract. Reprocessing the pair confirms that all four roles saw the focused
+teaching and trusted their wait; the only split was atomic-batch adoption. The
+reports preserve fixed command categories and counts, never private arguments,
+document text, paths, identifiers, prompts, or tool results.
+
 The latest CLI cycle is intentionally narrower than a release claim. Concrete
 reply, atomic reply-and-resolve, thread verification, durable handoff, and
 handoff-verification actions improved one counter-ordered Luna handoff case

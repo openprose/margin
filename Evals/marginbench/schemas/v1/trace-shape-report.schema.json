@@ -71,6 +71,7 @@
       }
     },
     "writeLatency": {"$ref": "#/$defs/writeLatency"},
+    "suggestionMechanisms": {"$ref": "#/$defs/suggestionMechanisms"},
     "scenarios": {
       "type": "array", "maxItems": 128,
       "items": {
@@ -106,7 +107,8 @@
             "type": "array", "maxItems": 64,
             "items": {"$ref": "#/$defs/sequenceCount"}
           },
-          "writeLatency": {"$ref": "#/$defs/writeLatency"}
+          "writeLatency": {"$ref": "#/$defs/writeLatency"},
+          "suggestionMechanisms": {"$ref": "#/$defs/suggestionMechanisms"}
         }
       }
     },
@@ -215,6 +217,31 @@
             }
           }
         }
+      }
+    },
+    "suggestionMechanisms": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "applicableTraceCount",
+        "batchTeachingViewedBeforeWriteTraceCount",
+        "batchAdoptionTraceCount",
+        "batchAdoptionAfterTeachingTraceCount",
+        "individualAddTraceCount",
+        "individualAddAfterTeachingTraceCount",
+        "waitReceiptObservedTraceCount",
+        "waitReceiptTrustedTraceCount",
+        "postWaitReverificationTraceCount"
+      ],
+      "properties": {
+        "applicableTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "batchTeachingViewedBeforeWriteTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "batchAdoptionTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "batchAdoptionAfterTeachingTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "individualAddTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "individualAddAfterTeachingTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "waitReceiptObservedTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "waitReceiptTrustedTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "postWaitReverificationTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000}
       }
     }
   }

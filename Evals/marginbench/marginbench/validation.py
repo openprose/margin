@@ -1798,6 +1798,37 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
                     errors.append("diagnostic delayed-write threshold is not met")
                 if write_latency["writeAttemptCount"] < write_latency["tracesWithWriteAttempt"]:
                     errors.append("diagnostic write-attempt count is inconsistent")
+            suggestion_mechanisms = evidence.get("suggestionMechanismEvidence")
+            if isinstance(suggestion_mechanisms, dict):
+                applicable = suggestion_mechanisms["applicableTraceCount"]
+                mechanism_fields = (
+                    "batchTeachingViewedBeforeWriteTraceCount",
+                    "batchAdoptionTraceCount",
+                    "batchAdoptionAfterTeachingTraceCount",
+                    "individualAddTraceCount",
+                    "individualAddAfterTeachingTraceCount",
+                    "waitReceiptObservedTraceCount",
+                    "waitReceiptTrustedTraceCount",
+                    "postWaitReverificationTraceCount",
+                )
+                if any(suggestion_mechanisms[field] > applicable for field in mechanism_fields):
+                    errors.append("diagnostic suggestion mechanism exceeds applicable traces")
+                if suggestion_mechanisms["batchAdoptionAfterTeachingTraceCount"] > min(
+                    suggestion_mechanisms["batchTeachingViewedBeforeWriteTraceCount"],
+                    suggestion_mechanisms["batchAdoptionTraceCount"],
+                ):
+                    errors.append("diagnostic taught batch adoption is inconsistent")
+                if suggestion_mechanisms["individualAddAfterTeachingTraceCount"] > min(
+                    suggestion_mechanisms["batchTeachingViewedBeforeWriteTraceCount"],
+                    suggestion_mechanisms["individualAddTraceCount"],
+                ):
+                    errors.append("diagnostic taught individual-add use is inconsistent")
+                if (
+                    suggestion_mechanisms["waitReceiptTrustedTraceCount"]
+                    + suggestion_mechanisms["postWaitReverificationTraceCount"]
+                    != suggestion_mechanisms["waitReceiptObservedTraceCount"]
+                ):
+                    errors.append("diagnostic wait receipt partition is inconsistent")
         experiment = payload["recommendedNextExperiment"]
         local_gate = focus is None or focus["safetyFailureCount"] > 0 or focus["sourceFailureCount"] > 0
         if experiment["gate"] != ("local-safety" if local_gate else "matched-private-pairs"):
@@ -1839,6 +1870,44 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             if bucket_counts.get("none", 0) != latency["tracesWithoutWriteAttempt"]:
                 errors.append(f"{context} no-write bucket is inconsistent")
             return bucket_counts
+
+        suggestion_mechanism_fields = (
+            "applicableTraceCount",
+            "batchTeachingViewedBeforeWriteTraceCount",
+            "batchAdoptionTraceCount",
+            "batchAdoptionAfterTeachingTraceCount",
+            "individualAddTraceCount",
+            "individualAddAfterTeachingTraceCount",
+            "waitReceiptObservedTraceCount",
+            "waitReceiptTrustedTraceCount",
+            "postWaitReverificationTraceCount",
+        )
+
+        def validate_suggestion_mechanisms(
+            mechanisms: dict[str, int], expected_applicable: int, context: str
+        ) -> None:
+            applicable = mechanisms["applicableTraceCount"]
+            if applicable != expected_applicable:
+                errors.append(f"{context} applicable suggestion traces are inconsistent")
+            for field in suggestion_mechanism_fields[1:]:
+                if mechanisms[field] > applicable:
+                    errors.append(f"{context} {field} exceeds applicable traces")
+            if mechanisms["batchAdoptionAfterTeachingTraceCount"] > min(
+                mechanisms["batchTeachingViewedBeforeWriteTraceCount"],
+                mechanisms["batchAdoptionTraceCount"],
+            ):
+                errors.append(f"{context} taught batch adoption is inconsistent")
+            if mechanisms["individualAddAfterTeachingTraceCount"] > min(
+                mechanisms["batchTeachingViewedBeforeWriteTraceCount"],
+                mechanisms["individualAddTraceCount"],
+            ):
+                errors.append(f"{context} taught individual-add use is inconsistent")
+            if (
+                mechanisms["waitReceiptTrustedTraceCount"]
+                + mechanisms["postWaitReverificationTraceCount"]
+                != mechanisms["waitReceiptObservedTraceCount"]
+            ):
+                errors.append(f"{context} wait receipt partition is inconsistent")
 
         if payload["sourceCount"] != len(payload["sources"]):
             errors.append("trace shape sourceCount does not equal sources length")
@@ -1988,6 +2057,30 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
         scenario_command_size_totals: dict[str, dict[str, int]] = {}
         scenario_write_buckets: dict[str, int] = {}
         scenario_write_attempt_count = 0
+        scenario_suggestion_totals = {
+            field: 0 for field in suggestion_mechanism_fields
+        }
+        top_suggestion_mechanisms = payload.get("suggestionMechanisms")
+        scenario_suggestion_presence = [
+            "suggestionMechanisms" in item for item in payload["scenarios"]
+        ]
+        if top_suggestion_mechanisms is not None:
+            validate_suggestion_mechanisms(
+                top_suggestion_mechanisms,
+                sum(
+                    item["traceCount"]
+                    for item in payload["scenarios"]
+                    if item["scenario"] == "suggestion_contention"
+                ),
+                "trace report",
+            )
+        if any(scenario_suggestion_presence) and not all(scenario_suggestion_presence):
+            errors.append("trace scenarios have incomplete suggestion-mechanism details")
+        if payload["scenarios"] and (
+            (top_suggestion_mechanisms is not None)
+            != all(scenario_suggestion_presence)
+        ):
+            errors.append("trace report and scenarios disagree on suggestion-mechanism details")
         for scenario in payload["scenarios"]:
             key = (scenario["scenario"], scenario["seat"])
             if key in scenario_keys:
@@ -2001,6 +2094,20 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             scenario_write_attempt_count += scenario["writeLatency"]["writeAttemptCount"]
             for name, count in write_buckets.items():
                 scenario_write_buckets[name] = scenario_write_buckets.get(name, 0) + count
+            scenario_suggestion = scenario.get("suggestionMechanisms")
+            if scenario_suggestion is not None:
+                expected_applicable = (
+                    scenario["traceCount"]
+                    if scenario["scenario"] == "suggestion_contention"
+                    else 0
+                )
+                validate_suggestion_mechanisms(
+                    scenario_suggestion,
+                    expected_applicable,
+                    f"trace scenario {scenario['scenario']}:{scenario['seat']}",
+                )
+                for field in suggestion_mechanism_fields:
+                    scenario_suggestion_totals[field] += scenario_suggestion[field]
             scenario_size_presence = [field in scenario for field in size_fields]
             if any(scenario_size_presence) and not all(scenario_size_presence):
                 errors.append("trace scenario has incomplete result-size details")
@@ -2074,6 +2181,11 @@ def _semantic_errors(payload: Any, schema_name: str) -> list[str]:
             errors.append("trace scenario pre-write buckets disagree with the report")
         if scenario_write_attempt_count != payload["writeLatency"]["writeAttemptCount"]:
             errors.append("trace scenario write-attempt count disagrees with the report")
+        if (
+            top_suggestion_mechanisms is not None
+            and scenario_suggestion_totals != top_suggestion_mechanisms
+        ):
+            errors.append("trace scenario suggestion mechanisms disagree with the report")
         if sum(item["count"] for item in payload["sequences"]) > payload["traceCount"]:
             errors.append("trace sequence counts exceed traceCount")
     elif schema_name == "contention-matrix.schema.json":

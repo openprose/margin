@@ -210,7 +210,10 @@
             "invalidCommandCount": {"type": "integer", "minimum": 0},
             "stopConditions": {"$ref": "#/$defs/counts"},
             "responseSizeEvidence": {"$ref": "#/$defs/responseSizeEvidence"},
-            "writeLatencyEvidence": {"$ref": "#/$defs/writeLatencyEvidence"}
+            "writeLatencyEvidence": {"$ref": "#/$defs/writeLatencyEvidence"},
+            "suggestionMechanismEvidence": {
+              "$ref": "#/$defs/suggestionMechanismEvidence"
+            }
           }
         },
         "candidateSurfaces": {
@@ -274,6 +277,31 @@
             }
           }
         }
+      }
+    },
+    "suggestionMechanismEvidence": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "applicableTraceCount",
+        "batchTeachingViewedBeforeWriteTraceCount",
+        "batchAdoptionTraceCount",
+        "batchAdoptionAfterTeachingTraceCount",
+        "individualAddTraceCount",
+        "individualAddAfterTeachingTraceCount",
+        "waitReceiptObservedTraceCount",
+        "waitReceiptTrustedTraceCount",
+        "postWaitReverificationTraceCount"
+      ],
+      "properties": {
+        "applicableTraceCount": {"type": "integer", "minimum": 1, "maximum": 10000000},
+        "batchTeachingViewedBeforeWriteTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000000},
+        "batchAdoptionTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000000},
+        "batchAdoptionAfterTeachingTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000000},
+        "individualAddTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000000},
+        "individualAddAfterTeachingTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000000},
+        "waitReceiptObservedTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000000},
+        "waitReceiptTrustedTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000000},
+        "postWaitReverificationTraceCount": {"type": "integer", "minimum": 0, "maximum": 10000000}
       }
     }
   }

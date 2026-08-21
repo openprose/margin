@@ -15,6 +15,7 @@ from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 import httpx
@@ -470,6 +471,191 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertTrue(validate_bytes(encoded)["valid"])
         self.assertEqual(report["commands"][0]["name"], "suggest wait")
         self.assertNotIn(expected_id.encode(), encoded)
+
+    def test_trace_shape_quantifies_suggestion_teaching_adoption_and_wait_trust(self) -> None:
+        secret = "private-suggestion-mechanism-5b73"
+
+        def nodes_for(commands: list[list[str]]) -> list[dict[str, Any]]:
+            nodes: list[dict[str, Any]] = []
+            for index, arguments in enumerate(commands):
+                identifier = f"private-call-{index}"
+                nodes.extend([
+                    {"message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": identifier,
+                            "name": "margin",
+                            "arguments": json.dumps({"arguments": arguments}),
+                        }],
+                    }},
+                    {"message": {
+                        "role": "tool",
+                        "tool_call_id": identifier,
+                        "content": json.dumps({
+                            "ok": True,
+                            "exitCode": 0,
+                            "stdout": secret,
+                        }),
+                    }},
+                ])
+            return nodes
+
+        trace = {"traces": [
+            {
+                "task": {"data": {"scenario_id": "suggestion_contention"}},
+                "agent": {"name": "author"},
+                "nodes": nodes_for([
+                    ["suggest", "add", f"{secret}.md", "--help"],
+                    [
+                        "suggest", "add", f"{secret}.md", "--quote", secret,
+                        "--replacement", secret, "-m", secret,
+                    ],
+                    ["suggest", "wait", f"{secret}.md", secret, "--timeout", "20"],
+                    ["context", f"{secret}.md", "--json", "--brief"],
+                ]),
+            },
+            {
+                "task": {"data": {"scenario_id": "suggestion_contention"}},
+                "agent": {"name": "reviewer"},
+                "nodes": nodes_for([
+                    ["man", "suggestions"],
+                    ["suggest", "batch", f"{secret}.md", "--items-file", "-"],
+                    ["suggest", "wait", f"{secret}.md", secret, "--timeout", "20"],
+                    ["suggest", "list", f"{secret}.md"],
+                ]),
+            },
+        ]}
+        with tempfile.TemporaryDirectory(prefix="marginbench-suggestion-mechanisms-") as temporary:
+            path = Path(temporary) / "traces.jsonl"
+            path.write_text(json.dumps(trace) + "\n", encoding="utf-8")
+            report = summarize_trace_shapes([path])
+        encoded = canonical_json(report)
+        self.assertTrue(validate_bytes(encoded)["valid"])
+        self.assertNotIn(secret.encode("utf-8"), encoded)
+        self.assertEqual(report["suggestionMechanisms"], {
+            "applicableTraceCount": 2,
+            "batchTeachingViewedBeforeWriteTraceCount": 2,
+            "batchAdoptionTraceCount": 1,
+            "batchAdoptionAfterTeachingTraceCount": 1,
+            "individualAddTraceCount": 1,
+            "individualAddAfterTeachingTraceCount": 1,
+            "waitReceiptObservedTraceCount": 2,
+            "waitReceiptTrustedTraceCount": 1,
+            "postWaitReverificationTraceCount": 1,
+        })
+        scenario_counts = {
+            item["seat"]: item["suggestionMechanisms"]
+            for item in report["scenarios"]
+        }
+        self.assertEqual(
+            scenario_counts["author"]["individualAddAfterTeachingTraceCount"], 1
+        )
+        self.assertEqual(
+            scenario_counts["reviewer"]["batchAdoptionAfterTeachingTraceCount"], 1
+        )
+        tampered = json.loads(encoded)
+        tampered["suggestionMechanisms"]["waitReceiptTrustedTraceCount"] = 2
+        receipt = validate_bytes(canonical_json(tampered))
+        self.assertFalse(receipt["valid"])
+        self.assertTrue(any("wait receipt partition" in error for error in receipt["errors"]))
+
+    @unittest.skipUnless(JSONSCHEMA_AVAILABLE, "jsonschema is not installed")
+    def test_diagnostics_attach_suggestion_mechanisms_to_batch_finding(self) -> None:
+        result = EpisodeResult(
+            episode_id="suggestion_contention:0:mechanisms",
+            candidate_id="suggestion-mechanism-candidate",
+            score=99.0,
+            dimensions={
+                "outcome": 100.0,
+                "integrity": 100.0,
+                "protocol": 100.0,
+                "recovery": 100.0,
+                "efficiency": 95.0,
+            },
+            checks={
+                "source_expected": True,
+                "valid_documents": True,
+                "all_or_none": True,
+                "workspace_expected_paths": True,
+                "workspace_policy": True,
+                "valid_command_use": True,
+                "diagnostic_atomic_batch_used_by_all_roles": False,
+            },
+            command_count=0,
+            invalid_command_count=0,
+            duration_ms=1.0,
+            safety_passed=True,
+            source_preserved=True,
+            margin_sha256="0" * 64,
+        )
+
+        def trace_nodes(arguments_list: list[list[str]]) -> list[dict[str, Any]]:
+            nodes: list[dict[str, Any]] = []
+            for index, arguments in enumerate(arguments_list):
+                identifier = f"suggestion-mechanism-{index}"
+                nodes.extend((
+                    {"message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": identifier,
+                            "name": "margin",
+                            "arguments": json.dumps({"arguments": arguments}),
+                        }],
+                    }},
+                    {"message": {
+                        "role": "tool",
+                        "tool_call_id": identifier,
+                        "content": json.dumps({"ok": True, "exitCode": 0}),
+                    }},
+                ))
+            return nodes
+
+        trace = {"traces": [
+            {
+                "task": {"data": {"scenario_id": "suggestion_contention"}},
+                "agent": {"name": "author"},
+                "nodes": trace_nodes([
+                    ["suggest", "add", "private.md", "--help"],
+                    ["suggest", "add", "private.md", "--quote", "private"],
+                    ["suggest", "wait", "private.md", "private-id"],
+                ]),
+            },
+            {
+                "task": {"data": {"scenario_id": "suggestion_contention"}},
+                "agent": {"name": "reviewer"},
+                "nodes": trace_nodes([
+                    ["man", "suggestions"],
+                    ["suggest", "batch", "private.md", "--items-file", "-"],
+                    ["suggest", "wait", "private.md", "private-id"],
+                ]),
+            },
+        ]}
+        with tempfile.TemporaryDirectory(prefix="marginbench-suggestion-diagnostic-") as temporary:
+            root = Path(temporary)
+            result_path = root / "result.json"
+            result_path.write_bytes(canonical_json(result.to_dict()))
+            trace_path = root / "traces.jsonl"
+            trace_path.write_text(json.dumps(trace) + "\n", encoding="utf-8")
+            shape_path = root / "trace-shape.json"
+            shape_path.write_bytes(canonical_json(summarize_trace_shapes([trace_path])))
+            report = diagnose_artifacts([result_path, shape_path])
+
+        self.assertEqual(report["topOpportunity"], "incomplete-batch-adoption")
+        evidence = report["findings"][0]["evidence"]["suggestionMechanismEvidence"]
+        self.assertEqual(evidence["applicableTraceCount"], 2)
+        self.assertEqual(evidence["batchTeachingViewedBeforeWriteTraceCount"], 2)
+        self.assertEqual(evidence["batchAdoptionAfterTeachingTraceCount"], 1)
+        self.assertEqual(evidence["individualAddAfterTeachingTraceCount"], 1)
+        self.assertEqual(evidence["waitReceiptTrustedTraceCount"], 2)
+        self.assertTrue(validate_bytes(canonical_json(report))["valid"])
+
+        tampered = json.loads(canonical_json(report))
+        tampered["findings"][0]["evidence"]["suggestionMechanismEvidence"][
+            "batchAdoptionAfterTeachingTraceCount"
+        ] = 2
+        invalid = validate_bytes(canonical_json(tampered))
+        self.assertFalse(invalid["valid"])
+        self.assertTrue(any("taught batch adoption" in item for item in invalid["errors"]))
 
     def test_trace_shape_retains_only_static_manual_topics(self) -> None:
         secret = "private-man-topic"
