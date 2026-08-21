@@ -150,6 +150,30 @@ class SuggestionContentionPreReadDriver:
         ReferenceDriver().run(episode, role, gateway)
 
 
+class SuggestionContentionBatchDriver:
+    def __init__(self, *, repeat_author_verification: bool = False) -> None:
+        self.repeat_author_verification = repeat_author_verification
+
+    def run(self, episode, role, gateway) -> None:
+        assignments = episode.oracle["reference"]["assignments"][role.actor.id]
+        plan = json.dumps({
+            "schema": "urn:margin:suggestion-batch:v1",
+            "version": 1,
+            "items": assignments,
+        }, sort_keys=True, separators=(",", ":"))
+        response = gateway.call(
+            ["suggest", "batch", "review.md", "--items-file", "-"],
+            stdin=plan,
+        )
+        if response.exit_code != 0:
+            raise RuntimeError(f"Suggestion batch failed: {response.error_code}")
+        gateway.call(["suggest", "list", "review.md", "--json"])
+        gateway.call(["read", "review.md", "--json"])
+        if self.repeat_author_verification and role.seat == "author":
+            gateway.call(["suggest", "list", "review.md", "--json"])
+            gateway.call(["read", "review.md", "--json"])
+
+
 class MarginBenchCoreTests(unittest.TestCase):
     def test_completed_durable_work_is_not_mislabeled_as_budget_exhaustion(self) -> None:
         complete = {
@@ -2551,10 +2575,58 @@ class MarginBenchCoreTests(unittest.TestCase):
         self.assertEqual(result.score, 100.0)
         self.assertTrue(result.safety_passed)
         self.assertTrue(result.source_preserved)
-        self.assertTrue(all(result.checks.values()))
         self.assertTrue(result.checks["diagnostic_no_prewrite_state_reads"])
+        self.assertFalse(result.checks["diagnostic_atomic_batch_used_anywhere"])
+        self.assertFalse(result.checks["diagnostic_atomic_batch_used_by_all_roles"])
+        self.assertTrue(result.checks["diagnostic_one_postwrite_verification_per_role"])
+        self.assertTrue(all(
+            passed
+            for name, passed in result.checks.items()
+            if not name.startswith("diagnostic_atomic_batch_used")
+        ))
         self.assertEqual(result.command_count, 12)
         self.assertEqual(result.invalid_command_count, 0)
+
+        with tempfile.TemporaryDirectory(prefix="marginbench-suggestion-batch-") as temporary:
+            batched = run_episode(
+                episode,
+                self.binary,
+                Path(temporary) / "workspace",
+                SuggestionContentionBatchDriver(),
+            )
+        self.assertEqual(batched.score, 100.0)
+        self.assertEqual(batched.command_count, 6)
+        self.assertTrue(batched.checks["diagnostic_no_prewrite_state_reads"])
+        self.assertTrue(batched.checks["diagnostic_atomic_batch_used_anywhere"])
+        self.assertTrue(batched.checks["diagnostic_atomic_batch_used_by_all_roles"])
+        self.assertTrue(batched.checks["diagnostic_one_postwrite_verification_per_role"])
+
+        with tempfile.TemporaryDirectory(prefix="marginbench-suggestion-repeat-") as temporary:
+            repeated_verification = run_episode(
+                episode,
+                self.binary,
+                Path(temporary) / "workspace",
+                SuggestionContentionBatchDriver(repeat_author_verification=True),
+            )
+        self.assertEqual(repeated_verification.score, 100.0)
+        self.assertTrue(repeated_verification.checks["diagnostic_atomic_batch_used_by_all_roles"])
+        self.assertFalse(
+            repeated_verification.checks["diagnostic_one_postwrite_verification_per_role"]
+        )
+
+        with tempfile.TemporaryDirectory(prefix="marginbench-suggestion-diagnostics-") as temporary:
+            root = Path(temporary)
+            reference_path = root / "reference.json"
+            reference_path.write_bytes(canonical_json(result.to_dict()))
+            reference_diagnostic = diagnose_artifacts([reference_path])
+            repeated_path = root / "repeated.json"
+            repeated_path.write_bytes(canonical_json(repeated_verification.to_dict()))
+            repeated_diagnostic = diagnose_artifacts([repeated_path])
+        self.assertEqual(reference_diagnostic["topOpportunity"], "incomplete-batch-adoption")
+        self.assertEqual(
+            repeated_diagnostic["topOpportunity"],
+            "repeated-postwrite-verification",
+        )
 
         with tempfile.TemporaryDirectory(prefix="marginbench-suggestion-preread-") as temporary:
             preread = run_episode(

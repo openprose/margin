@@ -404,6 +404,21 @@ non-scoring diagnostics for batch adoption and exactly-once post-write
 verification; then put the complete bounded batch recipe in the first focused
 suggestion surface rather than requiring a third help call.
 
+v53 adds those measures without changing task instructions, outcomes, or score.
+For each contention episode the scorer now records whether any role used an
+atomic batch, whether every role did, and whether every role performed exactly
+one successful list and one source read after its final successful write. The
+last measure looks after the final write, so a legitimate collision-recovery
+read is not mislabeled as redundant polling. Privacy-safe diagnostics rank
+incomplete batch adoption and repeated post-write verification as concrete
+interface experiments when those checks are present.
+
+Deterministic regressions cover the old six-call-per-role reference, the ideal
+three-call-per-role batch path, and an early finisher that repeats list/read.
+Both 206-test Python suites and both fake-model execution modes pass; the fake
+candidate uses batch for both roles and satisfies all three new checks. No
+product binary changed and no paid model was invoked for v53.
+
 ## Spend ladder
 
 Every paid plan records both the conservative provider-contract maximum and a

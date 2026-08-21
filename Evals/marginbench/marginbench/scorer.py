@@ -230,6 +230,58 @@ def _used_no_prewrite_state_reads(
     return True
 
 
+def _used_atomic_batch(
+    events: tuple[CommandEvent, ...],
+    *,
+    require_every_role: bool,
+) -> bool:
+    """Report batch adoption without making it part of correctness or score."""
+    roles = sorted({event.role for event in events})
+    if not roles:
+        return False
+    adopted = [
+        any(
+            event.role == role
+            and event.command == "suggest batch"
+            and event.exit_code == 0
+            for event in events
+        )
+        for role in roles
+    ]
+    return all(adopted) if require_every_role else any(adopted)
+
+
+def _used_one_postwrite_verification_per_role(
+    events: tuple[CommandEvent, ...],
+    write_commands: frozenset[str],
+) -> bool:
+    """Distinguish one final check from an early finisher repeatedly polling."""
+    roles = sorted({event.role for event in events})
+    if not roles:
+        return False
+    for role in roles:
+        role_events = [event for event in events if event.role == role]
+        successful_writes = [
+            index
+            for index, event in enumerate(role_events)
+            if event.command in write_commands and event.exit_code == 0
+        ]
+        if not successful_writes:
+            return False
+        after = role_events[successful_writes[-1] + 1:]
+        successful_lists = sum(
+            event.command == "suggest list" and event.exit_code == 0
+            for event in after
+        )
+        successful_reads = sum(
+            event.command == "read" and event.exit_code == 0
+            for event in after
+        )
+        if successful_lists != 1 or successful_reads != 1:
+            return False
+    return True
+
+
 def _used_expected_context_then_inbox(events: tuple[CommandEvent, ...]) -> bool:
     """Require the intentional broad-to-filtered discovery order before action."""
     found_pair = False
@@ -353,9 +405,19 @@ def score_episode(
     diagnostic_checks: dict[str, bool] = {}
     reference = episode.oracle.get("reference")
     if isinstance(reference, dict) and episode.scenario_id == "suggestion_contention":
+        suggestion_writes = frozenset({"suggest add", "suggest batch"})
         diagnostic_checks = {
             "diagnostic_no_prewrite_state_reads": _used_no_prewrite_state_reads(
-                events, frozenset({"suggest add", "suggest batch"})
+                events, suggestion_writes
+            ),
+            "diagnostic_atomic_batch_used_anywhere": _used_atomic_batch(
+                events, require_every_role=False
+            ),
+            "diagnostic_atomic_batch_used_by_all_roles": _used_atomic_batch(
+                events, require_every_role=True
+            ),
+            "diagnostic_one_postwrite_verification_per_role": (
+                _used_one_postwrite_verification_per_role(events, suggestion_writes)
             ),
         }
     elif isinstance(reference, dict) and episode.scenario_id == "specialist_audit":

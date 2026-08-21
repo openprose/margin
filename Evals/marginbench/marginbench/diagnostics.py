@@ -556,6 +556,46 @@ def _findings(
                 "to choose context or inbox, then compare response-size buckets and model input."
             ),
         ))
+    incomplete_batch_adoption, _ = _affected(
+        episodes,
+        lambda item: item["checks"].get(
+            "diagnostic_atomic_batch_used_by_all_roles"
+        ) is False,
+    )
+    if incomplete_batch_adoption:
+        findings.append(_finding(
+            "incomplete-batch-adoption",
+            "medium",
+            "Some collaborators did not use the available atomic batch path",
+            incomplete_batch_adoption,
+            failed_checks={"diagnostic_atomic_batch_used_by_all_roles"},
+            surfaces=["suggestion fast path", "command-local help", "progressive disclosure"],
+            experiment=(
+                "Keep the task and batch command fixed, put one complete bounded batch recipe in "
+                "the first focused suggestion surface, and compare per-role adoption, help calls, "
+                "completion, and total interactions against the frozen candidate."
+            ),
+        ))
+    repeated_postwrite_verification, _ = _affected(
+        episodes,
+        lambda item: item["checks"].get(
+            "diagnostic_one_postwrite_verification_per_role"
+        ) is False,
+    )
+    if repeated_postwrite_verification:
+        findings.append(_finding(
+            "repeated-postwrite-verification",
+            "medium",
+            "A collaborator repeated final verification after its own write completed",
+            repeated_postwrite_verification,
+            failed_checks={"diagnostic_one_postwrite_verification_per_role"},
+            surfaces=["known-peer convergence", "mutation receipts", "bounded watch"],
+            experiment=(
+                "Keep writes and final checks fixed, expose an on-demand bounded way to await a "
+                "known peer contribution set, and compare repeated list/read calls, latency, and "
+                "completion without adding background work to startup."
+            ),
+        ))
     if write_latency_evidence is not None:
         finding = _finding(
             "long-path-to-first-write",
