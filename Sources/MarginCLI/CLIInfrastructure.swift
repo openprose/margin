@@ -230,4 +230,19 @@ enum PathResolver {
         }
         return url.standardizedFileURL
     }
+
+    /// Resolves relative paths without asking Foundation to canonicalize the
+    /// final component. swift-corelibs Foundation resolves symbolic links as
+    /// part of `standardizedFileURL`, which would bypass comparison's
+    /// `lstat`/`O_NOFOLLOW` security boundary before Core receives the URL.
+    static func resolvedPreservingFinalComponent(_ rawPath: String) -> URL {
+        let expanded = (rawPath as NSString).expandingTildeInPath
+        if expanded.hasPrefix("/") {
+            return URL(fileURLWithPath: expanded)
+        }
+        return URL(
+            fileURLWithPath: FileManager.default.currentDirectoryPath,
+            isDirectory: true
+        ).appendingPathComponent(expanded)
+    }
 }

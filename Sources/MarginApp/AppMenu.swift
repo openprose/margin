@@ -92,6 +92,31 @@ enum AppMenu {
         fileMenu.addItem(.separator())
         fileMenu.addItem(
             item(
+                "Compare Files…",
+                action: #selector(AppDelegate.compareFiles(_:)),
+                target: delegate
+            )
+        )
+        fileMenu.addItem(
+            item(
+                "Compare Active Tab With…",
+                action: #selector(AppDelegate.compareActiveTab(_:)),
+                key: "c",
+                modifiers: [.command, .control],
+                target: delegate
+            )
+        )
+        fileMenu.addItem(
+            item(
+                "Refresh Comparison",
+                action: #selector(AppDelegate.refreshComparison(_:)),
+                key: "r",
+                target: delegate
+            )
+        )
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(
+            item(
                 "Rename Navigator Item…",
                 action: Selector(("renameNavigatorItem:"))
             )
@@ -269,6 +294,21 @@ enum AppMenu {
         viewMenu.addItem(.separator())
         viewMenu.addItem(
             item(
+                "Side-by-Side Comparison",
+                action: #selector(AppDelegate.toggleComparisonSideBySide(_:)),
+                target: delegate
+            )
+        )
+        viewMenu.addItem(
+            item(
+                "Show Comparison Whitespace",
+                action: #selector(AppDelegate.toggleComparisonWhitespace(_:)),
+                target: delegate
+            )
+        )
+        viewMenu.addItem(.separator())
+        viewMenu.addItem(
+            item(
                 "Enter Full Screen",
                 action: #selector(NSWindow.toggleFullScreen(_:)),
                 key: "f",
@@ -290,8 +330,6 @@ enum AppMenu {
             item(
                 "Show Comments",
                 action: #selector(AppDelegate.toggleComments(_:)),
-                key: "c",
-                modifiers: [.command, .control],
                 target: delegate
             )
         )
@@ -299,6 +337,64 @@ enum AppMenu {
             item(
                 "Go to Comment…",
                 action: #selector(AppDelegate.navigateToComment(_:)),
+                target: delegate
+            )
+        )
+        reviewMenu.addItem(.separator())
+        reviewMenu.addItem(
+            item(
+                "Swap Comparison Sides",
+                action: #selector(AppDelegate.swapComparisonSides(_:)),
+                target: delegate
+            )
+        )
+        let applyComparisonMenu = NSMenu(title: "Apply Comparison")
+        applyComparisonMenu.addItem(
+            item(
+                "Selected Change, Left to Right",
+                action: #selector(AppDelegate.applySelectedComparisonLeftToRight(_:)),
+                target: delegate
+            )
+        )
+        applyComparisonMenu.addItem(
+            item(
+                "Selected Change, Right to Left",
+                action: #selector(AppDelegate.applySelectedComparisonRightToLeft(_:)),
+                target: delegate
+            )
+        )
+        applyComparisonMenu.addItem(.separator())
+        applyComparisonMenu.addItem(
+            item(
+                "All Changes, Left to Right",
+                action: #selector(AppDelegate.applyAllComparisonLeftToRight(_:)),
+                target: delegate
+            )
+        )
+        applyComparisonMenu.addItem(
+            item(
+                "All Changes, Right to Left",
+                action: #selector(AppDelegate.applyAllComparisonRightToLeft(_:)),
+                target: delegate
+            )
+        )
+        reviewMenu.addItem(menuItem(title: "Apply Comparison", submenu: applyComparisonMenu))
+        reviewMenu.addItem(.separator())
+        reviewMenu.addItem(
+            item(
+                "Previous Change",
+                action: #selector(AppDelegate.previousComparisonChange(_:)),
+                key: "\u{F700}",
+                modifiers: [.command, .option],
+                target: delegate
+            )
+        )
+        reviewMenu.addItem(
+            item(
+                "Next Change",
+                action: #selector(AppDelegate.nextComparisonChange(_:)),
+                key: "\u{F701}",
+                modifiers: [.command, .option],
                 target: delegate
             )
         )

@@ -19,10 +19,22 @@ public struct AtomicDocumentMutation<Result> {
 public struct AtomicDocumentStore: Sendable {
     public var lockTimeout: TimeInterval
     public var retryLimit: Int
+    private let beforeReplaceForTesting: (@Sendable () -> Void)?
 
     public init(lockTimeout: TimeInterval = 5, retryLimit: Int = 3) {
         self.lockTimeout = max(0, lockTimeout)
         self.retryLimit = max(0, retryLimit)
+        beforeReplaceForTesting = nil
+    }
+
+    init(
+        lockTimeout: TimeInterval = 5,
+        retryLimit: Int = 3,
+        beforeReplaceForTesting: @escaping @Sendable () -> Void
+    ) {
+        self.lockTimeout = max(0, lockTimeout)
+        self.retryLimit = max(0, retryLimit)
+        self.beforeReplaceForTesting = beforeReplaceForTesting
     }
 
     public func read(at url: URL) throws -> Data {
@@ -39,8 +51,42 @@ public struct AtomicDocumentStore: Sendable {
         at url: URL,
         _ transform: (Data) throws -> AtomicDocumentMutation<Result>
     ) throws -> Result {
-        let documentURL = canonicalURL(url)
-        let lockDescriptor = try acquireLock(for: documentURL)
+        try transaction(at: url, maximumBytes: nil, transform)
+    }
+
+    /// The bounded form prevents a structured sidecar from reaching its
+    /// decoder after it grows beyond the caller's hard artifact ceiling.
+    public func transaction<Result>(
+        at url: URL,
+        maximumBytes: Int?,
+        _ transform: (Data) throws -> AtomicDocumentMutation<Result>
+    ) throws -> Result {
+        try transaction(
+            at: url,
+            maximumBytes: maximumBytes,
+            rejectSymbolicLinks: false,
+            transform
+        )
+    }
+
+    /// Strict comparison persistence never resolves or follows the final path.
+    /// It is internal because ordinary document editing historically permits
+    /// symlink-backed files, while comparison apply/review explicitly does not.
+    func transaction<Result>(
+        at url: URL,
+        maximumBytes: Int?,
+        rejectSymbolicLinks: Bool,
+        _ transform: (Data) throws -> AtomicDocumentMutation<Result>
+    ) throws -> Result {
+        // `URL.standardizedFileURL` resolves symbolic links in swift-corelibs
+        // Foundation. Strict comparison writes must retain the caller's final
+        // path component so `lstat`/`O_NOFOLLOW` can reject it on every
+        // supported platform.
+        let documentURL = rejectSymbolicLinks ? url : canonicalURL(url)
+        let lockIdentityURL = rejectSymbolicLinks
+            ? strictLockIdentityURL(documentURL)
+            : documentURL
+        let lockDescriptor = try acquireLock(for: lockIdentityURL)
         defer {
             _ = flock(lockDescriptor, LOCK_UN)
             _ = close(lockDescriptor)
@@ -49,17 +95,36 @@ public struct AtomicDocumentStore: Sendable {
         var attempt = 0
         while true {
             let original: Data
-            do {
-                original = try Data(contentsOf: documentURL)
-            } catch {
+            if rejectSymbolicLinks {
+                original = try ComparisonRegularFile.read(
+                    at: documentURL,
+                    maximumBytes: maximumBytes ?? Int.max
+                )
+            } else {
+                do {
+                    original = try Data(contentsOf: documentURL)
+                } catch {
+                    throw CommentProtocolError.io(
+                        "Could not read '\(documentURL.path)': \(error.localizedDescription)"
+                    )
+                }
+            }
+            if let maximumBytes, original.count > max(0, maximumBytes) {
                 throw CommentProtocolError.io(
-                    "Could not read '\(documentURL.path)': \(error.localizedDescription)"
+                    "Document exceeds the transaction byte limit of \(max(0, maximumBytes))."
                 )
             }
             let mutation = try transform(original)
             if mutation.data == original { return mutation.result }
+            beforeReplaceForTesting?()
             do {
-                try atomicReplace(documentURL, expected: original, with: mutation.data)
+                try atomicReplace(
+                    documentURL,
+                    expected: original,
+                    with: mutation.data,
+                    rejectSymbolicLinks: rejectSymbolicLinks,
+                    maximumBytes: maximumBytes
+                )
                 return mutation.result
             } catch CommentProtocolError.concurrentModification where attempt < retryLimit {
                 attempt += 1
@@ -70,6 +135,15 @@ public struct AtomicDocumentStore: Sendable {
 
     private func canonicalURL(_ url: URL) -> URL {
         url.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
+    /// Parent aliases must converge on one writer lock, while the final
+    /// component remains literal for every strict `lstat`/`O_NOFOLLOW` read.
+    private func strictLockIdentityURL(_ url: URL) -> URL {
+        let parent = url.deletingLastPathComponent()
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        return parent.appendingPathComponent(url.lastPathComponent, isDirectory: false)
     }
 
     private func acquireLock(for documentURL: URL) throws -> Int32 {
@@ -112,13 +186,26 @@ public struct AtomicDocumentStore: Sendable {
         return descriptor
     }
 
-    private func atomicReplace(_ url: URL, expected: Data, with replacement: Data) throws {
+    private func atomicReplace(
+        _ url: URL,
+        expected: Data,
+        with replacement: Data,
+        rejectSymbolicLinks: Bool,
+        maximumBytes: Int?
+    ) throws {
         let fileManager = FileManager.default
         let beforeWrite: Data
-        do {
-            beforeWrite = try Data(contentsOf: url)
-        } catch {
-            throw CommentProtocolError.io("Could not re-read '\(url.path)': \(error.localizedDescription)")
+        if rejectSymbolicLinks {
+            beforeWrite = try ComparisonRegularFile.read(
+                at: url,
+                maximumBytes: maximumBytes ?? Int.max
+            )
+        } else {
+            do {
+                beforeWrite = try Data(contentsOf: url)
+            } catch {
+                throw CommentProtocolError.io("Could not re-read '\(url.path)': \(error.localizedDescription)")
+            }
         }
         guard beforeWrite == expected else { throw CommentProtocolError.concurrentModification }
 
@@ -149,10 +236,17 @@ public struct AtomicDocumentStore: Sendable {
         }
 
         let immediatelyBeforeRename: Data
-        do {
-            immediatelyBeforeRename = try Data(contentsOf: url)
-        } catch {
-            throw CommentProtocolError.io("Could not verify '\(url.path)': \(error.localizedDescription)")
+        if rejectSymbolicLinks {
+            immediatelyBeforeRename = try ComparisonRegularFile.read(
+                at: url,
+                maximumBytes: maximumBytes ?? Int.max
+            )
+        } else {
+            do {
+                immediatelyBeforeRename = try Data(contentsOf: url)
+            } catch {
+                throw CommentProtocolError.io("Could not verify '\(url.path)': \(error.localizedDescription)")
+            }
         }
         guard immediatelyBeforeRename == expected else {
             throw CommentProtocolError.concurrentModification

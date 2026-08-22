@@ -70,6 +70,10 @@ SUITES=(
     CommentMutationTests
     CommentServiceTests
     CommentWatchTests
+    ComparisonApplyServiceTests
+    ComparisonCommandsTests
+    ComparisonDiffTests
+    ComparisonReviewTests
     CrossPlatformSupportTests
     MarkdownOutlineTests
     OpenTargetTests
@@ -82,7 +86,8 @@ SUITES=(
 QUALIFIED_SUITES=()
 for suite in "${SUITES[@]}"; do
     test_module="MarginCoreTests"
-    if [[ "$suite" == AppLauncherTests || "$suite" == CLICommandContractTests || "$suite" == CommentWatchTests ]]; then
+    if [[ "$suite" == AppLauncherTests || "$suite" == CLICommandContractTests \
+        || "$suite" == CommentWatchTests || "$suite" == ComparisonCommandsTests ]]; then
         test_module="MarginCLITests"
     fi
     QUALIFIED_SUITES+=("$test_module.$suite")

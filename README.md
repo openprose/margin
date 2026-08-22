@@ -91,6 +91,25 @@ margin man review
 margin capabilities --json --for review
 ```
 
+Two explicit Markdown states can also be compared without teaching Margin
+about Git, branches, or any other versioning system:
+
+```sh
+# Open the native comparison view on macOS.
+margin compare architecture.md proposal.md
+
+# Return a bounded, machine-readable diff to an agent.
+margin compare architecture.md proposal.md --json --pretty
+
+# Save a portable review, then add a threaded comment from the CLI.
+margin compare architecture.md proposal.md \
+  --save-review architecture-review.marginreview
+margin compare comments add architecture-review.marginreview \
+  --side right --quote "The queue is the source of truth." \
+  -m "Please name the ordering guarantee." \
+  --actor-type software --actor-name architecture-reviewer
+```
+
 A small review workflow looks like this:
 
 ```sh
@@ -161,6 +180,7 @@ Intel Mac support, Developer ID signing, and notarization are future distributio
 - [Architecture](Docs/ARCHITECTURE.md)
 - [Embedded comment protocol](COMMENT_PROTOCOL.md)
 - [Directory collaboration protocol](Docs/COLLABORATION_PROTOCOL.md)
+- [Source-agnostic comparison and review](Docs/COMPARISON_REVIEWS.md)
 - [Performance methodology and results](Docs/PERFORMANCE.md)
 - [MarginBench](Docs/MARGINBENCH.md)
 - [Release notes](Docs/RELEASE_NOTES.md)

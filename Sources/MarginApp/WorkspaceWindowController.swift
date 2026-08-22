@@ -136,6 +136,29 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     }
 
     var hasUnreadComments: Bool { unreadCommentCount > 0 }
+    var comparisonSourceMetadata: WorkspaceComparisonSourceMetadata? {
+        (editorViewController as? WorkspaceComparisonSourceProviding)?.comparisonSourceMetadata
+    }
+    var comparisonSource: WorkspaceComparisonSource? {
+        (editorViewController as? WorkspaceComparisonSourceProviding)?.comparisonSource()
+    }
+
+    func applyComparisonPlan(
+        _ plan: ComparisonApplyPlan,
+        to destinationURL: URL
+    ) throws -> Bool {
+        guard documentURL?.standardizedFileURL == destinationURL.standardizedFileURL,
+              let editor = editorViewController as? WorkspaceComparisonApplying else {
+            return false
+        }
+        try editor.applyComparisonPlan(plan)
+        guard editor.flushComparisonApply() else {
+            throw ComparisonError.io(
+                "The comparison is still open in the editor because Margin could not save it safely. Resolve the save conflict or undo the comparison before continuing."
+            )
+        }
+        return true
+    }
     var navigatorActiveDocumentURLForTesting: URL? {
         fileTreeViewController.activeDocumentURLForTesting
     }

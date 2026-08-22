@@ -21,6 +21,7 @@ MarginApp (macOS only)              MarginCLI (macOS and Linux)
               ├── Markdown inspection and outlines
               ├── Unicode coordinates and resilient anchors
               ├── embedded JSON-LD serialization
+              ├── source-agnostic Markdown comparison and review artifacts
               ├── atomic document persistence and locking
               ├── review snapshots and comment services
               ├── bounded contexts, cursors, and activity
@@ -53,6 +54,13 @@ ambiguous/orphaned anchor; it does not guess.
 The canonical formats are documented in the
 [embedded comment protocol](../COMMENT_PROTOCOL.md) and
 [directory collaboration protocol](COLLABORATION_PROTOCOL.md).
+
+Comparison deliberately sits beside, rather than inside, the document model.
+It accepts two explicit logical Markdown snapshots, produces a deterministic
+bounded diff, and can persist discussion in a portable `.marginreview`
+artifact. Snapshot source hints are inert display text; Margin never discovers
+a repository or grants write authority from review metadata. The complete
+contract is documented in [source-agnostic comparison and review](COMPARISON_REVIEWS.md).
 
 ## Persistence and concurrency
 
@@ -90,9 +98,9 @@ navigator, the editor/reader surface, and the comment inspector.
 
 The editor keeps literal Markdown source in TextKit. Syntax styling uses
 temporary attributes and does not alter document bytes. Reader presentation,
-directory indexing, filesystem watching, collaboration overviews, and stage
-presentation are created only when requested so they do not join the initial
-window path.
+directory indexing, filesystem watching, comparison loading, collaboration
+overviews, and stage presentation are created only when requested so they do
+not join the initial window path.
 
 The application stores only lightweight local presentation state such as open
 tabs, pane visibility, selection, scroll position, and the active thread. An

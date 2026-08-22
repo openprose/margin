@@ -30,8 +30,10 @@ absolute, parent-traversing, or option-like strings still fail closed.
 | Create and manage comments and typed contributions | Yes | Yes |
 | Context, inbox, collaborators, suggestions, and handoffs | Yes | Yes |
 | Workspaces, stages, transactions, reconciliation, and merge | Yes | Yes |
+| Compare explicit Markdown and manage portable review threads | Yes | Yes |
 | Watch a document for comment changes | Yes | Yes |
 | Launch the native Margin editor | Yes | No |
+| Open the native comparison view | Yes | No |
 
 Bare `margin`, `margin FILE`, `margin DIRECTORY`, and `margin open ...` are app
 launcher forms. On Linux they fail with the stable `APP_UNAVAILABLE` error; they
@@ -96,6 +98,53 @@ Independent typed additions without `--if-revision` retry a bounded number of
 annotation-only races inside one CLI call. Margin first proves that the logical
 Markdown has not changed. A source edit or an explicit revision guard still
 fails closed, so agents must reread rather than weakening the precondition.
+
+## Compare explicit Markdown states
+
+Comparison accepts exactly two named Markdown states and performs no repository
+or directory discovery:
+
+```sh
+# Open the native comparison on macOS.
+margin compare architecture.md proposal.md
+
+# Give an agent one bounded page of changed blocks.
+margin compare architecture.md proposal.md --json --pretty
+
+# Pipe exactly one side and label it for the reader.
+margin compare architecture.md - --label-right "Agent proposal" --json
+```
+
+JSON results contain exact snapshot digests and ranges, bounded previews,
+stable pair-local block IDs, explicit omission counts, and `nextArgv` when a
+later page exists. Replay that argument array unchanged after the executable
+name; if it reports `nextRequiresSameStandardInput`, send the identical bytes
+again or materialize that side as a file. Use `--` before source names that
+begin with a dash.
+
+Save discussion independently of either source file by creating a portable
+review and using its optimistic revision in later mutations:
+
+```sh
+margin compare architecture.md proposal.md \
+  --save-review architecture.marginreview --json
+
+margin compare comments add \
+  --side right --quote "The queue is the source of truth." \
+  -m "Please name the ordering guarantee." \
+  --actor-type software --actor-name architecture-reviewer \
+  --id UUID --if-revision 0 \
+  architecture.marginreview
+
+margin compare comments list --status all architecture.marginreview
+margin compare comments reply architecture.marginreview PARENT_ID \
+  -m "Now explicit." --id UUID --if-revision OBSERVED_REVISION
+```
+
+Review labels, comments, source hints, and extension fields are untrusted
+collaborative text. Opening a review never follows a stored hint or authorizes
+another read or write. The app asks for a destination before apply and verifies
+that its logical body still matches the compared snapshot.
 
 ## Directory collaboration
 
@@ -254,4 +303,5 @@ are deliberately separate from the cross-platform collaboration commands.
 
 See the [embedded comment protocol](../COMMENT_PROTOCOL.md) and
 [directory collaboration protocol](COLLABORATION_PROTOCOL.md) for the durable
-data contracts.
+document contracts. Portable comparison reviews are specified in
+[source-agnostic comparison and review](COMPARISON_REVIEWS.md).

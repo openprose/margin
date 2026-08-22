@@ -1,4 +1,5 @@
 import AppKit
+import MarginCore
 
 protocol WorkspacePathRenameParticipating: AnyObject {
     var documentURLForPathRename: URL? { get }
@@ -95,8 +96,46 @@ struct WorkspacePathRenameCoordinator {
     }
 }
 
+/// Builds the open-tab comparison command from lightweight tab metadata. Full
+/// editor strings are resolved only after the user chooses a candidate.
+enum OpenTabComparisonPickerModel {
+    static func isAvailable(
+        active: WorkspaceWindowController?,
+        windows: [WorkspaceWindowController]
+    ) -> Bool {
+        guard let active, active.comparisonSourceMetadata != nil else { return false }
+        return windows.contains {
+            $0 !== active && $0.comparisonSourceMetadata != nil
+        }
+    }
+
+    static func items(
+        active: WorkspaceWindowController,
+        windows: [WorkspaceWindowController],
+        onChoose: @escaping (WorkspaceWindowController, WorkspaceWindowController) -> Void
+    ) -> [NavigationPaletteItem] {
+        guard active.comparisonSourceMetadata != nil else { return [] }
+        return windows.compactMap { candidate -> NavigationPaletteItem? in
+            guard candidate !== active,
+                  let metadata = candidate.comparisonSourceMetadata else { return nil }
+            return NavigationPaletteItem(
+                title: metadata.label,
+                subtitle: metadata.sourceURL?.deletingLastPathComponent().path ?? "Open snapshot",
+                detail: metadata.sourceURL?.path ?? "",
+                symbolName: "doc.on.doc",
+                searchText: "\(metadata.label) \(metadata.sourceURL?.path ?? "")"
+            ) { [weak active, weak candidate] in
+                guard let active, let candidate else { return }
+                onChoose(active, candidate)
+            }
+        }
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var workspaceWindows: [WorkspaceWindowController] = []
+    private var comparisonWindows: [ComparisonWindowController] = []
+    private var comparisonPickerController: NavigationPaletteController?
     private var pendingURLs: [URL] = []
     private var didFinishLaunching = false
     private let sessionStore = WorkspaceSessionStore()
@@ -186,11 +225,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func newWindowForTab(_ sender: Any?) {
-        makeWorkspaceWindow(for: nil, tabbedTo: activeWorkspaceWindow?.window)
+        makeWorkspaceWindow(for: nil, tabbedTo: activeTabAnchorWindow)
     }
 
     @objc func selectTab(_ sender: NSMenuItem) {
-        guard let window = activeWorkspaceWindow?.window else { return }
+        guard let window = activeTabAnchorWindow else { return }
         let windows = window.tabGroup?.windows ?? [window]
         guard !windows.isEmpty else { return }
         let requestedIndex = sender.tag == 9 ? windows.count - 1 : sender.tag - 1
@@ -200,12 +239,122 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         selected.makeKeyAndOrderFront(sender)
     }
 
+    @objc func compareFiles(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.title = "Compare Markdown Files"
+        panel.message = "Choose exactly two files. The first is the reference; the second is the proposed state."
+        panel.prompt = "Compare"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.resolvesAliases = true
+
+        panel.begin { [weak self] response in
+            guard response == .OK, let self else { return }
+            guard panel.urls.count == 2 else {
+                let alert = NSAlert()
+                alert.messageText = "Choose two files to compare"
+                alert.informativeText = "Margin needs one reference file and one proposed file."
+                alert.alertStyle = .informational
+                alert.runModal()
+                return
+            }
+            self.makeComparisonWindow(
+                request: .files(left: panel.urls[0], right: panel.urls[1]),
+                tabbedTo: self.activeTabAnchorWindow
+            )
+        }
+    }
+
+    @objc func compareActiveTab(_ sender: Any?) {
+        guard let active = activeWorkspaceWindow,
+              active.comparisonSourceMetadata != nil,
+              let window = active.window else { return }
+        comparisonPickerController?.close()
+
+        let items = OpenTabComparisonPickerModel.items(
+            active: active,
+            windows: workspaceWindows
+        ) { [weak self] active, candidate in
+            guard let self,
+                  let refreshedLeft = active.comparisonSource,
+                  let refreshedRight = candidate.comparisonSource else { return }
+                self.makeComparisonWindow(
+                    request: .sources(left: refreshedLeft, right: refreshedRight),
+                    tabbedTo: active.window,
+                    refreshRequestProvider: { [weak active, weak candidate] in
+                        guard let left = active?.comparisonSource,
+                              let right = candidate?.comparisonSource else { return nil }
+                        return .sources(left: left, right: right)
+                    }
+                )
+        }
+        guard !items.isEmpty else { return }
+
+        let palette = NavigationPaletteController(
+            title: "Compare With Open Tab",
+            placeholder: "Search open tabs",
+            items: items,
+            emptyMessage: "No other open Markdown tabs"
+        )
+        comparisonPickerController = palette
+        palette.onClose = { [weak self, weak palette] in
+            guard let self, self.comparisonPickerController === palette else { return }
+            self.comparisonPickerController = nil
+        }
+        palette.show(relativeTo: window)
+    }
+
+    @objc func previousComparisonChange(_ sender: Any?) {
+        activeComparisonWindow?.previousChange(sender)
+    }
+
+    @objc func nextComparisonChange(_ sender: Any?) {
+        activeComparisonWindow?.nextChange(sender)
+    }
+
+    @objc func refreshComparison(_ sender: Any?) {
+        activeComparisonWindow?.refreshComparison(sender)
+    }
+
+    @objc func swapComparisonSides(_ sender: Any?) {
+        activeComparisonWindow?.swapSides(sender)
+    }
+
+    @objc func toggleComparisonSideBySide(_ sender: Any?) {
+        activeComparisonWindow?.toggleSideBySide(sender)
+    }
+
+    @objc func toggleComparisonWhitespace(_ sender: Any?) {
+        activeComparisonWindow?.toggleWhitespace(sender)
+    }
+
+    @objc func applySelectedComparisonLeftToRight(_ sender: Any?) {
+        activeComparisonWindow?.apply(visualDirection: .leftToRight, selectedOnly: true)
+    }
+
+    @objc func applySelectedComparisonRightToLeft(_ sender: Any?) {
+        activeComparisonWindow?.apply(visualDirection: .rightToLeft, selectedOnly: true)
+    }
+
+    @objc func applyAllComparisonLeftToRight(_ sender: Any?) {
+        activeComparisonWindow?.apply(visualDirection: .leftToRight, selectedOnly: false)
+    }
+
+    @objc func applyAllComparisonRightToLeft(_ sender: Any?) {
+        activeComparisonWindow?.apply(visualDirection: .rightToLeft, selectedOnly: false)
+    }
+
     @objc func toggleNavigator(_ sender: Any?) {
         activeWorkspaceWindow?.toggleNavigator(sender)
     }
 
     @objc func toggleComments(_ sender: Any?) {
-        activeWorkspaceWindow?.toggleComments(sender)
+        if let comparison = activeComparisonWindow {
+            comparison.toggleComments(sender)
+        } else {
+            activeWorkspaceWindow?.toggleComments(sender)
+        }
     }
 
     @objc func toggleReaderMode(_ sender: Any?) {
@@ -241,26 +390,101 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func focusEditor(_ sender: Any?) {
-        activeWorkspaceWindow?.focusEditor(sender)
+        if let comparison = activeComparisonWindow {
+            comparison.focusComparison(sender)
+        } else {
+            activeWorkspaceWindow?.focusEditor(sender)
+        }
     }
 
     @objc func focusComments(_ sender: Any?) {
-        activeWorkspaceWindow?.focusComments(sender)
+        if let comparison = activeComparisonWindow {
+            comparison.focusComments(sender)
+        } else {
+            activeWorkspaceWindow?.focusComments(sender)
+        }
     }
 
     @objc func previousOpenComment(_ sender: Any?) {
-        activeWorkspaceWindow?.previousOpenComment(sender)
+        if let comparison = activeComparisonWindow {
+            comparison.previousOpenComment(sender)
+        } else {
+            activeWorkspaceWindow?.previousOpenComment(sender)
+        }
     }
 
     @objc func nextOpenComment(_ sender: Any?) {
-        activeWorkspaceWindow?.nextOpenComment(sender)
+        if let comparison = activeComparisonWindow {
+            comparison.nextOpenComment(sender)
+        } else {
+            activeWorkspaceWindow?.nextOpenComment(sender)
+        }
     }
 
     @objc func resolveCurrentComment(_ sender: Any?) {
-        activeWorkspaceWindow?.resolveCurrentComment(sender)
+        if let comparison = activeComparisonWindow {
+            comparison.resolveCurrentComment(sender)
+        } else {
+            activeWorkspaceWindow?.resolveCurrentComment(sender)
+        }
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(openDocument(_:)), #selector(newWindow(_:)),
+             #selector(newWindowForTab(_:)), #selector(compareFiles(_:)):
+            return true
+        case #selector(compareActiveTab(_:)):
+            return OpenTabComparisonPickerModel.isAvailable(
+                active: activeWorkspaceWindow,
+                windows: workspaceWindows
+            )
+        case #selector(previousComparisonChange(_:)), #selector(nextComparisonChange(_:)):
+            return activeComparisonWindow?.canNavigateChanges == true
+        case #selector(refreshComparison(_:)):
+            return activeComparisonWindow?.canRefresh == true
+        case #selector(swapComparisonSides(_:)):
+            return activeComparisonWindow?.canSwapSides == true
+        case #selector(toggleComparisonSideBySide(_:)):
+            guard let comparison = activeComparisonWindow else { return false }
+            menuItem.state = comparison.isSideBySidePreferred ? .on : .off
+            return comparison.canChangeDisplayOptions
+        case #selector(toggleComparisonWhitespace(_:)):
+            guard let comparison = activeComparisonWindow else { return false }
+            menuItem.state = comparison.isWhitespaceShown ? .on : .off
+            return comparison.canChangeDisplayOptions
+        case #selector(applySelectedComparisonLeftToRight(_:)),
+             #selector(applySelectedComparisonRightToLeft(_:)):
+            return activeComparisonWindow?.canApplySelectedChange == true
+        case #selector(applyAllComparisonLeftToRight(_:)),
+             #selector(applyAllComparisonRightToLeft(_:)):
+            return activeComparisonWindow?.canApplyChanges == true
+        case #selector(toggleComments(_:)) where activeComparisonWindow != nil:
+            guard let comparison = activeComparisonWindow else { return false }
+            menuItem.state = comparison.isCommentsVisible ? .on : .off
+            return comparison.canShowComments
+        case #selector(focusComments(_:)) where activeComparisonWindow != nil:
+            return activeComparisonWindow?.canShowComments == true
+        case #selector(focusEditor(_:)) where activeComparisonWindow != nil:
+            return activeComparisonWindow?.canShowComments == true
+        case #selector(previousOpenComment(_:)) where activeComparisonWindow != nil,
+             #selector(nextOpenComment(_:)) where activeComparisonWindow != nil:
+            return activeComparisonWindow?.canNavigateComments == true
+        case #selector(resolveCurrentComment(_:)) where activeComparisonWindow != nil:
+            return activeComparisonWindow?.canResolveCurrentComment == true
+        case #selector(selectTab(_:)):
+            guard let window = activeTabAnchorWindow else { return false }
+            let windows = window.tabGroup?.windows ?? [window]
+            let index = menuItem.tag == 9 ? windows.count - 1 : menuItem.tag - 1
+            guard windows.indices.contains(index) else {
+                menuItem.state = .off
+                return false
+            }
+            menuItem.state = windows[index] === window ? .on : .off
+            return true
+        default:
+            break
+        }
         guard let controller = activeWorkspaceWindow else { return false }
         return validateMenuItem(menuItem, for: controller)
     }
@@ -300,32 +524,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(previousOpenComment(_:)), #selector(nextOpenComment(_:)),
              #selector(resolveCurrentComment(_:)):
             return controller.canNavigateComments
-        case #selector(selectTab(_:)):
-            guard let window = controller.window else { return false }
-            let windows = window.tabGroup?.windows ?? [window]
-            let index = menuItem.tag == 9 ? windows.count - 1 : menuItem.tag - 1
-            guard windows.indices.contains(index) else {
-                menuItem.state = .off
-                return false
-            }
-            menuItem.state = windows[index] === window ? .on : .off
-            return true
         default:
             return true
         }
     }
 
     private var activeWorkspaceWindow: WorkspaceWindowController? {
-        if let controller = NSApplication.shared.keyWindow?.windowController as? WorkspaceWindowController {
-            return controller
+        if let keyWindow = NSApplication.shared.keyWindow {
+            let documentWindow = keyWindow.parent ?? keyWindow
+            return documentWindow.windowController as? WorkspaceWindowController
         }
         return workspaceWindows.last(where: { $0.window?.isVisible == true })
     }
 
+    private var activeComparisonWindow: ComparisonWindowController? {
+        guard let keyWindow = NSApplication.shared.keyWindow else { return nil }
+        let documentWindow = keyWindow.parent ?? keyWindow
+        return documentWindow.windowController as? ComparisonWindowController
+    }
+
+    private var activeTabAnchorWindow: NSWindow? {
+        if let keyWindow = NSApplication.shared.keyWindow {
+            let documentWindow = keyWindow.parent ?? keyWindow
+            if documentWindow.windowController is WorkspaceWindowController
+                || documentWindow.windowController is ComparisonWindowController {
+                return documentWindow
+            }
+            return nil
+        }
+        return workspaceWindows.last(where: { $0.window?.isVisible == true })?.window
+    }
+
     private func open(_ urls: [URL]) {
         var seen = Set<String>()
-        var tabAnchor = activeWorkspaceWindow?.window
+        var tabAnchor = activeTabAnchorWindow
         for url in urls.map(\.standardizedFileURL) where seen.insert(url.path).inserted {
+            switch ComparisonURLClassifier.classify(url) {
+            case .openRequest:
+                let created = makeComparisonWindow(
+                    request: .openRequest(url),
+                    tabbedTo: tabAnchor
+                )
+                tabAnchor = created.window
+                continue
+            case .review:
+                let created = makeComparisonWindow(
+                    request: .review(url),
+                    tabbedTo: tabAnchor
+                )
+                tabAnchor = created.window
+                continue
+            case .document:
+                break
+            }
             if let existing = workspaceWindows.first(where: {
                 $0.workspaceURL == url || $0.documentURL == url
             }) {
@@ -381,17 +632,239 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         workspaceWindows.append(controller)
         if let parentWindow, let window = controller.window, parentWindow !== window {
-            let parentController = parentWindow.windowController as? WorkspaceWindowController
-            parentController?.prepareForTabAttachment()
+            switch parentWindow.windowController {
+            case let parent as WorkspaceWindowController:
+                parent.prepareForTabAttachment()
+            case let parent as ComparisonWindowController:
+                parent.prepareForTabAttachment()
+            default:
+                break
+            }
             controller.prepareForTabAttachment()
             parentWindow.addTabbedWindow(window, ordered: .above)
-            parentController?.refreshTabPresentation()
+            switch parentWindow.windowController {
+            case let parent as WorkspaceWindowController:
+                parent.refreshTabPresentation()
+            case let parent as ComparisonWindowController:
+                parent.refreshTabPresentation()
+            default:
+                break
+            }
             controller.refreshTabPresentation()
         }
         controller.showWindow(nil)
         focus(controller)
         schedulePersistSession()
         return controller
+    }
+
+    @discardableResult
+    private func makeComparisonWindow(
+        request: AppComparisonRequest,
+        tabbedTo parentWindow: NSWindow? = nil,
+        refreshRequestProvider: (() -> AppComparisonRequest?)? = nil
+    ) -> ComparisonWindowController {
+        let controller = ComparisonWindowController(
+            request: request,
+            refreshRequestProvider: refreshRequestProvider
+        )
+        controller.onClose = { [weak self, weak controller] in
+            guard let self, let controller else { return }
+            self.comparisonWindows.removeAll { $0 === controller }
+        }
+        controller.onApplyRequest = { [weak self, weak controller] direction, blockIDs, presentation in
+            guard let self, let controller else { return }
+            self.beginComparisonApply(
+                direction: direction,
+                blockIDs: blockIDs,
+                presentation: presentation,
+                controller: controller
+            )
+        }
+        comparisonWindows.append(controller)
+        if let parentWindow, let window = controller.window, parentWindow !== window {
+            switch parentWindow.windowController {
+            case let parent as WorkspaceWindowController:
+                parent.prepareForTabAttachment()
+                parent.refreshTabPresentation()
+            case let parent as ComparisonWindowController:
+                parent.prepareForTabAttachment()
+                parent.refreshTabPresentation()
+            default:
+                break
+            }
+            controller.prepareForTabAttachment()
+            parentWindow.addTabbedWindow(window, ordered: .above)
+            controller.refreshTabPresentation()
+        }
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+        return controller
+    }
+
+    private func beginComparisonApply(
+        direction: ComparisonApplyDirection,
+        blockIDs: [String]?,
+        presentation: ComparisonPresentation,
+        controller: ComparisonWindowController
+    ) {
+        controller.comparisonViewController.showOperationStatus("Preparing verified change set…")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self, weak controller] in
+            let result = Result {
+                try ComparisonApplyService().plan(
+                    pair: presentation.pair,
+                    result: presentation.result,
+                    direction: direction,
+                    blockIDs: blockIDs
+                )
+            }
+            DispatchQueue.main.async {
+                guard let self, let controller else { return }
+                switch result {
+                case .success(let plan):
+                    let knownDestination = direction.destinationIsLeft
+                        ? presentation.leftSourceURL
+                        : presentation.rightSourceURL
+                    if let knownDestination {
+                        self.confirmComparisonApply(
+                            plan,
+                            to: knownDestination,
+                            controller: controller
+                        )
+                    } else {
+                        self.chooseComparisonDestination(plan: plan, controller: controller)
+                    }
+                case .failure(let error):
+                    controller.comparisonViewController.showOperationStatus(
+                        error.localizedDescription,
+                        isError: true
+                    )
+                }
+            }
+        }
+    }
+
+    private func chooseComparisonDestination(
+        plan: ComparisonApplyPlan,
+        controller: ComparisonWindowController
+    ) {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Destination Markdown File"
+        panel.message = "Margin will apply only if this file still matches the compared snapshot."
+        panel.prompt = "Choose Destination"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.resolvesAliases = false
+        let completion: (NSApplication.ModalResponse) -> Void = { [weak self, weak controller] response in
+            guard let controller else { return }
+            guard response == .OK,
+                  let self,
+                  let url = panel.url else {
+                controller.comparisonViewController.restoreSnapshotStatus()
+                return
+            }
+            self.confirmComparisonApply(plan, to: url, controller: controller)
+        }
+        if let window = controller.window {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            panel.begin(completionHandler: completion)
+        }
+    }
+
+    private func confirmComparisonApply(
+        _ plan: ComparisonApplyPlan,
+        to destinationURL: URL,
+        controller: ComparisonWindowController
+    ) {
+        let count = plan.patches.count
+        let noun = count == 1 ? "change" : "changes"
+        let openDestination = workspaceWindows.first {
+            $0.documentURL?.standardizedFileURL == destinationURL.standardizedFileURL
+        }
+        let alert = NSAlert()
+        alert.messageText = "Apply \(count) \(noun) to \(destinationURL.lastPathComponent)?"
+        let destinationPath = destinationURL.standardizedFileURL.path
+        let safetyMessage = openDestination == nil
+            ? "Margin will verify the exact compared content and write every change together, or write nothing."
+            : "Margin will verify the open editor content and make this one undoable editing action."
+        alert.informativeText = "\(destinationPath)\n\n\(safetyMessage)"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Apply \(count) \(noun.capitalized)")
+        alert.addButton(withTitle: "Cancel")
+        let completion: (NSApplication.ModalResponse) -> Void = {
+            [weak self, weak controller] response in
+            guard let controller else { return }
+            guard response == .alertFirstButtonReturn,
+                  let self else {
+                controller.comparisonViewController.restoreSnapshotStatus()
+                return
+            }
+            // Re-resolve at commit time. A matching document may have opened
+            // while the confirmation sheet was visible; writing behind that
+            // editor would bypass its undo stack and dirty-state protections.
+            let openDestination = self.workspaceWindows.first {
+                $0.documentURL?.standardizedFileURL == destinationURL.standardizedFileURL
+            }
+            if let openDestination {
+                do {
+                    guard try openDestination.applyComparisonPlan(plan, to: destinationURL) else {
+                        throw ComparisonError.io("The destination tab is no longer available.")
+                    }
+                    controller.comparisonViewController.showOperationStatus(
+                        "Applied \(count) \(noun) to the open tab. Undo is available."
+                    )
+                    controller.refreshAfterSuccessfulApplyIfSafe()
+                } catch {
+                    controller.comparisonViewController.showOperationStatus(
+                        error.localizedDescription,
+                        isError: true
+                    )
+                }
+                return
+            }
+            self.applyComparisonToClosedFile(
+                plan,
+                destinationURL: destinationURL,
+                controller: controller
+            )
+        }
+        if let window = controller.window {
+            alert.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            completion(alert.runModal())
+        }
+    }
+
+    private func applyComparisonToClosedFile(
+        _ plan: ComparisonApplyPlan,
+        destinationURL: URL,
+        controller: ComparisonWindowController
+    ) {
+        controller.comparisonViewController.showOperationStatus("Applying verified changes…")
+        DispatchQueue.global(qos: .userInitiated).async { [weak controller] in
+            let result = Result {
+                try ComparisonApplyService().apply(plan, to: destinationURL)
+            }
+            DispatchQueue.main.async {
+                guard let controller else { return }
+                switch result {
+                case .success(let receipt):
+                    let count = receipt.appliedBlockIDs.count
+                    let noun = count == 1 ? "change" : "changes"
+                    controller.comparisonViewController.showOperationStatus(
+                        "Applied \(count) \(noun) to \(destinationURL.lastPathComponent)."
+                    )
+                    controller.refreshAfterSuccessfulApplyIfSafe()
+                case .failure(let error):
+                    controller.comparisonViewController.showOperationStatus(
+                        error.localizedDescription,
+                        isError: true
+                    )
+                }
+            }
+        }
     }
 
     private func focus(_ controller: WorkspaceWindowController) {

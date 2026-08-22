@@ -3,7 +3,12 @@
 Margin is deliberately a focused, file-native Markdown tool. Roadmap items are
 directions rather than promises or dates.
 
-## Shipped through 0.4
+## In progress for the next release
+
+- Source-agnostic Markdown comparison and portable review threads in the native
+  app and CLI, without repository discovery or Git-owned state.
+
+## Shipped through 0.4.1
 
 - Native file and directory editing, reader mode, tabs, navigation, restoration,
   and inline threaded review on macOS.

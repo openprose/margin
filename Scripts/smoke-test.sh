@@ -19,8 +19,10 @@ VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_
 [[ "$($CLI --version)" == "Margin $VERSION" ]]
 "$CLI" man >/dev/null
 "$CLI" man staging >/dev/null
+"$CLI" man comparison >/dev/null
 "$CLI" inspect --json "$FIXTURE" >/dev/null
 "$CLI" outline --json "$FIXTURE" >/dev/null
+"$CLI" compare "$FIXTURE" "$FIXTURE" --json >/dev/null
 
 MARGIN_BENCHMARK_APP="$APP_BUNDLE" \
 MARGIN_BENCHMARK_DOCUMENT="$FIXTURE" \
@@ -30,4 +32,4 @@ MARGIN_BENCHMARK_SETTLE_MS=0 \
 MARGIN_BENCHMARK_RESULTS="$SMOKE_RESULTS" \
     "$PROJECT_DIR/Scripts/benchmark-performance.sh" >/dev/null
 
-print "Smoke checks passed: bundle, CLI, document inspection, and app window launch."
+print "Smoke checks passed: bundle, CLI, document inspection/comparison, and app window launch."

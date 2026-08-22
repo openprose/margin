@@ -25,6 +25,20 @@ make benchmark-matrix
 
 That command covers 4 KiB, 1 MiB, and 5 MiB Markdown files plus directories with 100 and 10,000 entries. A directory result includes root enumeration, initial `README.md` selection, document decoding, and initial Markdown presentation. The checked-in local p95 limits are 500 ms for the first visible window and 1,250 ms for target readiness.
 
+Comparison is measured separately because it is explicit work and must never
+distort the ordinary launch result:
+
+```sh
+make benchmark-comparison
+```
+
+That probe creates a portable review from two approximately 1 MiB, 20,000-line
+Markdown snapshots, launches the signed app directly, and records the first
+visible window, comparison-tab visibility, complete comparison readiness, and
+settled RSS. Its event-file instrumentation is environment
+gated and is called only after a comparison is requested; ordinary app and CLI
+launches neither inspect nor create the file.
+
 Override the sample size or input when investigating regressions:
 
 ```sh
@@ -256,3 +270,62 @@ These sub-0.15 ms movements are scheduler noise, not a speedup claim, and show
 no material startup regression. The suggestion projection is 20,536 bytes
 compact and 32,579 bytes pretty, within its 32 KiB contract. The measured v73
 digest is `6ef13fccb2dc8fdea4465d7d01e8a9e97c2d7fb5043903920073b3653ad72985`.
+
+## Unreleased comparison-review gate
+
+The source-agnostic comparison candidate was measured against a same-toolchain
+rebuild of the exact v0.4.1 tag. The paired app gate alternated candidate and
+control order for 30 measured launches per arm after warm-up, using the same
+small Markdown fixture and signed release bundles.
+
+| Build | Visible median | Visible p95 | Ready median | Ready p95 | RSS median | RSS p95 |
+|---|---:|---:|---:|---:|---:|---:|
+| Rebuilt v0.4.1 control | 321.099 ms | 384.291 ms | 421.250 ms | 483.706 ms | 152.961 MiB | 158.672 MiB |
+| Comparison candidate | 320.762 ms | 340.294 ms | 419.556 ms | 438.694 ms | 152.734 MiB | 158.844 MiB |
+
+The candidate differs by -0.337 ms at median visibility, -1.694 ms at median
+readiness, and -0.227 MiB at median sampled RSS. The p95 values vary more, but
+remain inside the control envelope except for a 0.172 MiB RSS difference.
+Together these counterbalanced distributions show no material ordinary-launch
+or settled sampled-RSS regression. Comparison work is still constructed only
+after an explicit request.
+
+Static CLI startup was also counterbalanced for 300 processes per arm after 20
+warm-ups. Candidate minus v0.4.1 median differences were +0.041 ms for global
+help, +0.103 ms for brief review help, and +0.008 ms for the full review
+manual. Their p95 differences were +0.085, +0.097, and -0.046 ms. The new
+`compare --help` path measured 6.084 ms median / 6.677 ms p95. These movements
+are scheduler-scale and do not indicate a static CLI startup regression.
+
+Invoked comparison work was measured separately with three warm-ups and 15
+runs. A portable 2,881,103-byte review containing two approximately 1 MiB,
+20,000-line snapshots and one changed region produced:
+
+| Comparison phase | Median | p95 |
+|---|---:|---:|
+| First visible window | 274.130 ms | 289.354 ms |
+| Comparison tab visible | 247.514 ms | 263.696 ms |
+| Complete deterministic comparison | 450.431 ms | 465.886 ms |
+| Settled RSS | 144.969 MiB | 146.188 MiB |
+
+This exact final signed executable has SHA-256
+`674d2371078f7aea6cbdd6286ef4472f903ee6a9e6177d4aa9652ecfbaf95943`;
+the generated review fixture has SHA-256
+`701377ce234d381d270c484da6b126801f990324a4d088889601e6a96b5fb4e8`.
+The gate explicitly passed 500 ms visible-window and 1,000 ms complete-ready
+p95 limits. The report retains both digests, every sample, and the limits even
+when a future threshold fails.
+
+A second stress fixture distributed 100 replacements across 1,000 lines and
+produced a non-coarse 1,931,303-byte review. Across ten measured runs after
+three warm-ups, complete comparison was 463.890 ms median / 524.568 ms p95;
+tab visibility was 265.781 / 324.469 ms and settled RSS was 127.235 / 128.516
+MiB. This guards against a benchmark that exercises only a single localized
+edit.
+
+The feature adds real capability rather than pretending to be size-neutral.
+The logical app bundle grows from 6,097,376 to 7,525,012 bytes, its executable
+from 2,910,064 to 3,682,624 bytes, and the standalone CLI from 2,842,800 to
+3,495,776 bytes. The signed native app remains about 7.4 MiB on disk, adds no
+third-party runtime or background service, and the paired measurements above
+show that the added code does not execute on the ordinary startup path.

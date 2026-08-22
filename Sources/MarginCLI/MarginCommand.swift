@@ -15,8 +15,13 @@ enum MarginCommand {
 
     static func run(arguments: [String]) -> Int32 {
         let firstCommand = arguments.first.map(CLICommandCatalog.canonicalTopLevel)
-        let wantsJSON = arguments.contains("--json") || arguments.contains("--jsonl") ||
-            firstCommand == "comments" || firstCommand.map(CollaborationCLICommand.names.contains) == true
+        let literalOpen = topLevelLiteralOpenPaths(arguments) != nil
+        let wantsJSON = !literalOpen && (
+            arguments.contains("--json") || arguments.contains("--jsonl") ||
+                firstCommand == "comments" ||
+                (firstCommand == "compare" && arguments.dropFirst().first == "comments") ||
+                firstCommand.map(CollaborationCLICommand.names.contains) == true
+        )
         do {
             try dispatch(arguments)
             return CLIExit.success.rawValue
@@ -35,6 +40,10 @@ enum MarginCommand {
             let mapped = CLIError(error.code, error.localizedDescription, exit: .data)
             CLIOutput.error(mapped, asJSON: wantsJSON)
             return mapped.exit.rawValue
+        } catch let error as ComparisonError {
+            let mapped = ComparisonCommands.mapError(error)
+            CLIOutput.error(mapped, asJSON: wantsJSON)
+            return mapped.exit.rawValue
         } catch {
             let mapped = CLIError("INTERNAL_ERROR", error.localizedDescription, exit: .software)
             CLIOutput.error(mapped, asJSON: wantsJSON)
@@ -42,7 +51,20 @@ enum MarginCommand {
         }
     }
 
+    static func topLevelLiteralOpenPaths(_ arguments: [String]) -> [String]? {
+        guard arguments.first == "--" else { return nil }
+        return Array(arguments.dropFirst())
+    }
+
     private static func dispatch(_ arguments: [String]) throws {
+        if let literalPaths = topLevelLiteralOpenPaths(arguments) {
+            guard !literalPaths.isEmpty else {
+                throw CLIError.usage("Missing file or directory after --.")
+            }
+            let items = try literalPaths.map(PathResolver.openableItem)
+            try AppLauncher.open(items, wait: false, appOverride: nil)
+            return
+        }
         guard !arguments.isEmpty else {
             try AppLauncher.open(nil, wait: false, appOverride: nil)
             return
@@ -53,10 +75,25 @@ enum MarginCommand {
         let command = CLICommandCatalog.canonicalTopLevel(rawCommand)
 
         if command != "comments", cursor.takeFlag(["--help", "-h"]) {
+            if command == "compare" {
+                let comparisonPath = cursor.takeRemaining()
+                guard let comparisonHelp = ComparisonCommands.help(path: comparisonPath) else {
+                    throw CLIError.usage(
+                        "Unknown comparison help path '\(comparisonPath.joined(separator: " "))'. " +
+                            "Run 'margin compare --help'."
+                    )
+                }
+                try CLIOutput.text(comparisonHelp)
+                return
+            }
             var helpPath = [command]
-            if let subcommand = cursor.first,
-               CLICommandCatalog.command(path: [command, subcommand]) != nil {
-                helpPath.append(subcommand)
+            for component in cursor.values.prefix(2) {
+                let candidate = helpPath + [component]
+                guard CLICommandCatalog.command(path: candidate) != nil ||
+                        CLICommandCatalog.commands.contains(where: {
+                            $0.path.starts(with: candidate)
+                        }) else { break }
+                helpPath.append(component)
             }
             guard let localHelp = help(path: helpPath, fallBackToMain: false) else {
                 throw CLIError.usage("Unknown command '\(rawCommand)'. Run 'margin --help'.")
@@ -88,6 +125,8 @@ enum MarginCommand {
             try runSlice(&cursor)
         case "review":
             try runReview(&cursor)
+        case "compare":
+            try ComparisonCommands.run(&cursor)
         case "comments", "comment":
             try runComments(&cursor)
         case let collaboration where CollaborationCLICommand.names.contains(collaboration):
@@ -1042,6 +1081,9 @@ enum MarginCommand {
             index == 0 ? CLICommandCatalog.canonicalTopLevel(component) : component
         }
         if normalized == ["comments"] { return commentsHelp }
+        if normalized.first == "compare" {
+            return ComparisonCommands.help(path: Array(normalized.dropFirst()))
+        }
         if normalized == ["agents"] { return MarginManual.overview }
         if let local = CLICommandCatalog.localHelp(path: normalized) { return local }
         return fallBackToMain ? mainHelp : nil
@@ -1133,12 +1175,15 @@ private extension MarginCommand {
 
     USAGE
       margin [FILE|DIRECTORY ...] [--wait]
+      margin -- PATH [PATH ...]
       margin open [FILE|DIRECTORY ...] [--wait]
       margin inspect FILE [--json] [--pretty]
       margin outline FILE [--json] [--pretty]
       margin read FILE [--json] [--with-comments] [--pretty]
       margin slice FILE (--lines RANGE | --heading NAME | --comment ID) [--context N] [--json] [--pretty]
       margin review FILE --json [--since-revision N] [--pretty]
+      margin compare LEFT RIGHT [--json] [--save-review PATH]
+      margin compare open REVIEW
       margin comments COMMAND ...
       margin context FILE_OR_DIRECTORY --json [BOUNDS]
       margin workspace init|show ...
@@ -1148,8 +1193,8 @@ private extension MarginCommand {
       margin handoff add|list ...
       margin reconcile CURRENT --from PREVIOUS ...
       margin merge BASE OURS THEIRS ...
-      margin capabilities --json --for review|staging|suggestions|handoff|merge --brief [--pretty]
-      margin man [agents|review|comments|suggestions|staging|handoff|merge|safety] [--json]
+      margin capabilities --json --for review|comparison|staging|suggestions|handoff|merge --brief [--pretty]
+      margin man [agents|review|comparison|comments|suggestions|staging|handoff|merge|safety] [--json]
       margin help [COMMAND [SUBCOMMAND]]
 
     LEARN MARGIN
@@ -1167,6 +1212,7 @@ private extension MarginCommand {
       read      Literal Markdown body with Margin metadata removed.
       slice     A bounded passage by 1-based line/column range, heading, or comment.
       review    Bounded outline, thread groups, excerpts, anchor health, and revision.
+      compare   Bounded source-agnostic changed blocks, or a native macOS view.
 
     DISCOVERY
       capabilities --for WORKFLOW --brief gives the small machine-readable task index.
@@ -1187,8 +1233,10 @@ private extension MarginCommand {
       margin brief.md architecture.md
       margin new-draft.md        # creates an empty file when its parent exists
       margin .
+      margin -- compare          # opens a file whose name is also a command
       margin inspect architecture.md --json --pretty
       margin review architecture.md --json --since-revision 12
+      margin compare architecture.md proposal.md --json --pretty
       margin slice architecture.md --heading "Failure modes" --context 2
       margin slice architecture.md --lines 20:1-45:1 --json
       margin slice --help

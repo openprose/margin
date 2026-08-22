@@ -245,7 +245,7 @@ final class CLICommandContractTests: XCTestCase {
         let capabilities = try XCTUnwrap(CLICommandCatalog.localHelp(path: ["capabilities"]))
         XCTAssertTrue(capabilities.contains("--for WORKFLOW"))
         XCTAssertTrue(capabilities.contains("--brief"))
-        XCTAssertTrue(capabilities.contains("review, staging, suggestions, handoff, or merge"))
+        XCTAssertTrue(capabilities.contains("comparison"))
 
         let safetyManual = try XCTUnwrap(MarginManual.page(for: "safety"))
         XCTAssertTrue(safetyManual.contains("retry bounded"))
@@ -373,6 +373,7 @@ final class CLICommandContractTests: XCTestCase {
 
         let expectedHeadings = [
             "review": "MARGIN MANUAL: REVIEW",
+            "comparison": "MARGIN MANUAL: COMPARISON",
             "comments": "MARGIN MANUAL: COMMENTS",
             "suggestions": "MARGIN MANUAL: SUGGESTIONS",
             "staging": "MARGIN MANUAL: STAGING",

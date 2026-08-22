@@ -127,7 +127,7 @@ struct CLICapabilitiesEnvelope: Encodable {
         ]
     }
 
-    static let maximumEncodedBytes = 131_072
+    static let maximumEncodedBytes = 145 * 1_024
 
     let schema = "urn:margin:capabilities:v1"
     let ok = true
@@ -160,6 +160,7 @@ struct CLICapabilitiesEnvelope: Encodable {
 
 enum CLICapabilityWorkflow: String, CaseIterable, Encodable {
     case review
+    case comparison
     case staging
     case suggestions
     case handoff
@@ -168,6 +169,7 @@ enum CLICapabilityWorkflow: String, CaseIterable, Encodable {
     static func parse(_ rawValue: String) -> CLICapabilityWorkflow? {
         switch rawValue.lowercased() {
         case "review", "comment", "comments", "commenting": return .review
+        case "compare", "comparison", "diff", "diffing": return .comparison
         case "stage", "stages", "staging": return .staging
         case "suggest", "suggestion", "suggestions": return .suggestions
         case "handoff", "handoffs": return .handoff
@@ -179,6 +181,7 @@ enum CLICapabilityWorkflow: String, CaseIterable, Encodable {
     var summary: String {
         switch self {
         case .review: return "Bounded document review, threaded comments, and inbox triage."
+        case .comparison: return "Source-agnostic Markdown comparison and portable review."
         case .staging: return "Intent-plan creation, immutable stage inspection, refresh, and atomic submission."
         case .suggestions: return "Resilient source suggestions and explicit accept or reject decisions."
         case .handoff: return "Cursor-bound handoffs, collaborators, and outstanding work."
@@ -195,6 +198,12 @@ enum CLICapabilityWorkflow: String, CaseIterable, Encodable {
             selected = Set([
                 "slice", "review", "context", "inbox", "comments add", "comments list",
                 "comments reply", "comments resolve",
+            ])
+        case .comparison:
+            selected = Set([
+                "compare", "compare open",
+                "compare comments list", "compare comments add", "compare comments reply",
+                "compare comments resolve", "compare comments reopen",
             ])
         case .staging:
             selected = Set([
@@ -384,6 +393,42 @@ enum CLICommandCatalog {
             schema: "urn:margin:manual:v1",
             description: "Human-readable manual text by default, or one bounded manual object with --json."
         )
+        let comparisonOutput = CLIOutputContract(
+            encoding: "application-or-json",
+            framing: "none-or-single-object-lf",
+            schema: "urn:margin:comparison-result:v1",
+            description: "Native view, or one bounded JSON page with --json."
+        )
+        let comparisonReviewJSON = CLIOutputContract(
+            encoding: "json",
+            framing: "single-object-lf",
+            schema: "urn:margin:comparison-review-cli:v1",
+            description: "One bounded review-thread page or mutation receipt followed by LF."
+        )
+        let comparisonReviewPresentation = [
+            option("--json", description: "Accepted for uniform invocation; JSON is always emitted."),
+            pretty,
+        ]
+        let comparisonReviewMutationRevision = option(
+            "--if-revision",
+            value: "N",
+            description: "Require revision N for a new change; an already-completed idempotent request may return the current receipt."
+        )
+        let comparisonReviewMessage = [
+            option("-m", "--message", "--body", value: "TEXT", description: "Inline Markdown body; choose exactly one message input."),
+            option("--message-file", value: "PATH", description: "Read a bounded regular UTF-8 file; - means standard input."),
+            option("--stdin", description: "Read the bounded Markdown body from standard input."),
+        ]
+        let comparisonReviewAnchor = [
+            option("--quote", value: "TEXT", description: "Unique exact-text anchor."),
+            option("--prefix", value: "TEXT", description: "Text immediately before --quote."),
+            option("--suffix", value: "TEXT", description: "Text immediately after --quote."),
+            option("--occurrence", value: "N", description: "One-based quote occurrence."),
+            option("--range", value: "START:END", description: "Nonempty half-open Unicode-scalar range."),
+            option("--from", value: "LINE:COL", description: "One-based grapheme start; requires --to."),
+            option("--to", value: "LINE:COL", description: "One-based grapheme end; requires --from."),
+            option("--expect", value: "TEXT", description: "Exact range-text precondition."),
+        ]
         let commentsJSON = CLIOutputContract(
             encoding: "json",
             framing: "single-object-lf",
@@ -418,7 +463,7 @@ enum CLICommandCatalog {
                 "capabilities",
                 summary: "Emit static contracts; ordinary agent work should prefer a brief projection.",
                 usage: ["margin capabilities --json --for WORKFLOW --brief [--pretty]", "margin capabilities --json --for WORKFLOW [--pretty]", "margin capabilities --json [--pretty]"],
-                options: [requiredOption("--json", description: "Emit the full integration catalog when --for is omitted."), option("--for", value: "WORKFLOW", choices: CLICapabilityWorkflow.allCases.map(\.rawValue), description: "Recommended for agent tasks. Select review, staging, suggestions, handoff, or merge; aliases are accepted."), option("--brief", description: "With --for, emit a compact command index and exact help paths."), pretty],
+                options: [requiredOption("--json", description: "Emit the full integration catalog when --for is omitted."), option("--for", value: "WORKFLOW", choices: CLICapabilityWorkflow.allCases.map(\.rawValue), description: "Recommended for agent tasks; select one workflow, including comparison."), option("--brief", description: "With --for, emit a compact command index and exact help paths."), pretty],
                 output: CLIOutputContract(
                     encoding: "json",
                     framing: "single-object-lf",
@@ -491,6 +536,106 @@ enum CLICommandCatalog {
                 options: [option("--json", description: "Accepted for uniform invocation; review always emits JSON."), option("--since-revision", value: "N", description: "Return a not-modified projection when possible."), pretty],
                 sideEffects: "reads-file",
                 output: cliJSON
+            ),
+            command(
+                "compare",
+                summary: "Compare two explicit Markdown states or manage a portable review.",
+                usage: [
+                    "margin compare LEFT RIGHT [OPTIONS]",
+                    "margin compare open|comments ...",
+                ],
+                sideEffects: "reads-two-explicit-sources-and-optionally-writes-review-or-launches-application",
+                output: comparisonOutput
+            ),
+            command(
+                "compare", "open",
+                summary: "Validate and open an explicit review; embedded hints stay inert.",
+                usage: ["margin compare open REVIEW [--wait] [--app PATH]"],
+                sideEffects: "reads-review-and-launches-application",
+                output: noOutput
+            ),
+            command(
+                "compare", "comments", "list",
+                summary: "List one bounded, revision-pinned page of portable comparison-review threads.",
+                usage: [
+                    "margin compare comments list REVIEW [OPTIONS]",
+                    "margin compare comments list [OPTIONS] -- REVIEW",
+                ],
+                arguments: [argument("REVIEW", kind: "comparison-review", description: "Existing .marginreview or .margin-review.json artifact.")],
+                options: [
+                    option("--status", value: "STATUS", choices: ["open", "resolved", "all"], description: "Thread status; default open."),
+                    option("--max-threads", value: "N", description: "Page size, clamped to 16; default 16."),
+                    option("--max-body-bytes", value: "N", description: "Per-body UTF-8 preview cap, 0...512; default 512."),
+                    option("--after-thread", value: "ID", description: "Continue after this matching thread ID."),
+                    option("--if-revision", value: "N", description: "Require the exact review revision; returned nextArgv pins it."),
+                ] + comparisonReviewPresentation,
+                sideEffects: "reads-comparison-review",
+                output: comparisonReviewJSON
+            ),
+            command(
+                "compare", "comments", "add",
+                summary: "Atomically start one anchored comparison-review thread with a stable retry ID.",
+                usage: [
+                    "margin compare comments add REVIEW --side left|right ANCHOR MESSAGE [OPTIONS]",
+                    "margin compare comments add [OPTIONS] -- REVIEW",
+                ],
+                arguments: [argument("REVIEW", kind: "comparison-review", description: "Existing portable review to mutate.")],
+                options: [
+                    option("--side", value: "SIDE", required: true, choices: ["left", "right"], description: "Anchor side."),
+                    option("--block", value: "ID", description: "Optional changed-block ID from this snapshot pair."),
+                    option("--id", "--comment-id", "--request-id", value: "ID", description: "Stable thread, root-comment, and retry identity."),
+                ] + comparisonReviewAnchor + comparisonReviewMessage + actorOptions + [
+                    comparisonReviewMutationRevision,
+                ] + comparisonReviewPresentation,
+                sideEffects: "atomically-mutates-comparison-review",
+                output: comparisonReviewJSON
+            ),
+            command(
+                "compare", "comments", "reply",
+                summary: "Atomically reply to one comparison comment with a stable retry ID.",
+                usage: [
+                    "margin compare comments reply REVIEW PARENT MESSAGE [OPTIONS]",
+                    "margin compare comments reply [OPTIONS] -- REVIEW PARENT",
+                ],
+                arguments: [
+                    argument("REVIEW", kind: "comparison-review", description: "Existing portable review to mutate."),
+                    argument("PARENT", kind: "comparison-comment-id", description: "Existing parent comment ID."),
+                ],
+                options: comparisonReviewMessage + [
+                    option("--id", "--comment-id", "--request-id", value: "ID", description: "Stable reply and retry identity."),
+                ] + actorOptions + [comparisonReviewMutationRevision] + comparisonReviewPresentation,
+                sideEffects: "atomically-mutates-comparison-review",
+                output: comparisonReviewJSON
+            ),
+            command(
+                "compare", "comments", "resolve",
+                summary: "Atomically set one comparison-review thread to resolved.",
+                usage: [
+                    "margin compare comments resolve REVIEW THREAD [OPTIONS]",
+                    "margin compare comments resolve [OPTIONS] -- REVIEW THREAD",
+                ],
+                arguments: [
+                    argument("REVIEW", kind: "comparison-review", description: "Existing portable review to mutate."),
+                    argument("THREAD", kind: "comparison-thread-id", description: "Thread whose desired status is resolved."),
+                ],
+                options: actorOptions + [comparisonReviewMutationRevision] + comparisonReviewPresentation,
+                sideEffects: "atomically-mutates-comparison-review",
+                output: comparisonReviewJSON
+            ),
+            command(
+                "compare", "comments", "reopen",
+                summary: "Atomically set one comparison-review thread to open.",
+                usage: [
+                    "margin compare comments reopen REVIEW THREAD [OPTIONS]",
+                    "margin compare comments reopen [OPTIONS] -- REVIEW THREAD",
+                ],
+                arguments: [
+                    argument("REVIEW", kind: "comparison-review", description: "Existing portable review to mutate."),
+                    argument("THREAD", kind: "comparison-thread-id", description: "Thread whose desired status is open."),
+                ],
+                options: actorOptions + [comparisonReviewMutationRevision] + comparisonReviewPresentation,
+                sideEffects: "atomically-mutates-comparison-review",
+                output: comparisonReviewJSON
             ),
             command(
                 "comments",

@@ -6,7 +6,7 @@ BUILD_SCRATCH_PATH ?= $(SCRATCH_ROOT)/command-line-tools
 TEST_SCRATCH_PATH ?= $(SCRATCH_ROOT)/xcode-15.4
 OUTPUT_DIR ?= $(PROJECT_DIR)/build
 
-.PHONY: debug test test-linux check-version marginbench-test marginbench-audit marginbench-preflight marginbench-control-preflight marginbench-neutral-preflight marginbench-remote-plan marginbench-linux-binary marginbench-package release package package-linux installer install smoke benchmark benchmark-matrix eval eval-preflight eval-collaboration clean
+.PHONY: debug test test-linux check-version marginbench-test marginbench-audit marginbench-preflight marginbench-control-preflight marginbench-neutral-preflight marginbench-remote-plan marginbench-linux-binary marginbench-package release package package-linux installer install smoke benchmark benchmark-matrix benchmark-comparison eval eval-preflight eval-collaboration clean
 
 check-version:
 	"$(PROJECT_DIR)/Scripts/check-version.sh"
@@ -168,6 +168,12 @@ benchmark-matrix: release
 	MARGIN_BUILD_OUTPUT_DIR="$(OUTPUT_DIR)" \
 	MARGIN_PERFORMANCE_SCRATCH_PATH="$(PROJECT_DIR)/.build/performance" \
 		"$(PROJECT_DIR)/Scripts/benchmark-startup-matrix.sh"
+
+benchmark-comparison: release
+	DEVELOPER_DIR="$(BUILD_DEVELOPER_DIR)" \
+	MARGIN_BUILD_OUTPUT_DIR="$(OUTPUT_DIR)" \
+	MARGIN_PERFORMANCE_SCRATCH_PATH="$(PROJECT_DIR)/.build/performance" \
+		"$(PROJECT_DIR)/Scripts/benchmark-comparison.sh"
 
 eval: release
 	PYTHONDONTWRITEBYTECODE=1 \

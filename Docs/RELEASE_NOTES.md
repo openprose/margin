@@ -2,7 +2,25 @@
 
 ## Unreleased
 
-No changes yet.
+- Added a source-agnostic native Markdown comparison view with calm inline and
+  aligned side-by-side layouts, collapsed unchanged context, line and word
+  emphasis, whitespace display, swap/refresh controls, change navigation, and
+  keyboard-accessible review actions.
+- Added portable `.marginreview` artifacts whose immutable snapshots, threaded
+  comments, actor provenance, resilient anchors, display options, and unknown
+  extensions can be shared by humans and agents without granting path or write
+  authority.
+- Added `margin compare` for native Mac viewing and bounded JSON diff output,
+  plus deterministic CLI commands to create, inspect, reply to, resolve, and
+  reopen review threads. Standard input, paging continuations, explicit
+  revisions, stable retry IDs, and Linux review workflows are supported.
+- Added deliberate selected/all change application in either direction. Margin
+  verifies the exact destination body, preserves and reanchors annotations,
+  refuses symlinks and stale content, writes closed files atomically, and makes
+  an open-editor apply one native undoable action.
+- Kept all comparison work behind an explicit request and added a separate
+  invoked-comparison benchmark so ordinary app and CLI startup measurements
+  remain isolated.
 
 ## 0.4.1 — atomic agent workflows and native workspace polish
 

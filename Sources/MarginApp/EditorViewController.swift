@@ -6,6 +6,8 @@ final class EditorViewController: NSViewController,
     WorkspaceReaderModeToggling,
     WorkspaceDocumentSaving,
     WorkspaceDocumentPathRelocating,
+    WorkspaceComparisonSourceProviding,
+    WorkspaceComparisonApplying,
     WorkspaceContinuityProviding,
     NSMenuItemValidation,
     NSTextViewDelegate
@@ -78,6 +80,8 @@ final class EditorViewController: NSViewController,
     private var composerSelection: ComposerSelection?
     private var pendingContinuityState: EditorContinuityState?
     private var isDocumentLoaded = false
+    private var comparisonAnchorScalarComparisonLimit =
+        ComparisonHardLimits.anchorRefreshScalarComparisons
 
     private let codec = EmbeddedCommentCodec()
     private let resolver = AnchorResolver()
@@ -98,6 +102,85 @@ final class EditorViewController: NSViewController,
 
     var selectedCommentThreadID: String? { selectedThreadID }
     var canNavigateComments: Bool { !openRootCommentIDsInSourceOrder.isEmpty }
+    var comparisonAnnotationsForTesting: [MarginComment] { currentComments }
+    var comparisonAnnotationRevisionForTesting: Int { currentCommentRevision }
+    var comparisonSelectionForTesting: NSRange { textView.selectedRange() }
+
+    func installComparisonAnnotationsForTesting(
+        _ annotations: [MarginComment],
+        revision: Int? = nil
+    ) {
+        applyComments(
+            annotations,
+            revision: revision ?? currentCommentRevision,
+            origin: .localMutation
+        )
+    }
+
+    func setComparisonSelectionForTesting(_ selection: NSRange) {
+        textView.setSelectedRange(clamped(selection, limit: textView.string.utf16.count))
+    }
+
+    func setComparisonAnchorScalarComparisonLimitForTesting(_ limit: Int) {
+        comparisonAnchorScalarComparisonLimit = max(0, limit)
+    }
+
+    var comparisonSourceMetadata: WorkspaceComparisonSourceMetadata? {
+        guard isDocumentLoaded, let documentURL else { return nil }
+        return WorkspaceComparisonSourceMetadata(
+            label: documentURL.lastPathComponent,
+            sourceURL: documentURL
+        )
+    }
+
+    func comparisonSource() -> WorkspaceComparisonSource? {
+        guard let metadata = comparisonSourceMetadata else { return nil }
+        return WorkspaceComparisonSource(
+            markdown: textView.string,
+            label: metadata.label,
+            sourceURL: metadata.sourceURL
+        )
+    }
+
+    func applyComparisonPlan(_ plan: ComparisonApplyPlan) throws {
+        guard isDocumentLoaded else {
+            throw ComparisonError.invalidSnapshot("The destination editor is still loading.")
+        }
+        let applyService = ComparisonApplyService()
+        let replacementData = try applyService.applying(
+            plan,
+            to: Data(textView.string.utf8)
+        )
+        guard let replacement = String(data: replacementData, encoding: .utf8) else {
+            throw ComparisonError.invalidUTF8
+        }
+
+        let refreshedComments: [MarginComment]
+        let nextRevision: Int
+        if replacement != textView.string {
+            let reconciliation = try applyService.reconciledAnnotationsAfterBodyChange(
+                currentComments,
+                revision: currentCommentRevision,
+                newPhysicalBody: replacement,
+                maximumScalarComparisons: comparisonAnchorScalarComparisonLimit
+            )
+            refreshedComments = reconciliation.annotations
+            nextRevision = reconciliation.revision
+        } else {
+            refreshedComments = currentComments
+            nextRevision = currentCommentRevision
+        }
+        replaceBodyFromComparison(
+            replacement,
+            comments: refreshedComments,
+            commentRevision: nextRevision,
+            selection: textView.selectedRange()
+        )
+    }
+
+    func flushComparisonApply() -> Bool {
+        prepareToClose()
+    }
 
     init() {
         let textStorage = NSTextStorage()
@@ -355,8 +438,32 @@ final class EditorViewController: NSViewController,
                         }
                         value.items[index].target = target
                     }
+                    // Suggestions and future annotation motivations can also
+                    // carry selections. Refresh them with one prepared source
+                    // projection and one shared deterministic work budget.
+                    let nonCommentSelectionIDs: Set<String> = Set(value.items.compactMap {
+                        annotation -> String? in
+                        guard annotation.motivation != "commenting",
+                              case .selection = annotation.target else { return nil }
+                        return annotation.id
+                    })
+                    if !nonCommentSelectionIDs.isEmpty {
+                        value.items = try ComparisonApplyService()
+                            .refreshSelectionAnnotations(
+                                value.items,
+                                withIDs: nonCommentSelectionIDs,
+                                in: source,
+                                maximumScalarComparisons: comparisonAnchorScalarComparisonLimit
+                            ).annotations
+                    }
                     if bodyData != disk.bodyData || value.items != originalItems {
-                        value.revision += 1
+                        let (revision, overflow) = value.revision.addingReportingOverflow(1)
+                        guard !overflow else {
+                            throw ComparisonError.invalidArtifact(
+                                "The annotation revision cannot be advanced safely."
+                            )
+                        }
+                        value.revision = revision
                         value.modified = Self.timestamp()
                     }
                     envelope = value
@@ -750,6 +857,82 @@ final class EditorViewController: NSViewController,
         }
         updateStatus()
         hideBanner()
+    }
+
+    private func replaceBodyFromComparison(
+        _ body: String,
+        comments: [MarginComment],
+        commentRevision: Int,
+        selection: NSRange
+    ) {
+        let previous = ComparisonEditorState(
+            body: textView.string,
+            comments: currentComments,
+            commentRevision: currentCommentRevision,
+            selection: textView.selectedRange()
+        )
+        let next = ComparisonEditorState(
+            body: body,
+            comments: comments,
+            commentRevision: commentRevision,
+            selection: selection
+        )
+        textView.undoManager?.registerUndo(withTarget: self) { target in
+            target.restoreComparisonEditorState(previous, inverse: next)
+        }
+        textView.undoManager?.setActionName("Apply Comparison")
+        applyComparisonEditorState(next)
+    }
+
+    private func restoreComparisonEditorState(
+        _ state: ComparisonEditorState,
+        inverse: ComparisonEditorState
+    ) {
+        textView.undoManager?.registerUndo(withTarget: self) { target in
+            target.restoreComparisonEditorState(inverse, inverse: state)
+        }
+        textView.undoManager?.setActionName("Apply Comparison")
+        applyComparisonEditorState(state)
+    }
+
+    private func applyComparisonEditorState(_ state: ComparisonEditorState) {
+        isApplyingDocument = true
+        textView.string = state.body
+        textView.setSelectedRange(clamped(state.selection, limit: state.body.utf16.count))
+        isApplyingDocument = false
+        highlighter?.invalidate()
+        applyComments(
+            state.comments,
+            revision: state.commentRevision,
+            origin: .localMutation
+        )
+
+        let dirty = Data(state.body.utf8) != lastSavedBodyData
+        setDirty(dirty)
+        if dirty {
+            scheduleSave()
+        } else {
+            saveWorkItem?.cancel()
+            saveWorkItem = nil
+        }
+        if isReaderMode {
+            ensureReaderViewController().renderAsync(
+                markdown: state.body,
+                baseURL: documentURL?.deletingLastPathComponent(),
+                preferredSourceSelection: textView.selectedRange()
+            ) { [weak self] applied in
+                guard let self, applied, self.isReaderMode else { return }
+                self.updateReaderHighlights()
+            }
+        }
+        updateStatus()
+    }
+
+    private struct ComparisonEditorState {
+        let body: String
+        let comments: [MarginComment]
+        let commentRevision: Int
+        let selection: NSRange
     }
 
     private func scheduleSave() {
