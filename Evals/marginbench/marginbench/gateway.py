@@ -21,6 +21,7 @@ ALLOWED_COMMANDS = frozenset({
     "collaborators",
     "comment",
     "comments",
+    "compare",
     "context",
     "handoff",
     "help",
@@ -50,17 +51,18 @@ IDENTITY_FLAGS = frozenset({
 })
 VALUE_OPTIONS = frozenset({
     "-m", "--actor", "--actor-id", "--actor-name", "--actor-type", "--app",
-    "--assignee", "--audience", "--batch-id", "--body", "--change-set-file", "--comment",
-    "--context", "--exclude", "--expect", "--finishing-cursor", "--for",
-    "--format", "--from", "--heading", "--id", "--contribution-id", "--if-content-sha",
-    "--if-revision", "--include", "--items-file", "--kind", "--limit", "--lines", "--max-bytes",
-    "--max-contributions", "--max-depth", "--max-files", "--max-headings",
-    "--max-preview-bytes", "--max-source-bytes", "--merged-body", "--message", "--message-file",
-    "--next-actor", "--occurrence", "--operations-file", "--output", "--parent", "--path",
-    "--policy", "--prefix", "--priority", "--quote", "--range", "--replacement",
-    "--mutation-id", "--request-id", "--resolve", "--root", "--since-revision", "--stage-id",
-    "--starting-cursor", "--status", "--suffix", "--thread", "--timeout", "--to", "--touched",
-    "--unresolved",
+    "--after-block", "--after-thread", "--assignee", "--audience", "--batch-id", "--block",
+    "--body", "--change-set-file", "--comment", "--comment-id", "--context", "--exclude",
+    "--expect", "--finishing-cursor", "--for", "--format", "--from", "--heading", "--id",
+    "--contribution-id", "--if-content-sha", "--if-left-sha", "--if-revision", "--if-right-sha",
+    "--include", "--items-file", "--kind", "--label-left", "--label-right", "--limit", "--lines",
+    "--max-blocks", "--max-body-bytes", "--max-bytes", "--max-contributions", "--max-depth",
+    "--max-files", "--max-headings", "--max-preview-bytes", "--max-source-bytes", "--max-threads",
+    "--merged-body", "--message", "--message-file", "--mutation-id", "--next-actor", "--occurrence",
+    "--operations-file", "--output", "--parent", "--path", "--policy", "--prefix", "--priority",
+    "--quote", "--range", "--replacement", "--request-id", "--resolve", "--root", "--save-review",
+    "--side", "--since-revision", "--stage-id", "--starting-cursor", "--status", "--suffix",
+    "--thread", "--timeout", "--to", "--touched", "--unresolved",
 })
 BOOLEAN_OPTIONS = frozenset({
     "-h", "-v", "--apply", "--brief", "--document", "--force", "--help", "--json",
@@ -69,7 +71,7 @@ BOOLEAN_OPTIONS = frozenset({
 })
 PATH_VALUE_OPTIONS = frozenset({
     "--app", "--change-set-file", "--exclude", "--include", "--items-file", "--merged-body",
-    "--message-file", "--operations-file", "--output", "--path", "--root",
+    "--message-file", "--operations-file", "--output", "--path", "--root", "--save-review",
 })
 SINGLE_SUGGESTION_OPTIONS = frozenset({
     "--quote", "--prefix", "--suffix", "--occurrence", "--range", "--from",
@@ -310,12 +312,7 @@ def _resolves_outside_workspace(argument: str, workspace: Path) -> bool:
     if argument.startswith("--") and "=" in argument:
         candidates.append(argument.split("=", 1)[1])
     for candidate in candidates:
-        if (
-            not candidate
-            or candidate == "-"
-            or candidate.startswith("-")
-            or candidate.startswith(("urn:", "sha256:", "mcur1:"))
-        ):
+        if not candidate or candidate == "-":
             continue
         try:
             resolved = (workspace / candidate).resolve(strict=False)
@@ -341,18 +338,23 @@ def _path_arguments(arguments: list[str]) -> list[str]:
     positionals: list[str] = []
     path_values: list[str] = []
     index = 1
+    end_of_options = False
     while index < len(arguments):
         token = arguments[index]
-        if token.startswith("--") and "=" in token:
+        if not end_of_options and token == "--":
+            end_of_options = True
+            index += 1
+            continue
+        if not end_of_options and token.startswith("--") and "=" in token:
             option, value = token.split("=", 1)
             if option in PATH_VALUE_OPTIONS or (option == "--from" and command == "reconcile"):
                 path_values.append(value)
             index += 1
             continue
-        if _is_boolean_option(token, arguments):
+        if not end_of_options and _is_boolean_option(token, arguments):
             index += 1
             continue
-        if token.startswith("-"):
+        if not end_of_options and token.startswith("-"):
             takes_value = token in VALUE_OPTIONS or not _is_boolean_option(token, arguments)
             if takes_value and index + 1 < len(arguments):
                 value = arguments[index + 1]
@@ -377,6 +379,13 @@ def _path_arguments(arguments: list[str]) -> list[str]:
         path_values.extend(positionals[:1])
     elif command == "merge":
         path_values.extend(positionals[:3])
+    elif command == "compare":
+        if positionals[:1] == ["open"]:
+            path_values.extend(positionals[1:2])
+        elif positionals[:1] == ["comments"]:
+            path_values.extend(positionals[2:3])
+        else:
+            path_values.extend(positionals[:2])
     return path_values
 
 
@@ -385,6 +394,8 @@ def _option_names(arguments: list[str]) -> set[str]:
     index = 1
     while index < len(arguments):
         token = arguments[index]
+        if token == "--":
+            break
         if not token.startswith("-"):
             index += 1
             continue
@@ -425,6 +436,13 @@ def command_path(arguments: list[str]) -> str:
     if not arguments:
         return ""
     first = arguments[0].lstrip("-")
+    if first == "compare" and len(arguments) > 1:
+        if arguments[1] == "open":
+            return "compare open"
+        if arguments[1] == "comments":
+            if len(arguments) > 2 and arguments[2] in {"list", "add", "reply", "resolve", "reopen"}:
+                return f"compare comments {arguments[2]}"
+            return "compare comments"
     if len(arguments) > 1 and not arguments[1].startswith("-") and first in {
         "comments", "handoff", "stage", "suggest", "workspace", "reconcile", "merge"
     }:
@@ -451,6 +469,8 @@ def event_command_path(arguments: list[str]) -> str:
         # The documented shortcut performs the same atomic submission as a
         # separate `stage submit` after deriving the immutable refreshed stage.
         return "stage refresh --submit"
+    if path == "compare" and "--save-review" in _option_names(arguments):
+        return "compare --save-review"
     if path == "comments reply" and "--resolve" in _option_names(arguments):
         return "comments reply --resolve"
     if path == "comments add" and "--parent" in _option_names(arguments):
@@ -532,6 +552,18 @@ class MarginGateway:
                 arguments,
                 started,
             )
+        if first == "compare" and "-h" not in arguments and "--help" not in arguments:
+            comparison_path = command_path(arguments)
+            if comparison_path == "compare open" or (
+                not comparison_path.startswith("compare comments")
+                and "--json" not in _option_names(arguments)
+            ):
+                return self._blocked(
+                    "MARGINBENCH_COMMAND_BLOCKED",
+                    "The benchmark gateway permits only headless comparison JSON and review-thread commands.",
+                    arguments,
+                    started,
+                )
         if _option_names(arguments) & IDENTITY_FLAGS:
             recipient_hint = (
                 " To name the recipient of a handoff, remove actor flags and use "

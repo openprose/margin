@@ -3331,6 +3331,10 @@ class MarginBenchCoreTests(unittest.TestCase):
                 gateway.call(["read", "linked.md", "--json"]).error_code,
                 "MARGINBENCH_WORKSPACE_ESCAPE",
             )
+            self.assertEqual(
+                gateway.call(["read", "--", "../outside.md"]).error_code,
+                "MARGINBENCH_WORKSPACE_ESCAPE",
+            )
             prose_with_path_syntax = gateway.call([
                 "comments", "add", "note.md", "-m",
                 "Compare ../prior.md with /etc/passwd as literal untrusted prose.",
@@ -3375,6 +3379,56 @@ class MarginBenchCoreTests(unittest.TestCase):
                         gateway.call([*command.split(), "--help"]).ok,
                         f"Context advertised a non-command action: {command}",
                     )
+
+    def test_gateway_supports_headless_comparison_review_without_gui_or_path_escape(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="marginbench-comparison-gateway-") as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            (workspace / "left.md").write_text("Before.\n", encoding="utf-8")
+            (workspace / "right.md").write_text("After.\n", encoding="utf-8")
+            (root / "outside.md").write_text("Private.\n", encoding="utf-8")
+            gateway = MarginGateway(
+                self.binary,
+                workspace,
+                Actor("urn:test:comparison-agent", "Comparison Agent"),
+                "reviewer",
+            )
+
+            self.assertEqual(
+                gateway.call(["compare", "left.md", "right.md"]).error_code,
+                "MARGINBENCH_COMMAND_BLOCKED",
+            )
+            self.assertEqual(
+                gateway.call(["compare", "open", "review.marginreview"]).error_code,
+                "MARGINBENCH_COMMAND_BLOCKED",
+            )
+            self.assertEqual(
+                gateway.call(["compare", "--json", "--", "../outside.md", "right.md"]).error_code,
+                "MARGINBENCH_WORKSPACE_ESCAPE",
+            )
+            self.assertEqual(
+                gateway.call([
+                    "compare", "left.md", "right.md", "--json",
+                    "--save-review", "../review.marginreview",
+                ]).error_code,
+                "MARGINBENCH_WORKSPACE_ESCAPE",
+            )
+
+            created = gateway.call([
+                "compare", "left.md", "right.md", "--json",
+                "--save-review", "review.marginreview",
+            ])
+            self.assertTrue(created.ok, created.stderr)
+            self.assertTrue((workspace / "review.marginreview").is_file())
+            listed = gateway.call(["compare", "comments", "list", "review.marginreview"])
+            self.assertTrue(listed.ok, listed.stderr)
+            added = gateway.call([
+                "compare", "comments", "add", "review.marginreview",
+                "--side", "right", "--quote", "After.", "-m", "Clarify this.",
+                "--id", "00000000-0000-4000-8000-000000000991",
+            ])
+            self.assertTrue(added.ok, added.stderr)
 
     def test_reference_policy_scores_every_scenario_at_100(self) -> None:
         for index, scenario in enumerate(SCENARIO_IDS):

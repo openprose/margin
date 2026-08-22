@@ -6,14 +6,14 @@ the Mac app.
 
 ## Choose a download
 
-The `v0.4.1` GitHub release provides these platform packages:
+The `v0.5.0` GitHub release provides these platform packages:
 
 | Platform | Package | Contents |
 | --- | --- | --- |
-| Apple-silicon Mac, recommended | `Margin-0.4.1-macOS-arm64.pkg` | `Margin.app` and `margin`, installed together |
-| Apple-silicon Mac, portable | `Margin-0.4.1-macOS-arm64.zip` | `Margin.app`, a standalone `margin`, and release instructions |
-| Linux x86-64 | `Margin-CLI-0.4.1-linux-x86_64.tar.gz` | Standalone `margin` CLI, README, and license |
-| Linux ARM64 | `Margin-CLI-0.4.1-linux-aarch64.tar.gz` | Standalone `margin` CLI, README, and license |
+| Apple-silicon Mac, recommended | `Margin-0.5.0-macOS-arm64.pkg` | `Margin.app` and `margin`, installed together |
+| Apple-silicon Mac, portable | `Margin-0.5.0-macOS-arm64.zip` | `Margin.app`, a standalone `margin`, and release instructions |
+| Linux x86-64 | `Margin-CLI-0.5.0-linux-x86_64.tar.gz` | Standalone `margin` CLI, README, and license |
+| Linux ARM64 | `Margin-CLI-0.5.0-linux-aarch64.tar.gz` | Standalone `margin` CLI, README, and license |
 
 Verify the downloaded file against the release's SHA-256 checksum before
 opening or installing it.
@@ -47,7 +47,7 @@ your shell does not find `margin`, add `/usr/local/bin` to `PATH`.
 Expanding the ZIP produces one versioned directory:
 
 ```text
-Margin-0.4.1-macOS-arm64/
+Margin-0.5.0-macOS-arm64/
 ├── Margin.app
 ├── margin
 └── README.txt
@@ -67,7 +67,7 @@ the CLI at `/usr/local/bin/margin`.
 The CLI finds the app in `~/Applications` or `/Applications`. If the app lives
 elsewhere, set `MARGIN_APP_PATH` to its full bundle path.
 
-## Gatekeeper status for v0.4.1
+## Gatekeeper status for v0.5.0
 
 This release is not signed with an Apple Developer ID and is not
 notarized. Its app executables are ad-hoc signed for bundle integrity, while
@@ -102,9 +102,9 @@ Choose the archive for your machine:
 uname -m
 ```
 
-Use `Margin-CLI-0.4.1-linux-x86_64.tar.gz` for `x86_64` and
-`Margin-CLI-0.4.1-linux-aarch64.tar.gz` for `aarch64` or `arm64`. Each expands
-to a matching `Margin-CLI-0.4.1-linux-ARCH/` directory. Enter that directory,
+Use `Margin-CLI-0.5.0-linux-x86_64.tar.gz` for `x86_64` and
+`Margin-CLI-0.5.0-linux-aarch64.tar.gz` for `aarch64` or `arm64`. Each expands
+to a matching `Margin-CLI-0.5.0-linux-ARCH/` directory. Enter that directory,
 then install for the current user:
 
 ```sh

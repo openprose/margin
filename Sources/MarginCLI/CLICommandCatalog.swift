@@ -127,7 +127,7 @@ struct CLICapabilitiesEnvelope: Encodable {
         ]
     }
 
-    static let maximumEncodedBytes = 145 * 1_024
+    static let maximumEncodedBytes = 152 * 1_024
 
     let schema = "urn:margin:capabilities:v1"
     let ok = true
@@ -543,6 +543,24 @@ enum CLICommandCatalog {
                 usage: [
                     "margin compare LEFT RIGHT [OPTIONS]",
                     "margin compare open|comments ...",
+                ],
+                arguments: [
+                    argument("LEFT", kind: "markdown-source", description: "Explicit Markdown path, or - for bounded standard input."),
+                    argument("RIGHT", kind: "markdown-source", description: "Explicit Markdown path, or - for bounded standard input."),
+                ],
+                options: [
+                    option("--label-left", value: "TEXT", description: "Display label for the left snapshot."),
+                    option("--label-right", value: "TEXT", description: "Display label for the right snapshot."),
+                    option("--save-review", value: "PATH", description: "Create one portable .marginreview artifact explicitly."),
+                    option("--max-blocks", value: "N", description: "Maximum changed blocks in this JSON page; clamped to 256."),
+                    option("--max-preview-bytes", value: "N", description: "Per-side UTF-8 preview cap; clamped to 4096."),
+                    option("--after-block", value: "ID", description: "Continue after this changed-block ID."),
+                    option("--if-left-sha", value: "SHA256", description: "Require the exact left logical-body digest."),
+                    option("--if-right-sha", value: "SHA256", description: "Require the exact right logical-body digest."),
+                    json,
+                    pretty,
+                    option("--wait", description: "Wait for the native comparison window to close."),
+                    option("--app", value: "PATH", description: "Use an explicit Margin application bundle path."),
                 ],
                 sideEffects: "reads-two-explicit-sources-and-optionally-writes-review-or-launches-application",
                 output: comparisonOutput

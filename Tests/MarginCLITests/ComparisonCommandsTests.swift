@@ -599,6 +599,17 @@ final class ComparisonCommandsTests: XCTestCase {
             Set(["capabilities"] + comparisonPaths.map { $0.joined(separator: " ") })
         )
 
+        let compare = try XCTUnwrap(CLICommandCatalog.command(path: ["compare"]))
+        XCTAssertEqual(compare.arguments.map(\.name), ["LEFT", "RIGHT"])
+        XCTAssertEqual(
+            Set(compare.options.flatMap(\.names)),
+            Set([
+                "--label-left", "--label-right", "--save-review", "--max-blocks",
+                "--max-preview-bytes", "--after-block", "--if-left-sha",
+                "--if-right-sha", "--json", "--pretty", "--wait", "--app",
+            ])
+        )
+
         let list = try XCTUnwrap(
             CLICommandCatalog.command(path: ["compare", "comments", "list"])
         )

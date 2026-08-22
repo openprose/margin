@@ -271,7 +271,7 @@ no material startup regression. The suggestion projection is 20,536 bytes
 compact and 32,579 bytes pretty, within its 32 KiB contract. The measured v73
 digest is `6ef13fccb2dc8fdea4465d7d01e8a9e97c2d7fb5043903920073b3653ad72985`.
 
-## Unreleased comparison-review gate
+## 0.5.0 comparison-review gate
 
 The source-agnostic comparison candidate was measured against a same-toolchain
 rebuild of the exact v0.4.1 tag. The paired app gate alternated candidate and

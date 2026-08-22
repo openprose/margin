@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+No changes yet.
+
+## 0.5.0 — source-agnostic comparison reviews
+
+Release date: 2026-08-22
+
 - Added a source-agnostic native Markdown comparison view with calm inline and
   aligned side-by-side layouts, collapsed unchanged context, line and word
   emphasis, whitespace display, swap/refresh controls, change navigation, and
@@ -14,6 +20,9 @@
   plus deterministic CLI commands to create, inspect, reply to, resolve, and
   reopen review threads. Standard input, paging continuations, explicit
   revisions, stable retry IDs, and Linux review workflows are supported.
+- Completed the machine-readable comparison command grammar and MarginBench's
+  confined headless review gateway, including end-of-options and symlink escape
+  defenses, so agents can discover and exercise the same portable workflow.
 - Added deliberate selected/all change application in either direction. Margin
   verifies the exact destination body, preserves and reanchors annotations,
   refuses symlinks and stale content, writes closed files atomically, and makes

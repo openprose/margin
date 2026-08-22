@@ -30,6 +30,7 @@ RESULT_SIZE_BUCKETS = (
 RESULT_SIZE_OVERFLOW_BUCKET = "65537+"
 SAFE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 SAFE_SUBCOMMANDS = {
+    "compare": frozenset({"open", "comments"}),
     "comments": frozenset({
         "add", "delete", "edit", "export", "get", "list", "reanchor",
         "reopen", "reply", "resolve", "validate", "watch",
@@ -41,7 +42,8 @@ SAFE_SUBCOMMANDS = {
 }
 SAFE_MAN_TOPICS = {
     "agent": "agents", "agents": "agents", "comment": "comments",
-    "comments": "comments", "handoff": "handoff", "handoffs": "handoff",
+    "comments": "comments", "compare": "comparison", "comparison": "comparison",
+    "comparisons": "comparison", "handoff": "handoff", "handoffs": "handoff",
     "margin": "agents", "merge": "merge", "overview": "agents",
     "reconcile": "merge", "reconciliation": "merge", "review": "review",
     "safety": "safety", "security": "safety", "stage": "staging",
@@ -76,6 +78,11 @@ WRITE_COMMANDS = frozenset({
     "comments reply",
     "comments reply --resolve",
     "comments resolve",
+    "compare --save-review",
+    "compare comments add",
+    "compare comments reopen",
+    "compare comments reply",
+    "compare comments resolve",
     "handoff add",
     "merge",
     "reconcile",
@@ -205,6 +212,11 @@ def _safe_command(arguments: list[str]) -> tuple[str, bool]:
     if semantic == "suggest batch":
         return semantic, leading
     if semantic in {"comments reply --resolve", "stage refresh --submit"}:
+        return semantic, leading
+    if semantic in {
+        "compare --save-review", "compare comments add", "compare comments list",
+        "compare comments reopen", "compare comments reply", "compare comments resolve",
+    }:
         return semantic, leading
     if semantic == "comments reply" and top == "comments":
         return semantic, leading

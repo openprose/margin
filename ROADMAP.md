@@ -5,10 +5,9 @@ directions rather than promises or dates.
 
 ## In progress for the next release
 
-- Source-agnostic Markdown comparison and portable review threads in the native
-  app and CLI, without repository discovery or Git-owned state.
+No work is currently marked for the next release.
 
-## Shipped through 0.4.1
+## Shipped through 0.5.0
 
 - Native file and directory editing, reader mode, tabs, navigation, restoration,
   and inline threaded review on macOS.
@@ -18,6 +17,8 @@ directions rather than promises or dates.
 - Deterministic native, CLI, collaboration, and MarginBench verification.
 - GitHub Release packaging for the Apple-silicon Mac app plus CLI and standalone
   Linux CLI archives for x86-64 and ARM64.
+- Source-agnostic Markdown comparison and portable review threads in the native
+  app and CLI, without repository discovery or Git-owned state.
 
 ## Near term
 

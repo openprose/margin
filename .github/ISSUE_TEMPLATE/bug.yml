@@ -26,7 +26,7 @@ body:
     attributes:
       label: Margin version
       description: Run `margin version`, or provide the commit SHA when version-specific behavior is relevant.
-      placeholder: "Margin 0.4.1"
+      placeholder: "Margin 0.5.0"
   - type: dropdown
     id: surface
     attributes:

@@ -45,8 +45,8 @@ archives, and ensure the intended commit is on `main`.
 Create and push an annotated tag only after CI is green:
 
 ```sh
-git tag -a v0.4.1 -m "Margin 0.4.1"
-git push origin v0.4.1
+git tag -a v0.5.0 -m "Margin 0.5.0"
+git push origin v0.5.0
 ```
 
 The tag workflow uses native GitHub-hosted arm64 runners for macOS and Linux
