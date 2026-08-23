@@ -31,6 +31,27 @@ enum WorkspaceScreenIdentity {
     }
 }
 
+enum WorkspaceLaunchAction: Equatable {
+    case focusRestoredWindow(Int)
+    case createEmptyWindow
+}
+
+enum WorkspaceLaunchPolicy {
+    static func action(
+        previouslySelectedIndex: Int,
+        restoredWindowsOnActiveSpace: [Bool]
+    ) -> WorkspaceLaunchAction {
+        if restoredWindowsOnActiveSpace.indices.contains(previouslySelectedIndex),
+           restoredWindowsOnActiveSpace[previouslySelectedIndex] {
+            return .focusRestoredWindow(previouslySelectedIndex)
+        }
+        if let localIndex = restoredWindowsOnActiveSpace.firstIndex(of: true) {
+            return .focusRestoredWindow(localIndex)
+        }
+        return .createEmptyWindow
+    }
+}
+
 @MainActor
 final class WorkspaceWindowRestorationHandler: NSObject, NSWindowRestoration {
     static func restoreWindow(
@@ -237,14 +258,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let startupURLs = pendingURLs.isEmpty ? commandLineURLs() : pendingURLs
         pendingURLs.removeAll()
         let didRestoreNatively = !nativeRestoredControllers.isEmpty
+        var defersActivationUntilRestorationCompletes = false
 
         if startupURLs.isEmpty, didRestoreNatively {
             // AppKit has recreated and reconfigured every registered window,
             // including its native tab-group placement.
+            defersActivationUntilRestorationCompletes = true
             finishNativeWindowRestoration()
         } else if startupURLs.isEmpty, restoreLastSession() {
             // Rebuild the complete native tab graph before revealing it so
             // each independent window can return to its saved Space cleanly.
+            defersActivationUntilRestorationCompletes = true
         } else if startupURLs.isEmpty {
             makeWorkspaceWindow(for: nil)
         } else {
@@ -259,7 +283,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             nativeRestorationSession = nil
         }
 
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        if !defersActivationUntilRestorationCompletes {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -282,6 +308,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows _: Bool
+    ) -> Bool {
+        if let localWindow = activeSpaceDocumentWindow {
+            localWindow.makeKeyAndOrderFront(nil)
+        } else {
+            let controller = makeWorkspaceWindow(for: nil, ordersFront: false)
+            focus(controller)
+        }
+        sender.activate(ignoringOtherApps: true)
+        return false
     }
 
     func applicationDidResignActive(_ notification: Notification) {
@@ -685,6 +725,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return nil
         }
         return workspaceWindows.last(where: { $0.window?.isVisible == true })?.window
+    }
+
+    private var activeSpaceDocumentWindow: NSWindow? {
+        NSApplication.shared.windows.first { window in
+            guard window.isOnActiveSpace,
+                  (window.windowController is WorkspaceWindowController
+                    || window.windowController is ComparisonWindowController) else { return false }
+            return window.tabGroup?.selectedWindow == nil
+                || window.tabGroup?.selectedWindow === window
+        }
     }
 
     private func open(_ urls: [URL]) {
@@ -1238,25 +1288,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         groups: [(WorkspaceWindowSession, [WorkspaceWindowController])],
         selectedWindowIndex: Int
     ) {
-        for (state, controllers) in groups where !controllers.isEmpty {
+        var restoredWindowsOnActiveSpace: [Bool] = []
+        var selectedControllers: [WorkspaceWindowController?] = []
+        for (state, controllers) in groups {
+            guard !controllers.isEmpty else {
+                restoredWindowsOnActiveSpace.append(false)
+                selectedControllers.append(nil)
+                continue
+            }
             let selectedIndex = min(max(state.selectedIndex, 0), controllers.count - 1)
-            let selectedWindow = controllers[selectedIndex].window
+            let selectedController = controllers[selectedIndex]
+            let selectedWindow = selectedController.window
             selectedWindow?.tabGroup?.selectedWindow = selectedWindow
             controllers.compactMap(\.window).forEach { $0.alphaValue = 1 }
             selectedWindow?.orderFront(nil)
+            restoredWindowsOnActiveSpace.append(selectedWindow?.isOnActiveSpace == true)
+            selectedControllers.append(selectedController)
         }
 
-        if groups.indices.contains(selectedWindowIndex) {
-            let state = groups[selectedWindowIndex].0
-            let controllers = groups[selectedWindowIndex].1
-            if !controllers.isEmpty {
-                let selectedTabIndex = min(max(state.selectedIndex, 0), controllers.count - 1)
-                focus(controllers[selectedTabIndex])
-            }
+        let launchAction = WorkspaceLaunchPolicy.action(
+            previouslySelectedIndex: selectedWindowIndex,
+            restoredWindowsOnActiveSpace: restoredWindowsOnActiveSpace
+        )
+        let launchController: WorkspaceWindowController
+        switch launchAction {
+        case .focusRestoredWindow(let index):
+            launchController = selectedControllers.indices.contains(index)
+                ? selectedControllers[index] ?? makeWorkspaceWindow(for: nil, ordersFront: false)
+                : makeWorkspaceWindow(for: nil, ordersFront: false)
+        case .createEmptyWindow:
+            launchController = makeWorkspaceWindow(for: nil, ordersFront: false)
         }
+
         isRestoringSession = false
         nativeRestoredControllers.removeAll()
         nativeRestorationSession = nil
+        focus(launchController)
+        NSApplication.shared.activate(ignoringOtherApps: true)
         persistSession()
     }
 

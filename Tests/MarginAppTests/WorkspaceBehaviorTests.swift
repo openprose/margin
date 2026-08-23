@@ -34,6 +34,7 @@ final class WorkspaceBehaviorTests: XCTestCase {
         XCTAssertFalse(controller.isNavigatorVisible)
         XCTAssertFalse(controller.isCommentsVisible)
         XCTAssertFalse(controller.canShowComments)
+        XCTAssertNil(controller.sessionState)
 
         let initialWidth = window.frame.width
         let untitled = FileManager.default.temporaryDirectory
@@ -409,6 +410,46 @@ final class WorkspaceBehaviorTests: XCTestCase {
         ]
 
         XCTAssertNil(WorkspaceSpaceResolver.resolve(assignment, in: catalog))
+    }
+
+    func testLaunchPolicyKeepsThePreviouslySelectedWindowWhenItIsLocal() {
+        XCTAssertEqual(
+            WorkspaceLaunchPolicy.action(
+                previouslySelectedIndex: 1,
+                restoredWindowsOnActiveSpace: [true, true, false]
+            ),
+            .focusRestoredWindow(1)
+        )
+    }
+
+    func testLaunchPolicyUsesAnotherLocalWindowInsteadOfSwitchingSpaces() {
+        XCTAssertEqual(
+            WorkspaceLaunchPolicy.action(
+                previouslySelectedIndex: 2,
+                restoredWindowsOnActiveSpace: [false, true, false]
+            ),
+            .focusRestoredWindow(1)
+        )
+    }
+
+    func testLaunchPolicyCreatesAnEmptyWindowWhenOnlySavedWindowIsRemote() {
+        XCTAssertEqual(
+            WorkspaceLaunchPolicy.action(
+                previouslySelectedIndex: 0,
+                restoredWindowsOnActiveSpace: [false]
+            ),
+            .createEmptyWindow
+        )
+    }
+
+    func testLaunchPolicyCreatesAnEmptyWindowWhenEverySavedWindowIsRemote() {
+        XCTAssertEqual(
+            WorkspaceLaunchPolicy.action(
+                previouslySelectedIndex: 1,
+                restoredWindowsOnActiveSpace: [false, false, false]
+            ),
+            .createEmptyWindow
+        )
     }
 
     func testWindowPlacementFollowsTheSameDisplayWhenItsLayoutChanges() throws {
