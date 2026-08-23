@@ -150,6 +150,15 @@ struct WorkspaceWindowSession: Codable, Equatable {
     var tabs: [WorkspaceTabSession]
     var selectedIndex: Int
     var frame: WorkspaceWindowFrame?
+    var space: WorkspaceSpaceAssignment? = nil
+}
+
+struct WorkspaceSpaceAssignment: Codable, Equatable {
+    var spaceUUID: String?
+    var managedSpaceID: UInt64?
+    var displayIdentifier: String?
+    var desktopOrdinal: Int?
+    var spaceType: Int
 }
 
 struct WorkspaceSession: Codable, Equatable {

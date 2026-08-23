@@ -280,6 +280,13 @@ final class WorkspaceBehaviorTests: XCTestCase {
                         CGRect(x: 40, y: 80, width: 1180, height: 780),
                         displayIdentifier: "display-test",
                         displayFrame: CGRect(x: 0, y: 0, width: 1440, height: 900)
+                    ),
+                    space: WorkspaceSpaceAssignment(
+                        spaceUUID: "space-test",
+                        managedSpaceID: 42,
+                        displayIdentifier: "display-test",
+                        desktopOrdinal: 1,
+                        spaceType: 0
                     )
                 )
             ],
@@ -327,6 +334,81 @@ final class WorkspaceBehaviorTests: XCTestCase {
         )
         XCTAssertNil(session.windows[0].tabs[0].restorationIdentifier)
         XCTAssertNil(session.windows[0].frame?.displayIdentifier)
+        XCTAssertNil(session.windows[0].space)
+    }
+
+    func testSpaceResolverPrefersStableUUIDOverTransientSpaceID() throws {
+        let assignment = WorkspaceSpaceAssignment(
+            spaceUUID: "target-space",
+            managedSpaceID: 12,
+            displayIdentifier: "display-a",
+            desktopOrdinal: 0,
+            spaceType: 0
+        )
+        let resolved = try XCTUnwrap(WorkspaceSpaceResolver.resolve(
+            assignment,
+            in: [
+                spaceDescriptor(id: 12, uuid: "recycled-space", ordinal: 0),
+                spaceDescriptor(id: 99, uuid: "target-space", ordinal: 3),
+            ]
+        ))
+
+        XCTAssertEqual(resolved.managedSpaceID, 99)
+    }
+
+    func testSpaceResolverFallsBackToDesktopOrdinalThenActiveDesktop() throws {
+        let ordinalAssignment = WorkspaceSpaceAssignment(
+            spaceUUID: "deleted-space",
+            managedSpaceID: 12,
+            displayIdentifier: "display-a",
+            desktopOrdinal: 1,
+            spaceType: 0
+        )
+        let catalog = [
+            spaceDescriptor(id: 20, uuid: "first", ordinal: 0),
+            spaceDescriptor(id: 21, uuid: "second", ordinal: 1),
+            spaceDescriptor(id: 22, uuid: "active", ordinal: 2, isActive: true),
+        ]
+        XCTAssertEqual(
+            WorkspaceSpaceResolver.resolve(ordinalAssignment, in: catalog)?.managedSpaceID,
+            21
+        )
+
+        var activeAssignment = ordinalAssignment
+        activeAssignment.desktopOrdinal = 8
+        XCTAssertEqual(
+            WorkspaceSpaceResolver.resolve(activeAssignment, in: catalog)?.managedSpaceID,
+            22
+        )
+    }
+
+    func testSpaceResolverNeverTargetsFullscreenOrAnotherDisplay() {
+        let assignment = WorkspaceSpaceAssignment(
+            spaceUUID: "missing",
+            managedSpaceID: 12,
+            displayIdentifier: "display-a",
+            desktopOrdinal: 1,
+            spaceType: 0
+        )
+        let catalog = [
+            spaceDescriptor(
+                id: 20,
+                uuid: "fullscreen",
+                display: "display-a",
+                ordinal: nil,
+                type: 4,
+                isActive: true
+            ),
+            spaceDescriptor(
+                id: 21,
+                uuid: "other-display",
+                display: "display-b",
+                ordinal: 1,
+                isActive: true
+            ),
+        ]
+
+        XCTAssertNil(WorkspaceSpaceResolver.resolve(assignment, in: catalog))
     }
 
     func testWindowPlacementFollowsTheSameDisplayWhenItsLayoutChanges() throws {
@@ -598,6 +680,24 @@ final class WorkspaceBehaviorTests: XCTestCase {
         }
         poll()
         wait(for: [expectation], timeout: timeout + 0.2)
+    }
+
+    private func spaceDescriptor(
+        id: UInt64,
+        uuid: String,
+        display: String = "display-a",
+        ordinal: Int?,
+        type: Int = 0,
+        isActive: Bool = false
+    ) -> WorkspaceSpaceDescriptor {
+        WorkspaceSpaceDescriptor(
+            managedSpaceID: id,
+            spaceUUID: uuid,
+            displayIdentifier: display,
+            desktopOrdinal: ordinal,
+            spaceType: type,
+            isActive: isActive
+        )
     }
 
     private func makeDocument(_ source: String) throws -> (directory: URL, file: URL) {
