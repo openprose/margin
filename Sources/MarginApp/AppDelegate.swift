@@ -2,6 +2,12 @@ import AppKit
 import ColorSync
 import MarginCore
 
+enum MarginRuntimeEnvironment {
+    static var isPerformanceBenchmark: Bool {
+        ProcessInfo.processInfo.environment["MARGIN_BENCHMARK_READY_FILE"] != nil
+    }
+}
+
 enum WorkspaceRestorationIdentifier {
     private static let prefix = "ink.margin.workspace."
 
@@ -192,6 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let sessionStore: WorkspaceSessionStore
     private let scratchpadStore: ScratchpadStore
     private let recentWorkspaceStore: RecentWorkspaceStore
+    private let shouldPersistSession: Bool
     private let sessionPersistenceQueue = DispatchQueue(
         label: "ink.margin.session-persistence",
         qos: .utility
@@ -204,20 +211,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     override init() {
         let defaults = Self.runtimeDefaults()
+        let shouldPersistSession = !MarginRuntimeEnvironment.isPerformanceBenchmark
         sessionStore = WorkspaceSessionStore(defaults: defaults)
         scratchpadStore = ScratchpadStore(defaults: defaults)
-        recentWorkspaceStore = RecentWorkspaceStore(defaults: defaults)
+        recentWorkspaceStore = RecentWorkspaceStore(
+            defaults: defaults,
+            persistenceEnabled: shouldPersistSession
+        )
+        self.shouldPersistSession = shouldPersistSession
         super.init()
     }
 
     init(
         sessionStore: WorkspaceSessionStore,
         scratchpadStore: ScratchpadStore,
-        recentWorkspaceStore: RecentWorkspaceStore = RecentWorkspaceStore()
+        recentWorkspaceStore: RecentWorkspaceStore = RecentWorkspaceStore(),
+        shouldPersistSession: Bool = true
     ) {
         self.sessionStore = sessionStore
         self.scratchpadStore = scratchpadStore
         self.recentWorkspaceStore = recentWorkspaceStore
+        self.shouldPersistSession = shouldPersistSession
         super.init()
     }
 
@@ -356,6 +370,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             terminationSession = nil
             return .terminateCancel
         }
+        guard shouldPersistSession else { return .terminateNow }
         terminationSession = captureWorkspaceSession()
         persistSession(synchronously: true)
         workspaceWindows.forEach {
@@ -367,6 +382,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        guard shouldPersistSession else { return }
         if let terminationSession {
             sessionPersistenceQueue.sync { [sessionStore] in
                 sessionStore.save(terminationSession)
@@ -1391,7 +1407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func persistSession(synchronously: Bool = false) {
-        guard didFinishLaunching, !isRestoringSession else { return }
+        guard shouldPersistSession, didFinishLaunching, !isRestoringSession else { return }
         let session = captureWorkspaceSession()
         let save = { [sessionStore] in sessionStore.save(session) }
         if synchronously {

@@ -251,7 +251,6 @@ private func measureOnce(options: Options) throws -> Sample {
             benchmarkDefaults.removePersistentDomain(forName: preferencesSuite)
             benchmarkDefaults.synchronize()
         }
-        usleep(250_000)
         let preferencesFile = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Preferences", isDirectory: true)
             .appendingPathComponent(preferencesSuite)

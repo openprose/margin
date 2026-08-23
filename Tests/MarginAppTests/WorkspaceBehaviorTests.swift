@@ -668,6 +668,24 @@ final class WorkspaceBehaviorTests: XCTestCase {
         XCTAssertEqual(store.urls(limit: 10), [first, second])
     }
 
+    func testRecentWorkspaceStoreCanDisablePersistenceForBenchmarks() {
+        let suite = "margin-recents-disabled-tests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            return XCTFail("Expected isolated defaults")
+        }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = RecentWorkspaceStore(
+            defaults: defaults,
+            key: "recents",
+            persistenceEnabled: false
+        )
+
+        store.record(URL(fileURLWithPath: "/tmp/benchmark.md"))
+
+        XCTAssertNil(defaults.object(forKey: "recents"))
+        XCTAssertTrue(store.urls().isEmpty)
+    }
+
     func testCollaborationOverviewIsLazyAndLoadsDurableActorActivityOnDemand() throws {
         let fixture = try makeDocument("# Collaboration\n\nA shared boundary.\n")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }

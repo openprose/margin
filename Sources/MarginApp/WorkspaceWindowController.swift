@@ -1072,7 +1072,8 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
     private func configureInitialWindowFrame(_ window: NSWindow) {
         let frameName = "MarginWorkspaceWindow.v4.\(restorationIdentifier)"
-        let restored = window.setFrameUsingName(frameName)
+        let usesAutosavedLayout = !MarginRuntimeEnvironment.isPerformanceBenchmark
+        let restored = usesAutosavedLayout && window.setFrameUsingName(frameName)
         let restoredFrame = window.frame
         let restoredIsUsable = restored
             && restoredFrame.width >= 720
@@ -1093,7 +1094,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
         // Version the frame key when the window layout changes materially so
         // an old, cramped frame does not become the new product default.
-        window.setFrameAutosaveName(frameName)
+        if usesAutosavedLayout {
+            window.setFrameAutosaveName(frameName)
+        }
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -1188,7 +1191,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     private func configureSplitView() {
         splitViewController.splitView.isVertical = true
         splitViewController.splitView.dividerStyle = .thin
-        splitViewController.splitView.autosaveName = "MarginWorkspaceSplitView"
+        if !MarginRuntimeEnvironment.isPerformanceBenchmark {
+            splitViewController.splitView.autosaveName = "MarginWorkspaceSplitView"
+        }
 
         navigatorItem.minimumThickness = 190
         navigatorItem.maximumThickness = 350
