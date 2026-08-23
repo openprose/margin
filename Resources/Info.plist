@@ -32,6 +32,8 @@
     <string>Copyright © 2026 OpenProse, Inc.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>NSQuitAlwaysKeepsWindows</key>
+    <true/>
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>

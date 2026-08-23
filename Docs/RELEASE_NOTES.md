@@ -2,7 +2,18 @@
 
 ## Unreleased
 
-No changes yet.
+- Added durable untitled Markdown scratchpads. `⌘T` creates one in the current
+  tab group, `⌘N` creates one in a separate window, and `⌘⇧S` promotes it to a
+  named file. Scratch contents are private file-backed Markdown, autosave while
+  editing, flush synchronously on quit, and require an explicit Save As or
+  discard decision before a nonempty scratchpad tab closes.
+- Expanded session restoration from one flattened tab list to the complete
+  independent-window and native-tab hierarchy, including tab order, selected
+  tabs, usable window frames, cursor and scroll continuity, and open
+  scratchpads. Existing version-1 sessions migrate to a single restored window.
+- Integrated the durable session with native AppKit window restoration.
+  Physical-display identity and relative placement are retained, with an
+  on-screen fallback when a monitor is disconnected or its layout changes.
 
 ## 0.5.1 — native reading and review fixes
 
