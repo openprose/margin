@@ -8,12 +8,6 @@ enum WorkspaceRestorationIdentifier {
     static func make(_ value: String) -> NSUserInterfaceItemIdentifier {
         NSUserInterfaceItemIdentifier(prefix + value)
     }
-
-    static func parse(_ identifier: NSUserInterfaceItemIdentifier) -> String? {
-        guard identifier.rawValue.hasPrefix(prefix) else { return nil }
-        let value = String(identifier.rawValue.dropFirst(prefix.count))
-        return value.isEmpty ? nil : value
-    }
 }
 
 enum WorkspaceScreenIdentity {
@@ -52,19 +46,10 @@ enum WorkspaceLaunchPolicy {
     }
 }
 
-@MainActor
-final class WorkspaceWindowRestorationHandler: NSObject, NSWindowRestoration {
-    static func restoreWindow(
-        withIdentifier identifier: NSUserInterfaceItemIdentifier,
-        state: NSCoder,
-        completionHandler: @escaping (NSWindow?, Error?) -> Void
-    ) {
-        guard let delegate = NSApplication.shared.delegate as? AppDelegate else {
-            completionHandler(nil, nil)
-            return
-        }
-        completionHandler(delegate.restoreWorkspaceWindow(withIdentifier: identifier), nil)
-    }
+private struct WorkspaceBackgroundReveal {
+    let windows: [NSWindow]
+    let selectedWindow: NSWindow
+    let assignment: WorkspaceSpaceAssignment?
 }
 
 protocol WorkspacePathRenameParticipating: AnyObject {
@@ -206,6 +191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var didFinishLaunching = false
     private let sessionStore: WorkspaceSessionStore
     private let scratchpadStore: ScratchpadStore
+    private let recentWorkspaceStore: RecentWorkspaceStore
     private let sessionPersistenceQueue = DispatchQueue(
         label: "ink.margin.session-persistence",
         qos: .utility
@@ -213,28 +199,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var isRestoringSession = false
     private var isSessionPersistScheduled = false
     private var terminationSession: WorkspaceSession?
-    private var nativeRestorationSession: WorkspaceSession?
-    private var nativeRestoredControllers: [String: WorkspaceWindowController] = [:]
+    private var preparedReopenController: WorkspaceWindowController?
     private lazy var spaceRestorationBackend = WorkspaceSpaceRestorationBackendFactory.make()
 
     override init() {
-        sessionStore = WorkspaceSessionStore()
-        scratchpadStore = ScratchpadStore()
+        let defaults = Self.runtimeDefaults()
+        sessionStore = WorkspaceSessionStore(defaults: defaults)
+        scratchpadStore = ScratchpadStore(defaults: defaults)
+        recentWorkspaceStore = RecentWorkspaceStore(defaults: defaults)
         super.init()
     }
 
-    init(sessionStore: WorkspaceSessionStore, scratchpadStore: ScratchpadStore) {
+    init(
+        sessionStore: WorkspaceSessionStore,
+        scratchpadStore: ScratchpadStore,
+        recentWorkspaceStore: RecentWorkspaceStore = RecentWorkspaceStore()
+    ) {
         self.sessionStore = sessionStore
         self.scratchpadStore = scratchpadStore
+        self.recentWorkspaceStore = recentWorkspaceStore
         super.init()
+    }
+
+    private static func runtimeDefaults() -> UserDefaults {
+        guard let suiteName = ProcessInfo.processInfo.environment[
+            "MARGIN_PREFERENCES_SUITE"
+        ],
+              !suiteName.isEmpty,
+              let defaults = UserDefaults(suiteName: suiteName) else {
+            return .standard
+        }
+        return defaults
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        // Margin owns durable document continuity and always reopens its
-        // workspace. Register the matching AppKit preference as well so a
-        // normal Quit preserves native window state even when the system-wide
-        // “close windows when quitting” setting is enabled.
-        UserDefaults.standard.register(defaults: ["NSQuitAlwaysKeepsWindows": true])
         WorkspacePaneFactory.makeEditor = { EditorViewController() }
         WorkspacePaneFactory.makeComments = { CommentsViewController() }
         AppMenu.install(for: NSApplication.shared, delegate: self)
@@ -257,15 +255,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         let startupURLs = pendingURLs.isEmpty ? commandLineURLs() : pendingURLs
         pendingURLs.removeAll()
-        let didRestoreNatively = !nativeRestoredControllers.isEmpty
         var defersActivationUntilRestorationCompletes = false
 
-        if startupURLs.isEmpty, didRestoreNatively {
-            // AppKit has recreated and reconfigured every registered window,
-            // including its native tab-group placement.
-            defersActivationUntilRestorationCompletes = true
-            finishNativeWindowRestoration()
-        } else if startupURLs.isEmpty, restoreLastSession() {
+        if startupURLs.isEmpty, restoreLastSession() {
             // Rebuild the complete native tab graph before revealing it so
             // each independent window can return to its saved Space cleanly.
             defersActivationUntilRestorationCompletes = true
@@ -274,18 +266,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             open(startupURLs)
         }
-        if didRestoreNatively, !startupURLs.isEmpty {
-            isRestoringSession = false
-            nativeRestoredControllers.values.compactMap(\.window).forEach {
-                $0.alphaValue = 1
-            }
-            nativeRestoredControllers.removeAll()
-            nativeRestorationSession = nil
-        }
 
         if !defersActivationUntilRestorationCompletes {
-            NSApplication.shared.activate(ignoringOtherApps: true)
+            activatePreparedApplication()
         }
+    }
+
+    func applicationShouldRestoreApplicationState(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationShouldSaveApplicationState(_ sender: NSApplication) -> Bool {
+        false
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -311,16 +303,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationShouldHandleReopen(
-        _ sender: NSApplication,
+        _ _: NSApplication,
         hasVisibleWindows _: Bool
     ) -> Bool {
-        if let localWindow = activeSpaceDocumentWindow {
+        if let preparedReopenController,
+           let preparedWindow = preparedReopenController.window,
+           windowIsOnActiveSpace(preparedWindow) {
+            self.preparedReopenController = nil
+            preparedWindow.alphaValue = 1
+            preparedWindow.makeKeyAndOrderFront(nil)
+            preparedWindow.makeMain()
+        } else if let localWindow = activeSpaceDocumentWindow {
             localWindow.makeKeyAndOrderFront(nil)
+            localWindow.makeMain()
         } else {
             let controller = makeWorkspaceWindow(for: nil, ordersFront: false)
             focus(controller)
+            controller.window?.makeMain()
         }
-        sender.activate(ignoringOtherApps: true)
+        // The reopen event already carries activation intent. Explicitly
+        // activating here can make AppKit choose a previously key window on a
+        // different Space even after the local window has been made key.
         return false
     }
 
@@ -334,6 +337,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc private func activeSpaceDidChange(_ notification: Notification) {
         schedulePersistSession()
+        DispatchQueue.main.async { [weak self] in
+            self?.prepareCurrentSpaceForReopen()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.prepareCurrentSpaceForReopen()
+        }
     }
 
     @objc private func windowScreenDidChange(_ notification: Notification) {
@@ -729,12 +738,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private var activeSpaceDocumentWindow: NSWindow? {
         NSApplication.shared.windows.first { window in
-            guard window.isOnActiveSpace,
+            guard windowIsOnActiveSpace(window),
                   (window.windowController is WorkspaceWindowController
                     || window.windowController is ComparisonWindowController) else { return false }
             return window.tabGroup?.selectedWindow == nil
                 || window.tabGroup?.selectedWindow === window
         }
+    }
+
+    private func windowIsOnActiveSpace(_ window: NSWindow) -> Bool {
+        if window.windowNumber > 0,
+           let result = spaceRestorationBackend.windowsAreOnActiveSpace([
+            CGWindowID(window.windowNumber)
+           ]) {
+            return result
+        }
+        return window.isOnActiveSpace
+    }
+
+    private func prepareCurrentSpaceForReopen() {
+        guard didFinishLaunching, !NSApplication.shared.isActive else { return }
+
+        if let localWindow = activeSpaceDocumentWindow {
+            if localWindow !== preparedReopenController?.window {
+                discardPreparedReopenWindow()
+            }
+            localWindow.makeKey()
+            localWindow.makeMain()
+            return
+        }
+
+        discardPreparedReopenWindow()
+        let controller = makeWorkspaceWindow(for: nil, ordersFront: false)
+        guard let window = controller.window else { return }
+        preparedReopenController = controller
+        window.alphaValue = 0
+        window.orderFrontRegardless()
+        window.makeKey()
+        window.makeMain()
+    }
+
+    private func discardPreparedReopenWindow() {
+        guard let controller = preparedReopenController else { return }
+        preparedReopenController = nil
+        controller.close()
     }
 
     private func open(_ urls: [URL]) {
@@ -777,7 +824,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
         }
 
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        activatePreparedApplication()
     }
 
     private func makeScratchpadWindow(tabbedTo parentWindow: NSWindow?) {
@@ -808,6 +855,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             workspaceURL: url,
             scratchpad: scratchpad,
             restorationState: restorationState,
+            recentWorkspaceStore: recentWorkspaceStore,
             scratchpadStore: scratchpadStore,
             restorationIdentifier: restorationIdentifier
         )
@@ -1084,6 +1132,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.makeKeyAndOrderFront(nil)
     }
 
+    private func activatePreparedApplication() {
+        if NSApplication.shared.activationPolicy() != .regular {
+            NSApplication.shared.setActivationPolicy(.regular)
+        }
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
     private func commandLineURLs() -> [URL] {
         let workingDirectory = URL(
             fileURLWithPath: FileManager.default.currentDirectoryPath,
@@ -1095,73 +1150,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let expanded = (argument as NSString).expandingTildeInPath
             return URL(fileURLWithPath: expanded, relativeTo: workingDirectory)
                 .standardizedFileURL
-        }
-    }
-
-    func restoreWorkspaceWindow(
-        withIdentifier identifier: NSUserInterfaceItemIdentifier
-    ) -> NSWindow? {
-        guard commandLineURLs().isEmpty,
-              let restorationIdentifier = WorkspaceRestorationIdentifier.parse(identifier)
-        else { return nil }
-        if let existing = nativeRestoredControllers[restorationIdentifier] {
-            return existing.window
-        }
-
-        let session: WorkspaceSession
-        if let nativeRestorationSession {
-            session = nativeRestorationSession
-        } else {
-            guard let loaded = sessionStore.load() else { return nil }
-            nativeRestorationSession = loaded
-            session = loaded
-        }
-        guard let windowState = session.windows.first(where: { window in
-            window.tabs.contains(where: {
-                $0.restorationIdentifier == restorationIdentifier
-            })
-        }),
-              let state = windowState.tabs.first(where: {
-                  $0.restorationIdentifier == restorationIdentifier
-              }),
-              isRestorable(state) else { return nil }
-
-        isRestoringSession = true
-        let controller = makeWorkspaceWindow(
-            for: nil,
-            restorationState: state,
-            restorationIdentifier: restorationIdentifier,
-            ordersFront: false
-        )
-        if spaceRestorationBackend.isAvailable, windowState.space != nil {
-            controller.window?.alphaValue = 0
-        }
-        nativeRestoredControllers[restorationIdentifier] = controller
-        return controller.window
-    }
-
-    private func finishNativeWindowRestoration() {
-        guard let session = nativeRestorationSession else {
-            finishSessionRestoration(groups: [], selectedWindowIndex: 0)
-            return
-        }
-        let restored = session.windows.enumerated().compactMap {
-            index, state -> (Int, WorkspaceWindowSession, [WorkspaceWindowController])? in
-            let controllers = state.tabs.compactMap { tab in
-                tab.restorationIdentifier.flatMap { nativeRestoredControllers[$0] }
-            }
-            guard !controllers.isEmpty else { return nil }
-            return (index, state, controllers)
-        }
-        let groups = restored.map { ($0.1, $0.2) }
-        let selectedWindowIndex = restored.firstIndex {
-            $0.0 == session.selectedWindowIndex
-        } ?? min(max(session.selectedWindowIndex, 0), max(groups.count - 1, 0))
-        restoreSpaceAssignments(for: groups) { [weak self] in
-            self?.finishSessionRestoration(
-                groups: groups,
-                selectedWindowIndex: selectedWindowIndex
-            )
         }
     }
 
@@ -1284,6 +1272,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
+    private func revealBackgroundWindows(
+        _ reveals: [WorkspaceBackgroundReveal],
+        at index: Int = 0,
+        completion: @escaping () -> Void
+    ) {
+        guard reveals.indices.contains(index) else {
+            completion()
+            return
+        }
+        let reveal = reveals[index]
+        let insertedMoveToActiveSpace = !reveal.selectedWindow.collectionBehavior.contains(
+            .moveToActiveSpace
+        )
+        reveal.selectedWindow.collectionBehavior.insert(.moveToActiveSpace)
+        reveal.selectedWindow.orderFrontRegardless()
+        if insertedMoveToActiveSpace {
+            reveal.selectedWindow.collectionBehavior.remove(.moveToActiveSpace)
+        }
+
+        let finishReveal = { [weak self] in
+            reveal.windows.forEach { $0.alphaValue = 1 }
+            DispatchQueue.main.async {
+                self?.revealBackgroundWindows(
+                    reveals,
+                    at: index + 1,
+                    completion: completion
+                )
+            }
+        }
+        guard let assignment = reveal.assignment else {
+            finishReveal()
+            return
+        }
+        let windowIDs = reveal.windows.compactMap { window in
+            window.windowNumber > 0 ? CGWindowID(window.windowNumber) : nil
+        }
+        guard !windowIDs.isEmpty else {
+            finishReveal()
+            return
+        }
+        spaceRestorationBackend.restore(
+            windowIDs: windowIDs,
+            assignment: assignment
+        ) { _ in
+            finishReveal()
+        }
+    }
+
     private func finishSessionRestoration(
         groups: [(WorkspaceWindowSession, [WorkspaceWindowController])],
         selectedWindowIndex: Int
@@ -1299,10 +1335,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let selectedIndex = min(max(state.selectedIndex, 0), controllers.count - 1)
             let selectedController = controllers[selectedIndex]
             let selectedWindow = selectedController.window
-            selectedWindow?.tabGroup?.selectedWindow = selectedWindow
-            controllers.compactMap(\.window).forEach { $0.alphaValue = 1 }
-            selectedWindow?.orderFront(nil)
-            restoredWindowsOnActiveSpace.append(selectedWindow?.isOnActiveSpace == true)
+            // Capture locality before ordering any restored window. Ordering a
+            // remote window while launch activation is in flight can switch
+            // Spaces, which would make subsequent isOnActiveSpace results refer
+            // to the wrong (newly activated) Space.
+            restoredWindowsOnActiveSpace.append(
+                selectedWindow.map(windowIsOnActiveSpace) == true
+            )
             selectedControllers.append(selectedController)
         }
 
@@ -1311,21 +1350,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             restoredWindowsOnActiveSpace: restoredWindowsOnActiveSpace
         )
         let launchController: WorkspaceWindowController
+        let launchRestoredIndex: Int?
         switch launchAction {
         case .focusRestoredWindow(let index):
             launchController = selectedControllers.indices.contains(index)
                 ? selectedControllers[index] ?? makeWorkspaceWindow(for: nil, ordersFront: false)
                 : makeWorkspaceWindow(for: nil, ordersFront: false)
+            launchRestoredIndex = selectedControllers.indices.contains(index)
+                && selectedControllers[index] != nil ? index : nil
         case .createEmptyWindow:
             launchController = makeWorkspaceWindow(for: nil, ordersFront: false)
+            launchRestoredIndex = nil
         }
 
-        isRestoringSession = false
-        nativeRestoredControllers.removeAll()
-        nativeRestorationSession = nil
+        var backgroundReveals: [WorkspaceBackgroundReveal] = []
+        for (index, (state, controllers)) in groups.enumerated() {
+            let windows = controllers.compactMap(\.window)
+            if index == launchRestoredIndex {
+                windows.forEach { $0.alphaValue = 1 }
+            } else if let selectedWindow = selectedControllers[index]?.window {
+                windows.forEach { $0.alphaValue = 0 }
+                backgroundReveals.append(WorkspaceBackgroundReveal(
+                    windows: windows,
+                    selectedWindow: selectedWindow,
+                    assignment: state.space
+                ))
+            }
+        }
+
+        // Complete activation with the current-Space target as the only newly
+        // ordered window. Once AppKit has committed that activation, reveal
+        // every other restored window without making it key or changing Space.
         focus(launchController)
-        NSApplication.shared.activate(ignoringOtherApps: true)
-        persistSession()
+        activatePreparedApplication()
+        revealBackgroundWindows(backgroundReveals) { [weak self] in
+            guard let self else { return }
+            self.isRestoringSession = false
+            self.persistSession()
+        }
     }
 
     private func persistSession(synchronously: Bool = false) {

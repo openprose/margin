@@ -533,10 +533,8 @@ final class WorkspaceBehaviorTests: XCTestCase {
             controller.window?.identifier,
             WorkspaceRestorationIdentifier.make(controller.restorationIdentifier)
         )
-        XCTAssertTrue(controller.window?.isRestorable == true)
-        XCTAssertTrue(
-            controller.window?.restorationClass === WorkspaceWindowRestorationHandler.self
-        )
+        XCTAssertFalse(controller.window?.isRestorable == true)
+        XCTAssertNil(controller.window?.restorationClass)
 
         let textView = try XCTUnwrap(descendantTextView(in: controller.window?.contentView))
         waitUntil { textView.isEditable }

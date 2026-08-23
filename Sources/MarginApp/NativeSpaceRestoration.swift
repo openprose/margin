@@ -52,6 +52,7 @@ enum WorkspaceSpaceResolver {
 
 protocol WorkspaceSpaceRestorationBackend: AnyObject {
     var isAvailable: Bool { get }
+    func windowsAreOnActiveSpace(_ windowIDs: [CGWindowID]) -> Bool?
     func captureAssignment(
         forWindowIDs windowIDs: [CGWindowID]
     ) -> WorkspaceSpaceAssignment?
@@ -64,6 +65,10 @@ protocol WorkspaceSpaceRestorationBackend: AnyObject {
 
 final class AppKitSpaceRestorationBackend: WorkspaceSpaceRestorationBackend {
     let isAvailable = false
+
+    func windowsAreOnActiveSpace(_ windowIDs: [CGWindowID]) -> Bool? {
+        nil
+    }
 
     func captureAssignment(
         forWindowIDs windowIDs: [CGWindowID]
@@ -91,6 +96,15 @@ final class TahoeNativeSpaceRestorationBackend: WorkspaceSpaceRestorationBackend
         isAvailable = processInfo.operatingSystemVersion.majorVersion
             == Self.supportedMajorVersion
             && MarginNativeSpacesAvailable()
+    }
+
+    func windowsAreOnActiveSpace(_ windowIDs: [CGWindowID]) -> Bool? {
+        guard isAvailable, !windowIDs.isEmpty else { return nil }
+        let activeSpaceIDs = Set(
+            spaceCatalog().filter(\.isActive).map(\.managedSpaceID)
+        )
+        guard !activeSpaceIDs.isEmpty else { return nil }
+        return !activeSpaceIDs.isDisjoint(with: spaceIDs(for: windowIDs))
     }
 
     func captureAssignment(

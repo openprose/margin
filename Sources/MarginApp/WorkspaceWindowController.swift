@@ -1046,8 +1046,11 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         window.toolbarStyle = .unified
         window.backgroundColor = MarginTheme.documentBackground
         window.identifier = WorkspaceRestorationIdentifier.make(restorationIdentifier)
-        window.restorationClass = WorkspaceWindowRestorationHandler.self
-        window.isRestorable = true
+        // Margin's Space-aware session is the single restoration authority.
+        // AppKit restoration can activate a remote saved window before Margin
+        // has selected the launch Space, so these windows must not participate
+        // in the competing system snapshot.
+        window.isRestorable = false
         // Let AppKit own live resize and full-screen sizing. Explicit frame
         // maxima are ignored by Auto Layout and can interact poorly with
         // split-view fitting sizes; a content minimum is the native contract.
