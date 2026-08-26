@@ -3,9 +3,9 @@
 ## Unreleased
 
 - On current macOS, independent windows now return to their previous Spaces
-  without pulling the user away from the active Space. Reopening Margin keeps a
-  local window available on the current Space while restored windows remain in
-  place elsewhere.
+  without pulling the user away from the active Space during cold launch. Once
+  running, ordinary Space changes perform no window creation or activation;
+  deliberate Dock or Finder activation follows native macOS app switching.
 - Added durable untitled Markdown scratchpads. `⌘T` creates one in the current
   tab group, `⌘N` creates one in a separate window, and `⌘⇧S` promotes it to a
   named file. Scratch contents are private file-backed Markdown, autosave while

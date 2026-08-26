@@ -206,7 +206,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var isRestoringSession = false
     private var isSessionPersistScheduled = false
     private var terminationSession: WorkspaceSession?
-    private var preparedReopenController: WorkspaceWindowController?
     private lazy var spaceRestorationBackend = WorkspaceSpaceRestorationBackendFactory.make()
 
     override init() {
@@ -250,12 +249,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         WorkspacePaneFactory.makeEditor = { EditorViewController() }
         WorkspacePaneFactory.makeComments = { CommentsViewController() }
         AppMenu.install(for: NSApplication.shared, delegate: self)
-        NSWorkspace.shared.notificationCenter.addObserver(
-            self,
-            selector: #selector(activeSpaceDidChange(_:)),
-            name: NSWorkspace.activeSpaceDidChangeNotification,
-            object: nil
-        )
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(windowScreenDidChange(_:)),
@@ -320,14 +313,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         _ _: NSApplication,
         hasVisibleWindows _: Bool
     ) -> Bool {
-        if let preparedReopenController,
-           let preparedWindow = preparedReopenController.window,
-           windowIsOnActiveSpace(preparedWindow) {
-            self.preparedReopenController = nil
-            preparedWindow.alphaValue = 1
-            preparedWindow.makeKeyAndOrderFront(nil)
-            preparedWindow.makeMain()
-        } else if let localWindow = activeSpaceDocumentWindow {
+        // Reopen is the only running-app event that may surface a window.
+        // In particular, never pre-create or key a window from an active-Space
+        // notification: doing so can steal focus from the app the user is
+        // switching to, and makes ordinary Space navigation observable work.
+        if let localWindow = activeSpaceDocumentWindow {
             localWindow.makeKeyAndOrderFront(nil)
             localWindow.makeMain()
         } else {
@@ -347,16 +337,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         schedulePersistSession()
-    }
-
-    @objc private func activeSpaceDidChange(_ notification: Notification) {
-        schedulePersistSession()
-        DispatchQueue.main.async { [weak self] in
-            self?.prepareCurrentSpaceForReopen()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.prepareCurrentSpaceForReopen()
-        }
     }
 
     @objc private func windowScreenDidChange(_ notification: Notification) {
@@ -770,34 +750,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return result
         }
         return window.isOnActiveSpace
-    }
-
-    private func prepareCurrentSpaceForReopen() {
-        guard didFinishLaunching, !NSApplication.shared.isActive else { return }
-
-        if let localWindow = activeSpaceDocumentWindow {
-            if localWindow !== preparedReopenController?.window {
-                discardPreparedReopenWindow()
-            }
-            localWindow.makeKey()
-            localWindow.makeMain()
-            return
-        }
-
-        discardPreparedReopenWindow()
-        let controller = makeWorkspaceWindow(for: nil, ordersFront: false)
-        guard let window = controller.window else { return }
-        preparedReopenController = controller
-        window.alphaValue = 0
-        window.orderFrontRegardless()
-        window.makeKey()
-        window.makeMain()
-    }
-
-    private func discardPreparedReopenWindow() {
-        guard let controller = preparedReopenController else { return }
-        preparedReopenController = nil
-        controller.close()
     }
 
     private func open(_ urls: [URL]) {
