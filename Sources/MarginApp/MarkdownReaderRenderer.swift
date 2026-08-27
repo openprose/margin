@@ -207,6 +207,20 @@ struct MarkdownReaderRenderer {
         var fullRange: NSRange
     }
 
+    private enum TableColumnAlignment {
+        case left
+        case center
+        case right
+
+        var textAlignment: NSTextAlignment {
+            switch self {
+            case .left: .left
+            case .center: .center
+            case .right: .right
+            }
+        }
+    }
+
     private struct Fence {
         var character: unichar
         var count: Int
@@ -749,56 +763,77 @@ struct MarkdownReaderRenderer {
         references: [String: String],
         builder: Builder
     ) -> Int {
-        var index = start
-        var isHeader = true
-        let columnCount = max(tableCells(in: lines[start].contentRange, source: source).count, 1)
-        let paragraph = tableParagraphStyle(columnCount: columnCount)
+        let headerCells = tableCells(in: lines[start].contentRange, source: source)
+        let delimiterCells = tableCells(in: lines[start + 1].contentRange, source: source)
+        let columnCount = max(headerCells.count, delimiterCells.count, 1)
+        let alignments = tableAlignments(
+            in: lines[start + 1].contentRange,
+            source: source,
+            columnCount: columnCount
+        )
 
+        var rows = [headerCells]
+        var index = start + 2
         while index < lines.count {
-            if index == start + 1 {
-                index += 1
-                continue
-            }
-            let cells = tableCells(in: lines[index].contentRange, source: source)
-            guard !cells.isEmpty else {
-                // A malformed or otherwise unrenderable table must still move
-                // past its header and delimiter. Returning `start` here would
-                // make the outer renderer visit the same table forever.
-                index = max(index, min(lines.count, start + 2))
-                break
-            }
+            let line = lines[index]
+            let lineText = source.substring(with: line.contentRange)
+            guard lineText.contains("|") else { break }
+            let cells = tableCells(in: line.contentRange, source: source)
+            guard cells.count > 1 else { break }
+            rows.append(cells)
+            index += 1
+        }
 
-            let font = isHeader
+        let table = readerTable(columnCount: columnCount)
+        let widths = tableColumnWidths(
+            rows: rows,
+            columnCount: columnCount,
+            source: source
+        )
+
+        for (rowIndex, cells) in rows.enumerated() {
+            let isHeader = rowIndex == 0
+            let rowFont = isHeader
                 ? font(byAdding: .boldFontMask, to: theme.bodyFont)
                 : theme.bodyFont
-            let attributes = baseAttributes(
-                font: font,
-                color: theme.textColor,
-                paragraph: paragraph
-            )
-            for (cellIndex, cellRange) in cells.enumerated() {
-                if cellIndex > 0 {
-                    builder.append("\t", attributes: attributes)
-                }
-                renderInline(
-                    range: cellRange,
-                    source: source,
-                    attributes: attributes,
-                    hiddenRanges: hiddenRanges,
-                    references: references,
-                    builder: builder
-                )
-            }
-            builder.append("\n", attributes: attributes)
-            isHeader = false
-            index += 1
 
-            if index < lines.count,
-               !source.substring(with: lines[index].contentRange).contains("|") {
-                break
+            for columnIndex in 0..<columnCount {
+                let block = tableBlock(
+                    table: table,
+                    row: rowIndex,
+                    column: columnIndex,
+                    widthPercentage: widths[columnIndex],
+                    isHeader: isHeader
+                )
+                let paragraph = tableParagraphStyle(
+                    block: block,
+                    alignment: alignments[columnIndex]
+                )
+                let attributes = baseAttributes(
+                    font: rowFont,
+                    color: theme.textColor,
+                    paragraph: paragraph
+                )
+
+                if columnIndex < cells.count {
+                    renderInline(
+                        range: cells[columnIndex],
+                        source: source,
+                        attributes: attributes,
+                        hiddenRanges: hiddenRanges,
+                        references: references,
+                        builder: builder
+                    )
+                }
+                // A paragraph terminator is what lets TextKit treat each cell
+                // as an independent native table block. It is intentionally
+                // unmapped because the Markdown pipes remain presentation-only.
+                builder.append("\n", attributes: attributes)
             }
         }
-        return index
+
+        // Even a malformed table header must advance beyond its delimiter.
+        return max(index, min(lines.count, start + 2))
     }
 
     private func renderInline(
@@ -1276,6 +1311,58 @@ struct MarkdownReaderRenderer {
         return cells
     }
 
+    private func tableAlignments(
+        in delimiterRange: NSRange,
+        source: NSString,
+        columnCount: Int
+    ) -> [TableColumnAlignment] {
+        let cells = tableCells(in: delimiterRange, source: source)
+        return (0..<columnCount).map { column in
+            guard column < cells.count else { return .left }
+            let marker = source.substring(with: cells[column])
+                .trimmingCharacters(in: .whitespaces)
+            let startsWithColon = marker.hasPrefix(":")
+            let endsWithColon = marker.hasSuffix(":")
+            if startsWithColon && endsWithColon { return .center }
+            if endsWithColon { return .right }
+            return .left
+        }
+    }
+
+    /// Favor columns that contain more information without letting a single
+    /// verbose cell consume the whole reading measure. These percentages are
+    /// applied by TextKit during reader rendering only.
+    private func tableColumnWidths(
+        rows: [[NSRange]],
+        columnCount: Int,
+        source: NSString
+    ) -> [CGFloat] {
+        var weights = Array(repeating: CGFloat(1), count: columnCount)
+        for cells in rows {
+            for column in 0..<min(cells.count, columnCount) {
+                let contentLength = source.substring(with: cells[column])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .utf16
+                    .count
+                let boundedLength = min(max(contentLength, 6), 144)
+                weights[column] = max(weights[column], sqrt(CGFloat(boundedLength)))
+            }
+        }
+
+        let minimumShare = min(CGFloat(0.22), CGFloat(0.60) / CGFloat(columnCount))
+        let distributableShare = max(1 - (minimumShare * CGFloat(columnCount)), 0)
+        let totalWeight = max(weights.reduce(0, +), 1)
+        var percentages = weights.map { weight in
+            (minimumShare + distributableShare * weight / totalWeight) * 100
+        }
+        // Keep the accumulated floating-point result exactly at 100% so the
+        // last column never picks up a fractional overflow at narrow widths.
+        if let last = percentages.indices.last {
+            percentages[last] += 100 - percentages.reduce(0, +)
+        }
+        return percentages
+    }
+
     private func htmlCommentRanges(in source: NSString) -> [NSRange] {
         var ranges: [NSRange] = []
         var cursor = 0
@@ -1399,18 +1486,69 @@ struct MarkdownReaderRenderer {
         return paragraph
     }
 
-    private func tableParagraphStyle(columnCount: Int) -> NSParagraphStyle {
-        let paragraph = theme.bodyParagraphStyle.mutableCopy() as! NSMutableParagraphStyle
-        paragraph.lineSpacing = 4
-        paragraph.paragraphSpacing = 5
-        let columnWidth = max(118, 650 / CGFloat(max(columnCount, 1)))
-        paragraph.tabStops = (1..<columnCount).map { index in
-            NSTextTab(
-                textAlignment: .left,
-                location: CGFloat(index) * columnWidth,
-                options: [:]
+    private func readerTable(columnCount: Int) -> NSTextTable {
+        let table = NSTextTable()
+        table.numberOfColumns = columnCount
+        table.layoutAlgorithm = .automaticLayoutAlgorithm
+        table.collapsesBorders = true
+        table.hidesEmptyCells = false
+        table.setValue(100, type: .percentageValueType, for: .width)
+        table.setWidth(10, type: .absoluteValueType, for: .margin, edge: .minY)
+        table.setWidth(14, type: .absoluteValueType, for: .margin, edge: .maxY)
+        return table
+    }
+
+    private func tableBlock(
+        table: NSTextTable,
+        row: Int,
+        column: Int,
+        widthPercentage: CGFloat,
+        isHeader: Bool
+    ) -> NSTextTableBlock {
+        let block = NSTextTableBlock(
+            table: table,
+            startingRow: row,
+            rowSpan: 1,
+            startingColumn: column,
+            columnSpan: 1
+        )
+        block.verticalAlignment = .topAlignment
+        block.setValue(widthPercentage, type: .percentageValueType, for: .width)
+        block.setWidth(9, type: .absoluteValueType, for: .padding)
+        block.setWidth(7, type: .absoluteValueType, for: .padding, edge: .minY)
+        block.setWidth(7, type: .absoluteValueType, for: .padding, edge: .maxY)
+        block.setWidth(
+            isHeader ? 1 : 0.65,
+            type: .absoluteValueType,
+            for: .border,
+            edge: .maxY
+        )
+        block.setBorderColor(theme.separatorColor, for: .maxY)
+        if isHeader {
+            block.backgroundColor = theme.codeBackgroundColor.withAlphaComponent(0.72)
+            block.setWidth(
+                0.65,
+                type: .absoluteValueType,
+                for: .border,
+                edge: .minY
             )
+            block.setBorderColor(theme.separatorColor, for: .minY)
         }
+        return block
+    }
+
+    private func tableParagraphStyle(
+        block: NSTextTableBlock,
+        alignment: TableColumnAlignment
+    ) -> NSParagraphStyle {
+        let paragraph = theme.bodyParagraphStyle.mutableCopy() as! NSMutableParagraphStyle
+        paragraph.textBlocks = [block]
+        paragraph.alignment = alignment.textAlignment
+        paragraph.lineSpacing = 3
+        paragraph.paragraphSpacingBefore = 0
+        paragraph.paragraphSpacing = 0
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.hyphenationFactor = 0.12
         return paragraph
     }
 
