@@ -58,7 +58,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes jq libdigest-sha-perl unzip zsh
           python -m pip install --disable-pip-version-check uv==0.7.8 "httpx>=0.27,<1" "jsonschema>=4.23,<5"
-          uv tool install --with "jsonschema>=4.23,<5" prime==0.6.24
+          uv tool install \
+            --with "jsonschema>=4.23,<5" \
+            --with "verifiers==0.3.0" \
+            prime==0.6.24
+          "$HOME/.local/share/uv/tools/prime/bin/python" -c \
+            'import importlib.metadata as m; assert m.version("verifiers") == "0.3.0"'
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run every portable Swift contract in pinned Linux
