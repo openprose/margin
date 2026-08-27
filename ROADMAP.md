@@ -7,7 +7,7 @@ directions rather than promises or dates.
 
 No work is currently marked for the next release.
 
-## Shipped through 0.5.0
+## Shipped through 0.5.1
 
 - Native file and directory editing, reader mode, tabs, navigation, restoration,
   and inline threaded review on macOS.
@@ -19,6 +19,8 @@ No work is currently marked for the next release.
   Linux CLI archives for x86-64 and ARM64.
 - Source-agnostic Markdown comparison and portable review threads in the native
   app and CLI, without repository discovery or Git-owned state.
+- Adaptive comment-composer ink and native reader tables with contained wrapping,
+  proportional columns, Markdown alignment, and source-accurate comment selection.
 
 ## Near term
 

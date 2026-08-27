@@ -4,6 +4,24 @@
 
 No changes yet.
 
+## 0.5.1 — native reading and review fixes
+
+Release date: 2026-08-27
+
+- Fixed the document and comparison comment composers so typed text, existing
+  draft text, and the insertion point resolve against each text view's current
+  macOS appearance. Light, dark, and both increased-contrast appearances now
+  retain clear native contrast when the appearance changes while a draft is open.
+- Replaced reader mode's tab-stop approximation of Markdown tables with native
+  TextKit table cells. Long content now wraps inside its row and column, headers
+  receive restrained native treatment, horizontal rules preserve row rhythm,
+  columns share the reading measure according to their content, and Markdown
+  left/center/right alignment markers are honored.
+- Preserved exact source-to-reader mappings inside table cells, so selecting a
+  table passage and starting a comment still anchors to literal Markdown.
+- Kept both fixes off the ordinary launch path: comment composers remain lazy,
+  and table construction runs only when reader-mode Markdown contains a table.
+
 ## 0.5.0 — source-agnostic comparison reviews
 
 Release date: 2026-08-22

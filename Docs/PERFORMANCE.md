@@ -271,6 +271,39 @@ no material startup regression. The suggestion projection is 20,536 bytes
 compact and 32,579 bytes pretty, within its 32 KiB contract. The measured v73
 digest is `6ef13fccb2dc8fdea4465d7d01e8a9e97c2d7fb5043903920073b3653ad72985`.
 
+## 0.5.1 review-readability gate
+
+The comment-ink fix is constructed only with a comment composer, and native
+table blocks are constructed only while rendering a detected reader-mode table.
+Neither path adds a launch dependency, background task, directory scan, or
+network operation.
+
+The exact final 0.5.1 candidate was paired with a same-toolchain rebuild of the
+exact 0.5.0 tag. After four uncounted warm launches per arm, the gate alternated
+launch order for 30 measured pairs against the same small Markdown fixture.
+
+| Build | Visible median | Visible p95 | Ready median | Ready p95 | RSS p95 |
+|---|---:|---:|---:|---:|---:|
+| Rebuilt 0.5.0 control | 336.745 ms | 376.888 ms | 429.005 ms | 477.939 ms | 154.063 MiB |
+| 0.5.1 candidate | 338.100 ms | 354.075 ms | 433.380 ms | 453.552 ms | 154.219 MiB |
+
+Candidate-minus-control paired medians were **+1.842 ms** to first visibility,
+**+3.228 ms** to target readiness, and **+0.109 MiB** sampled RSS. Mean visible
+delta was +1.455 ms. The RSS samples remained bimodal with macOS framework
+residency, so the paired delta and nearly identical p95 values are more useful
+than the unpaired pooled medians. These scheduler-scale movements and lower
+candidate latency p95s show no material launch regression; both arms remain
+well within the public 500 ms visible and 1,250 ms ready limits.
+
+The native table test rendered 400 rows in 0.060 seconds in the final release
+suite and enforces a conservative 0.35-second interaction budget. Layout tests verify
+that wrapped cells remain inside their rows, and GUI testing verified selection
+and comment anchoring inside a long three-column table. Appearance tests exercise
+Aqua, Dark Aqua, and both increased-contrast variants. The candidate adds only
+449 logical bundle bytes and 448 main-executable bytes over the rebuilt control.
+Its exact signed main executable is
+`d511b3a994baf31eca3239ab4cf9f23b18d3b0d96b4eb43f79a849f6ace90f57`.
+
 ## 0.5.0 comparison-review gate
 
 The source-agnostic comparison candidate was measured against a same-toolchain
