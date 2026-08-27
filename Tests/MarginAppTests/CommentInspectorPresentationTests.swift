@@ -99,6 +99,80 @@ final class CommentInspectorPresentationTests: XCTestCase {
         XCTAssertNotNil(rendered.attribute(.link, at: linkRange.location, effectiveRange: nil))
     }
 
+    func testCommentComposersKeepTypedTextAndCaretReadableAcrossAppearances() throws {
+        let documentController = CommentsViewController()
+        _ = documentController.view
+        documentController.beginNewComment(quotedText: "A selected passage")
+        let documentComposer = try XCTUnwrap(
+            descendants(in: documentController.view, ofType: NSTextView.self)
+                .first { $0.accessibilityLabel() == "Comment text" }
+        )
+
+        let comparisonController = ComparisonCommentsViewController()
+        _ = comparisonController.view
+        comparisonController.beginReply(
+            threadID: "thread",
+            parentID: "comment",
+            excerpt: "A compared passage"
+        )
+        let comparisonComposer = try XCTUnwrap(
+            descendants(in: comparisonController.view, ofType: NSTextView.self)
+                .first { $0.accessibilityLabel() == "Comparison comment" }
+        )
+
+        for (name, composer) in [
+            ("document", documentComposer),
+            ("comparison", comparisonComposer),
+        ] {
+            composer.string = "Visible comment text"
+            for appearanceName in [
+                NSAppearance.Name.aqua,
+                .darkAqua,
+                .accessibilityHighContrastAqua,
+                .accessibilityHighContrastDarkAqua,
+            ] {
+                let appearance = try XCTUnwrap(NSAppearance(named: appearanceName))
+                _ = try XCTUnwrap(composer as? MarginAdaptiveTextView)
+                composer.appearance = appearance
+
+                let expectedInk = MarginTheme.composerInk(for: appearance)
+                assertSameColor(
+                    composer.textColor,
+                    expectedInk,
+                    "\(name) text ink in \(appearanceName.rawValue)"
+                )
+                assertSameColor(
+                    composer.insertionPointColor,
+                    expectedInk,
+                    "\(name) caret ink in \(appearanceName.rawValue)"
+                )
+                assertSameColor(
+                    composer.typingAttributes[.foregroundColor] as? NSColor,
+                    expectedInk,
+                    "\(name) typing ink in \(appearanceName.rawValue)"
+                )
+                assertSameColor(
+                    composer.textStorage?.attribute(
+                        .foregroundColor,
+                        at: 0,
+                        effectiveRange: nil
+                    ) as? NSColor,
+                    expectedInk,
+                    "\(name) existing glyph ink in \(appearanceName.rawValue)"
+                )
+                XCTAssertGreaterThanOrEqual(
+                    contrastRatio(
+                        foreground: expectedInk,
+                        background: composer.backgroundColor,
+                        appearance: appearance
+                    ),
+                    7,
+                    "\(name) must retain enhanced contrast in \(appearanceName.rawValue)"
+                )
+            }
+        }
+    }
+
     func testInspectorOrdersRootsReportsProgressAndOnlyActiveThreadShowsActions() {
         let source = "alpha beta gamma"
         let alpha = makeRoot(
@@ -317,6 +391,74 @@ final class CommentInspectorPresentationTests: XCTestCase {
             target: target,
             status: status
         )
+    }
+
+    private func assertSameColor(
+        _ actual: NSColor?,
+        _ expected: NSColor,
+        _ message: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let actual = actual?.usingColorSpace(.sRGB),
+              let expected = expected.usingColorSpace(.sRGB) else {
+            XCTFail("\(message): colors must resolve to sRGB", file: file, line: line)
+            return
+        }
+        let actualComponents = rgba(actual)
+        let expectedComponents = rgba(expected)
+        for index in actualComponents.indices {
+            XCTAssertEqual(
+                actualComponents[index],
+                expectedComponents[index],
+                accuracy: 0.001,
+                message,
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func contrastRatio(
+        foreground: NSColor,
+        background: NSColor,
+        appearance: NSAppearance
+    ) -> CGFloat {
+        let foreground = resolved(foreground, appearance: appearance)
+        let background = resolved(background, appearance: appearance)
+        let foregroundLuminance = relativeLuminance(foreground)
+        let backgroundLuminance = relativeLuminance(background)
+        return (max(foregroundLuminance, backgroundLuminance) + 0.05)
+            / (min(foregroundLuminance, backgroundLuminance) + 0.05)
+    }
+
+    private func resolved(_ color: NSColor, appearance: NSAppearance) -> NSColor {
+        var resolved = color
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = color.usingColorSpace(.sRGB) ?? color
+        }
+        return resolved
+    }
+
+    private func relativeLuminance(_ color: NSColor) -> CGFloat {
+        let components = rgba(color)
+        func linear(_ channel: CGFloat) -> CGFloat {
+            channel <= 0.04045
+                ? channel / 12.92
+                : CGFloat(pow(Double((channel + 0.055) / 1.055), 2.4))
+        }
+        return 0.2126 * linear(components[0])
+            + 0.7152 * linear(components[1])
+            + 0.0722 * linear(components[2])
+    }
+
+    private func rgba(_ color: NSColor) -> [CGFloat] {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        return [red, green, blue, alpha]
     }
 
     private func makeReply(

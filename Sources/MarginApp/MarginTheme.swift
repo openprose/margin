@@ -47,6 +47,17 @@ enum MarginTheme {
         NSColor.controlAccentColor.withAlphaComponent(0.42)
     }
 
+    /// Resolve editable comment ink against the text view's own appearance.
+    /// NSTextView can otherwise retain a catalog color that resolves against a
+    /// different drawing appearance after the app or system theme changes.
+    static func composerInk(for appearance: NSAppearance) -> NSColor {
+        var resolved = NSColor.textColor
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = NSColor.textColor.usingColorSpace(.sRGB) ?? NSColor.textColor
+        }
+        return resolved
+    }
+
     static func sourceBodyFont(size: CGFloat = 15.5) -> NSFont {
         NSFont.systemFont(ofSize: size, weight: .regular)
     }
@@ -119,6 +130,40 @@ enum MarginTheme {
                 ? dark
                 : light
         }
+    }
+}
+
+/// A plain-text surface whose glyphs, typing attributes, and insertion point
+/// are always resolved from its effective appearance. Comment composers are
+/// created lazily, so this adds no work to Margin's launch path.
+class MarginAdaptiveTextView: NSTextView {
+    func refreshAdaptiveInk() {
+        let ink = MarginTheme.composerInk(for: effectiveAppearance)
+        textColor = ink
+        insertionPointColor = ink
+
+        var attributes = typingAttributes
+        attributes[.foregroundColor] = ink
+        typingAttributes = attributes
+
+        if let textStorage, textStorage.length > 0 {
+            textStorage.addAttribute(
+                .foregroundColor,
+                value: ink,
+                range: NSRange(location: 0, length: textStorage.length)
+            )
+        }
+        needsDisplay = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        refreshAdaptiveInk()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshAdaptiveInk()
     }
 }
 

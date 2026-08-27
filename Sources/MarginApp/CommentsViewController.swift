@@ -1211,7 +1211,7 @@ private final class ClosureButton: NSButton {
     @objc private func invoke() { handler() }
 }
 
-private final class CommentComposerTextView: NSTextView {
+private final class CommentComposerTextView: MarginAdaptiveTextView {
     var onSubmit: (() -> Void)?
     var onCancel: (() -> Void)?
     var onTextChange: ((String) -> Void)?
@@ -1293,12 +1293,14 @@ private final class CommentComposerView: NSView {
         textView.isAutomaticDataDetectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = true
         textView.font = .systemFont(ofSize: 13)
+        textView.drawsBackground = true
         textView.backgroundColor = MarginTheme.documentBackground
         textView.textContainerInset = NSSize(width: 7, height: 7)
         textView.setAccessibilityLabel("Comment text")
         textView.setAccessibilityHelp(textAccessibilityHelp)
         textView.string = initialBody
         textView.setSelectedRange(NSRange(location: textView.string.utf16.count, length: 0))
+        textView.refreshAdaptiveInk()
         scroll.documentView = textView
         stack.addArrangedSubview(scroll)
 

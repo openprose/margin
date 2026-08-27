@@ -17,7 +17,7 @@ final class ComparisonCommentsViewController: NSViewController, NSTableViewDataS
     private let emptyLabel = NSTextField(wrappingLabelWithString: "No review threads yet.")
     private let composerContainer = MarginSurfaceView(fillColor: MarginTheme.paletteBackground)
     private let composerContextLabel = NSTextField(wrappingLabelWithString: "")
-    private let composerTextView = NSTextView()
+    private let composerTextView = MarginAdaptiveTextView()
     private let submitButton = NSButton(title: "Add Comment", target: nil, action: nil)
     private let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
@@ -305,6 +305,7 @@ final class ComparisonCommentsViewController: NSViewController, NSTableViewDataS
         composerTextView.drawsBackground = true
         composerTextView.backgroundColor = .textBackgroundColor
         composerTextView.textContainerInset = NSSize(width: 7, height: 6)
+        composerTextView.refreshAdaptiveInk()
         composerTextView.setAccessibilityLabel("Comparison comment")
         composerTextView.setAccessibilityHelp(
             "Write Markdown. Press Command Return to save, or Escape to cancel."
