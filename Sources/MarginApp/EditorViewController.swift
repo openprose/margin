@@ -5,6 +5,7 @@ final class EditorViewController: NSViewController,
     WorkspaceDocumentPresenting,
     WorkspaceReaderModeToggling,
     WorkspaceDocumentSaving,
+    WorkspaceDocumentSavingAs,
     WorkspaceDocumentPathRelocating,
     WorkspaceComparisonSourceProviding,
     WorkspaceComparisonApplying,
@@ -63,6 +64,7 @@ final class EditorViewController: NSViewController,
     private var highlighter: MarkdownHighlighter?
     private weak var commentsViewController: CommentsViewController?
     private var documentURL: URL?
+    private var documentDisplayName: String?
     private var lastSavedBodyData = Data()
     private var isApplyingDocument = false
     private var isDirty = false
@@ -271,6 +273,14 @@ final class EditorViewController: NSViewController,
     }
 
     func presentDocument(at url: URL) {
+        presentDocument(at: url, displayName: nil)
+    }
+
+    func presentScratchpad(at url: URL, title: String) {
+        presentDocument(at: url, displayName: title)
+    }
+
+    private func presentDocument(at url: URL, displayName: String?) {
         _ = view
         guard prepareToClose() else { return }
         saveWorkItem?.cancel()
@@ -278,6 +288,7 @@ final class EditorViewController: NSViewController,
         fileWatcher = nil
 
         documentURL = url.standardizedFileURL
+        documentDisplayName = displayName
         isDocumentLoaded = false
         pendingContinuityState = nil
         selectedThreadID = nil
@@ -340,6 +351,7 @@ final class EditorViewController: NSViewController,
         fileWatcher?.stop()
         fileWatcher = nil
         documentURL = nil
+        documentDisplayName = nil
         isDocumentLoaded = false
         pendingContinuityState = nil
         selectedThreadID = nil
@@ -493,6 +505,43 @@ final class EditorViewController: NSViewController,
         }
     }
 
+    func saveDocument(to destinationURL: URL) -> Bool {
+        let destinationURL = destinationURL.standardizedFileURL
+        guard let sourceURL = documentURL else { return false }
+        guard prepareToClose() else { return false }
+        if sourceURL == destinationURL { return true }
+
+        do {
+            let data = try Data(contentsOf: sourceURL)
+            try data.write(to: destinationURL, options: .atomic)
+            fileWatcher?.stop()
+            fileWatcher = nil
+            documentURL = destinationURL
+            documentDisplayName = nil
+            watchDocument(destinationURL)
+            textView.isEditable = FileManager.default.isWritableFile(atPath: destinationURL.path)
+            textView.setAccessibilityHelp(
+                "Editing \(destinationURL.lastPathComponent) as literal Markdown. Formatting marks remain visible."
+            )
+            if isReaderMode, let reader = readerViewController {
+                let selection = reader.selectedSourceRange
+                reader.renderAsync(
+                    markdown: textView.string,
+                    baseURL: destinationURL.deletingLastPathComponent(),
+                    preferredSourceSelection: selection
+                ) { [weak self] applied in
+                    guard let self, applied, self.isReaderMode else { return }
+                    self.updateReaderHighlights()
+                }
+            }
+            updateStatus(savedMessage: true)
+            return true
+        } catch {
+            showBanner("Could not save as \(destinationURL.lastPathComponent): \(error.localizedDescription)")
+            return false
+        }
+    }
+
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(saveDocument(_:)) {
             return documentURL != nil
@@ -530,6 +579,7 @@ final class EditorViewController: NSViewController,
         fileWatcher?.stop()
         fileWatcher = nil
         self.documentURL = relocatedURL
+        documentDisplayName = nil
         watchDocument(relocatedURL)
         textView.setAccessibilityHelp(
             "Editing \(relocatedURL.lastPathComponent) as literal Markdown. Formatting marks remain visible."
@@ -834,7 +884,7 @@ final class EditorViewController: NSViewController,
         textView.setSelectedRange(NSRange(location: 0, length: 0))
         isApplyingDocument = false
         isDocumentLoaded = true
-        let name = documentURL?.lastPathComponent ?? "Markdown document"
+        let name = documentDisplayName ?? documentURL?.lastPathComponent ?? "Markdown document"
         textView.setAccessibilityHelp("Editing \(name) as literal Markdown. Formatting marks remain visible.")
         lastSavedBodyData = bodyData
         setDirty(false)

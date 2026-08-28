@@ -1,5 +1,50 @@
 import AppKit
+import ColorSync
 import MarginCore
+
+enum WorkspaceRestorationIdentifier {
+    private static let prefix = "ink.margin.workspace."
+
+    static func make(_ value: String) -> NSUserInterfaceItemIdentifier {
+        NSUserInterfaceItemIdentifier(prefix + value)
+    }
+
+    static func parse(_ identifier: NSUserInterfaceItemIdentifier) -> String? {
+        guard identifier.rawValue.hasPrefix(prefix) else { return nil }
+        let value = String(identifier.rawValue.dropFirst(prefix.count))
+        return value.isEmpty ? nil : value
+    }
+}
+
+enum WorkspaceScreenIdentity {
+    static func identifier(for screen: NSScreen?) -> String? {
+        guard let number = screen?.deviceDescription[
+            NSDeviceDescriptionKey("NSScreenNumber")
+        ] as? NSNumber else { return nil }
+        let displayID = CGDirectDisplayID(number.uint32Value)
+        guard let displayUUID = CGDisplayCreateUUIDFromDisplayID(displayID)?.takeRetainedValue(),
+              let identifier = CFUUIDCreateString(nil, displayUUID)
+        else {
+            return "display-\(displayID)"
+        }
+        return identifier as String
+    }
+}
+
+@MainActor
+final class WorkspaceWindowRestorationHandler: NSObject, NSWindowRestoration {
+    static func restoreWindow(
+        withIdentifier identifier: NSUserInterfaceItemIdentifier,
+        state: NSCoder,
+        completionHandler: @escaping (NSWindow?, Error?) -> Void
+    ) {
+        guard let delegate = NSApplication.shared.delegate as? AppDelegate else {
+            completionHandler(nil, nil)
+            return
+        }
+        completionHandler(delegate.restoreWorkspaceWindow(withIdentifier: identifier), nil)
+    }
+}
 
 protocol WorkspacePathRenameParticipating: AnyObject {
     var documentURLForPathRename: URL? { get }
@@ -138,15 +183,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var comparisonPickerController: NavigationPaletteController?
     private var pendingURLs: [URL] = []
     private var didFinishLaunching = false
-    private let sessionStore = WorkspaceSessionStore()
+    private let sessionStore: WorkspaceSessionStore
+    private let scratchpadStore: ScratchpadStore
     private let sessionPersistenceQueue = DispatchQueue(
         label: "ink.margin.session-persistence",
         qos: .utility
     )
     private var isRestoringSession = false
     private var isSessionPersistScheduled = false
+    private var terminationSession: WorkspaceSession?
+    private var nativeRestorationSession: WorkspaceSession?
+    private var nativeRestoredControllers: [String: WorkspaceWindowController] = [:]
+
+    override init() {
+        sessionStore = WorkspaceSessionStore()
+        scratchpadStore = ScratchpadStore()
+        super.init()
+    }
+
+    init(sessionStore: WorkspaceSessionStore, scratchpadStore: ScratchpadStore) {
+        self.sessionStore = sessionStore
+        self.scratchpadStore = scratchpadStore
+        super.init()
+    }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // Margin owns durable document continuity and always reopens its
+        // workspace. Register the matching AppKit preference as well so a
+        // normal Quit preserves native window state even when the system-wide
+        // “close windows when quitting” setting is enabled.
+        UserDefaults.standard.register(defaults: ["NSQuitAlwaysKeepsWindows": true])
         WorkspacePaneFactory.makeEditor = { EditorViewController() }
         WorkspacePaneFactory.makeComments = { CommentsViewController() }
         AppMenu.install(for: NSApplication.shared, delegate: self)
@@ -157,8 +223,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         let startupURLs = pendingURLs.isEmpty ? commandLineURLs() : pendingURLs
         pendingURLs.removeAll()
+        let didRestoreNatively = !nativeRestoredControllers.isEmpty
 
-        if startupURLs.isEmpty, restoreLastSession() {
+        if startupURLs.isEmpty, didRestoreNatively {
+            // AppKit has recreated and reconfigured every registered window,
+            // including its native tab-group placement.
+        } else if startupURLs.isEmpty, restoreLastSession() {
             // The first restored tab is visible immediately. Remaining tabs
             // attach on the next run-loop turn so session continuity never
             // delays the first usable window.
@@ -166,6 +236,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             makeWorkspaceWindow(for: nil)
         } else {
             open(startupURLs)
+        }
+        if didRestoreNatively {
+            isRestoringSession = false
+            nativeRestoredControllers.removeAll()
+            nativeRestorationSession = nil
         }
 
         NSApplication.shared.activate(ignoringOtherApps: true)
@@ -197,8 +272,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         persistSession()
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard workspaceWindows.allSatisfy({ $0.prepareForApplicationTermination() }) else {
+            terminationSession = nil
+            return .terminateCancel
+        }
+        terminationSession = captureWorkspaceSession()
         persistSession(synchronously: true)
+        workspaceWindows.forEach {
+            $0.invalidateRestorableState()
+            $0.window?.invalidateRestorableState()
+        }
+        sender.invalidateRestorableState()
+        return .terminateNow
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let terminationSession {
+            sessionPersistenceQueue.sync { [sessionStore] in
+                sessionStore.save(terminationSession)
+            }
+        } else {
+            persistSession(synchronously: true)
+        }
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
@@ -221,11 +317,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func newWindow(_ sender: Any?) {
-        makeWorkspaceWindow(for: nil)
+        makeScratchpadWindow(tabbedTo: nil)
     }
 
     @objc func newWindowForTab(_ sender: Any?) {
-        makeWorkspaceWindow(for: nil, tabbedTo: activeTabAnchorWindow)
+        makeScratchpadWindow(tabbedTo: activeTabAnchorWindow)
+    }
+
+    @objc func saveDocumentAs(_ sender: Any?) {
+        activeWorkspaceWindow?.saveDocumentAs(sender)
     }
 
     @objc func selectTab(_ sender: NSMenuItem) {
@@ -434,6 +534,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(openDocument(_:)), #selector(newWindow(_:)),
              #selector(newWindowForTab(_:)), #selector(compareFiles(_:)):
             return true
+        case #selector(saveDocumentAs(_:)):
+            return activeWorkspaceWindow?.canSaveDocumentAs == true
         case #selector(compareActiveTab(_:)):
             return OpenTabComparisonPickerModel.isAvailable(
                 active: activeWorkspaceWindow,
@@ -598,22 +700,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
+    private func makeScratchpadWindow(tabbedTo parentWindow: NSWindow?) {
+        do {
+            let scratchpad = try scratchpadStore.create()
+            makeWorkspaceWindow(
+                for: nil,
+                tabbedTo: parentWindow,
+                scratchpad: scratchpad
+            )
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.messageText = "Could Not Create Scratchpad"
+            alert.runModal()
+        }
+    }
+
     @discardableResult
     private func makeWorkspaceWindow(
         for url: URL?,
         tabbedTo parentWindow: NSWindow? = nil,
-        restorationState: WorkspaceTabSession? = nil
+        restorationState: WorkspaceTabSession? = nil,
+        scratchpad: ScratchpadDescriptor? = nil,
+        restorationIdentifier: String? = nil,
+        ordersFront: Bool = true
     ) -> WorkspaceWindowController {
         let controller = WorkspaceWindowController(
             workspaceURL: url,
-            restorationState: restorationState
+            scratchpad: scratchpad,
+            restorationState: restorationState,
+            scratchpadStore: scratchpadStore,
+            restorationIdentifier: restorationIdentifier
         )
         controller.onClose = { [weak self, weak controller] in
             guard let self, let controller else { return }
             self.workspaceWindows.removeAll { $0 === controller }
-            self.persistSession()
+            if self.terminationSession == nil {
+                self.schedulePersistSession()
+            }
         }
-        controller.onSessionStateChange = { [weak self] in self?.schedulePersistSession() }
+        controller.onSessionStateChange = { [weak self, weak controller] in
+            controller?.invalidateRestorableState()
+            controller?.window?.invalidateRestorableState()
+            self?.schedulePersistSession()
+        }
         controller.onRequestPathRename = { [weak self] sourceURL, proposedName in
             guard let self else {
                 return .failure(NavigatorRenameError.coordinationUnavailable)
@@ -652,9 +781,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             controller.refreshTabPresentation()
         }
-        controller.showWindow(nil)
-        focus(controller)
-        schedulePersistSession()
+        if ordersFront {
+            controller.showWindow(nil)
+            focus(controller)
+            schedulePersistSession()
+        }
         return controller
     }
 
@@ -887,38 +1018,118 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
+    func restoreWorkspaceWindow(
+        withIdentifier identifier: NSUserInterfaceItemIdentifier
+    ) -> NSWindow? {
+        guard commandLineURLs().isEmpty,
+              let restorationIdentifier = WorkspaceRestorationIdentifier.parse(identifier)
+        else { return nil }
+        if let existing = nativeRestoredControllers[restorationIdentifier] {
+            return existing.window
+        }
+
+        let session: WorkspaceSession
+        if let nativeRestorationSession {
+            session = nativeRestorationSession
+        } else {
+            guard let loaded = sessionStore.load() else { return nil }
+            nativeRestorationSession = loaded
+            session = loaded
+        }
+        guard let state = session.windows
+            .flatMap(\.tabs)
+            .first(where: { $0.restorationIdentifier == restorationIdentifier }),
+              isRestorable(state) else { return nil }
+
+        isRestoringSession = true
+        let controller = makeWorkspaceWindow(
+            for: nil,
+            restorationState: state,
+            restorationIdentifier: restorationIdentifier,
+            ordersFront: false
+        )
+        nativeRestoredControllers[restorationIdentifier] = controller
+        return controller.window
+    }
+
     private func restoreLastSession() -> Bool {
         guard let session = sessionStore.load() else { return false }
-        let requestedSelectedState = session.tabs.indices.contains(session.selectedIndex)
-            ? session.tabs[session.selectedIndex]
-            : session.tabs.first
-        let tabs = session.tabs.filter { state in
-            FileManager.default.fileExists(atPath: state.workspacePath)
+        let indexedWindows = session.windows.enumerated().compactMap {
+            originalIndex, window -> (Int, WorkspaceWindowSession)? in
+            let tabs = window.tabs.filter(isRestorable)
+            guard !tabs.isEmpty else { return nil }
+            let requestedTab = window.tabs.indices.contains(window.selectedIndex)
+                ? window.tabs[window.selectedIndex]
+                : nil
+            let selectedIndex = requestedTab.flatMap { tabs.firstIndex(of: $0) }
+                ?? min(max(window.selectedIndex, 0), tabs.count - 1)
+            return (originalIndex, WorkspaceWindowSession(
+                tabs: tabs,
+                selectedIndex: selectedIndex,
+                frame: window.frame
+            ))
         }
-        guard let first = tabs.first else { return false }
+        let windows = indexedWindows.map(\.1)
+        guard let firstWindow = windows.first, let firstTab = firstWindow.tabs.first else {
+            return false
+        }
+        let restoredSelectedWindowIndex = indexedWindows.firstIndex {
+            $0.0 == session.selectedWindowIndex
+        } ?? min(max(session.selectedWindowIndex, 0), windows.count - 1)
 
         isRestoringSession = true
         let firstController = makeWorkspaceWindow(
-            for: URL(fileURLWithPath: first.workspacePath),
-            restorationState: first
+            for: nil,
+            restorationState: firstTab
         )
+        firstWindow.frame.map(firstController.applyRestoredWindowFrame)
 
         DispatchQueue.main.async { [weak self, weak firstController] in
             guard let self, let firstController else { return }
-            var controllers = [firstController]
-            var tabAnchor = firstController.window
-            for state in tabs.dropFirst() {
-                let controller = self.makeWorkspaceWindow(
-                    for: URL(fileURLWithPath: state.workspacePath),
-                    tabbedTo: tabAnchor,
-                    restorationState: state
+            var restoredWindows: [[WorkspaceWindowController]] = []
+
+            for (windowIndex, windowState) in windows.enumerated() {
+                var controllers: [WorkspaceWindowController] = []
+                var tabAnchor: NSWindow?
+
+                for (tabIndex, state) in windowState.tabs.enumerated() {
+                    let controller: WorkspaceWindowController
+                    if windowIndex == 0, tabIndex == 0 {
+                        controller = firstController
+                    } else {
+                        controller = self.makeWorkspaceWindow(
+                            for: nil,
+                            tabbedTo: tabAnchor,
+                            restorationState: state
+                        )
+                    }
+                    controllers.append(controller)
+                    tabAnchor = controller.window
+                }
+
+                if let frame = windowState.frame {
+                    controllers.first?.applyRestoredWindowFrame(frame)
+                }
+                let selectedIndex = min(
+                    max(windowState.selectedIndex, 0),
+                    controllers.count - 1
                 )
-                controllers.append(controller)
-                tabAnchor = controller.window
+                if let selectedWindow = controllers[selectedIndex].window {
+                    selectedWindow.tabGroup?.selectedWindow = selectedWindow
+                }
+                restoredWindows.append(controllers)
             }
-            let selected = requestedSelectedState.flatMap { tabs.firstIndex(of: $0) }
-                ?? min(max(session.selectedIndex, 0), controllers.count - 1)
-            self.focus(controllers[selected])
+
+            let selectedWindowIndex = min(
+                max(restoredSelectedWindowIndex, 0),
+                restoredWindows.count - 1
+            )
+            let selectedWindowState = windows[selectedWindowIndex]
+            let selectedTabIndex = min(
+                max(selectedWindowState.selectedIndex, 0),
+                restoredWindows[selectedWindowIndex].count - 1
+            )
+            self.focus(restoredWindows[selectedWindowIndex][selectedTabIndex])
             self.isRestoringSession = false
             self.persistSession()
         }
@@ -927,14 +1138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func persistSession(synchronously: Bool = false) {
         guard didFinishLaunching, !isRestoringSession else { return }
-        let tabs = workspaceWindows.compactMap(\.sessionState)
-        let selectedController = activeWorkspaceWindow
-        let selectedIndex = selectedController.flatMap { selected in
-            workspaceWindows.firstIndex { $0 === selected }
-        } ?? 0
-        let session = tabs.isEmpty
-            ? nil
-            : WorkspaceSession(tabs: tabs, selectedIndex: selectedIndex)
+        let session = captureWorkspaceSession()
         let save = { [sessionStore] in sessionStore.save(session) }
         if synchronously {
             sessionPersistenceQueue.sync(execute: save)
@@ -943,8 +1147,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
+    private func isRestorable(_ state: WorkspaceTabSession) -> Bool {
+        if let id = state.scratchpadID {
+            return scratchpadStore.exists(ScratchpadDescriptor(
+                id: id,
+                title: state.scratchpadTitle ?? "Untitled"
+            ))
+        }
+        return FileManager.default.fileExists(atPath: state.workspacePath)
+    }
+
+    private func captureWorkspaceSession() -> WorkspaceSession? {
+        var visitedWindows = Set<ObjectIdentifier>()
+        var windowSessions: [WorkspaceWindowSession] = []
+        var controllerWindowIndices: [ObjectIdentifier: Int] = [:]
+
+        for controller in workspaceWindows {
+            guard let window = controller.window,
+                  !visitedWindows.contains(ObjectIdentifier(window)) else { continue }
+
+            let tabWindows = window.tabGroup?.windows ?? [window]
+            let controllers = tabWindows.compactMap {
+                $0.windowController as? WorkspaceWindowController
+            }
+            controllers.compactMap(\.window).forEach {
+                visitedWindows.insert(ObjectIdentifier($0))
+            }
+            let tabs = controllers.compactMap(\.sessionState)
+            guard !tabs.isEmpty else { continue }
+
+            let selectedWindow = window.tabGroup?.selectedWindow ?? window
+            let selectedIndex = controllers.firstIndex {
+                $0.window === selectedWindow
+            } ?? 0
+            let windowIndex = windowSessions.count
+            controllers.forEach { controller in
+                controllerWindowIndices[ObjectIdentifier(controller)] = windowIndex
+            }
+            windowSessions.append(WorkspaceWindowSession(
+                tabs: tabs,
+                selectedIndex: selectedIndex,
+                frame: WorkspaceWindowFrame(
+                    selectedWindow.frame,
+                    displayIdentifier: WorkspaceScreenIdentity.identifier(
+                        for: selectedWindow.screen
+                    ),
+                    displayFrame: selectedWindow.screen?.visibleFrame
+                )
+            ))
+        }
+
+        guard !windowSessions.isEmpty else { return nil }
+        let selectedWindowIndex = activeWorkspaceWindow.flatMap {
+            controllerWindowIndices[ObjectIdentifier($0)]
+        } ?? 0
+        return WorkspaceSession(
+            windows: windowSessions,
+            selectedWindowIndex: selectedWindowIndex
+        )
+    }
+
+    var workspaceSessionForTesting: WorkspaceSession? {
+        captureWorkspaceSession()
+    }
+
+    var isTerminatingApplication: Bool {
+        terminationSession != nil
+    }
+
     private func schedulePersistSession() {
         guard didFinishLaunching, !isRestoringSession, !isSessionPersistScheduled else { return }
+        NSApplication.shared.invalidateRestorableState()
         isSessionPersistScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }

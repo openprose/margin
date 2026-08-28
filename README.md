@@ -63,6 +63,8 @@ Open a file for quick editing or a directory for a native, lazily loaded navigat
 
 In the app you can:
 
+- create an automatically saved untitled Markdown scratchpad with `⌘T`, or a scratchpad in a separate window with `⌘N`, then promote it to an ordinary file with `⌘⇧S`;
+- return after a normal quit to the same independent windows and displays, tab groups, selected tabs, cursor positions, and scroll positions;
 - edit literal Markdown with restrained syntax cues, delimiter pairing, list continuation, native undo, find, spellcheck, and accessibility support;
 - switch to a bounded, typography-first reader view with `⌘⇧R`;
 - select a passage and comment from the inline affordance, context menu, or `⌘⌥M`;

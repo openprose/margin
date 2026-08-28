@@ -102,10 +102,18 @@ directory indexing, filesystem watching, comparison loading, collaboration
 overviews, and stage presentation are created only when requested so they do
 not join the initial window path.
 
-The application stores only lightweight local presentation state such as open
-tabs, pane visibility, selection, scroll position, and the active thread. An
-explicit file or directory supplied by the user takes precedence over session
-restoration.
+The application stores only lightweight local presentation state such as the
+independent-window and native-tab hierarchy, pane visibility, selection, scroll
+position, display affinity, and the active thread. Stable native restoration
+identifiers let AppKit preserve system-managed window state; custom placement
+metadata provides physical-display continuity and an on-screen fallback when a
+display is unavailable. Untitled scratchpads are ordinary Markdown
+files below the user's private Application Support directory; the session holds
+only their stable identity and presentation state. Scratch contents use the
+same atomic autosave path as named documents, are flushed synchronously during
+a normal quit, and move to the selected destination only after Save As
+succeeds. An explicit file or directory supplied by the user takes precedence
+over session restoration.
 
 ## CLI contract
 

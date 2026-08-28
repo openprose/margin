@@ -18,11 +18,12 @@ All panes use standard AppKit split-view behavior, system materials, native focu
 
 - A new or comment-free document begins with the source alone. The comment inspector opens automatically only when a document already contains review threads or the user starts a comment.
 - Standalone files hide the navigator; directory workspaces reveal it. Closing either sidebar gives its space to the document without changing the outer window frame.
-- The initial window uses a generous 1180 × 780 working size when the screen permits. Later launches restore only a usable, on-screen frame, and the document pane remains the elastic region during live resize and full screen.
-- Opening several files—through the Open panel, Finder, or the CLI—places them in native tabs. An empty tab is reused, duplicate paths focus their existing tab, and separate windows remain available with `⌘N`.
+- The initial window uses a generous 1180 × 780 working size when the screen permits. Later launches restore each window to its prior physical display when available, with a usable on-screen fallback when a display is disconnected; the document pane remains the elastic region during live resize and full screen.
+- Opening several files—through the Open panel, Finder, or the CLI—places them in native tabs. An empty start tab is reused, duplicate paths focus their existing tab, and separate windows remain available.
+- `⌘T` creates an editable, automatically saved untitled Markdown scratchpad in the current tab group. `⌘N` creates one in a separate window, and `⌘⇧S` promotes it to an ordinary named Markdown file without changing its tab position.
 - Tabs follow browser conventions: `⌘T`, `⌘W`, `⌃Tab`, `⌃⇧Tab`, and `⌘1`…`⌘9`. Pane focus uses `⌃1`…`⌃3` so it never competes with tab selection.
 - Reader presentation and file-provider change watching begin only after they are requested, away from the main interaction path. Stale reader work is discarded when the user switches files or modes.
-- A normal relaunch restores tabs and lightweight view state, but an explicit CLI target always wins. Persistence is deferred to a utility queue and never joins the first-window path.
+- A normal relaunch restores independent windows, their physical displays, native tab groups and order, the selected window and tab, usable window frames, scratchpad contents, and lightweight editor state. An explicit CLI target always wins. Session persistence is deferred to a utility queue, and scratchpads remain ordinary private Markdown files rather than database records.
 - New comments or replies arriving from another process never steal focus or open the inspector. They add a restrained numeric tab/toolbar signal and a temporary **New** filter until the affected thread is deliberately visited.
 
 ## Typography and color

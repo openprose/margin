@@ -149,6 +149,15 @@ enum AppMenu {
         fileMenu.addItem(
             item("Save", action: #selector(WorkspaceDocumentSaving.saveDocument(_:)), key: "s")
         )
+        fileMenu.addItem(
+            item(
+                "Save Scratchpad As…",
+                action: #selector(AppDelegate.saveDocumentAs(_:)),
+                key: "s",
+                modifiers: [.command, .shift],
+                target: delegate
+            )
+        )
         fileMenu.addItem(.separator())
         fileMenu.addItem(item("Close Tab", action: #selector(NSWindow.performClose(_:)), key: "w"))
         mainMenu.addItem(menuItem(title: "File", submenu: fileMenu))
