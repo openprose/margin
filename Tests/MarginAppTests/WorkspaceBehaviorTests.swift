@@ -627,6 +627,30 @@ final class WorkspaceBehaviorTests: XCTestCase {
         XCTAssertEqual(restorationIdentifiers.count, 3)
         XCTAssertEqual(Set(restorationIdentifiers).count, 3)
         XCTAssertNotNil(captured.windows[0].frame?.displayIdentifier)
+
+        // A tab selection must not replace its group's preserved layout with
+        // the hidden tab's frame. Explicit native resize resets the whole group.
+        let groupWindow = try XCTUnwrap(NSApplication.shared.windows.first {
+            !originalWindows.contains(ObjectIdentifier($0)) && ($0.tabGroup?.windows.count ?? 0) == 2
+        })
+        let selectedWindow = try XCTUnwrap(groupWindow.tabGroup?.selectedWindow)
+        let selectedController = try XCTUnwrap(selectedWindow.windowController as? WorkspaceWindowController)
+        let preferred = WorkspaceWindowFrame(
+            CGRect(x: 1500, y: 50, width: 1900, height: 1100),
+            displayIdentifier: "disconnected-display",
+            displayFrame: CGRect(x: 1440, y: 0, width: 2560, height: 1440)
+        )
+        selectedController.windowPlacementMemory = WorkspaceWindowPlacementMemory(preferredFrame: preferred)
+        captured = try XCTUnwrap(delegate.workspaceSessionForTesting)
+        XCTAssertEqual(captured.windows.first { $0.tabs.count == 2 }?.preferredFrame, preferred)
+        for tab in groupWindow.tabGroup?.windows ?? [] {
+            let controller = try XCTUnwrap(tab.windowController as? WorkspaceWindowController)
+            XCTAssertEqual(controller.windowPlacementMemory.preferredFrame, preferred)
+        }
+        selectedController.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification, object: selectedWindow))
+        captured = try XCTUnwrap(delegate.workspaceSessionForTesting)
+        let resized = try XCTUnwrap(captured.windows.first { $0.tabs.count == 2 })
+        XCTAssertEqual(resized.preferredFrame, resized.frame)
     }
 
     func testUnreadCommentBadgeIsLazyAndPersistsUntilActivityIsRead() throws {

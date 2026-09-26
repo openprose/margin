@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Keep a window's preferred size and display placement separate from temporary
+  adjustments after a monitor disconnect or resolution change. Reconnection
+  restores the preferred frame without activating the app or switching Spaces;
+  a deliberate drag, live resize, or Zoom establishes a new preference. Existing
+  sessions remain compatible; no document or scratchpad format changes.
 - On current macOS, independent windows now return to their previous Spaces
   without pulling the user away from the active Space during cold launch. Once
   running, ordinary Space changes perform no window creation or activation;

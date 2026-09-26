@@ -68,6 +68,8 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
     var onClose: (() -> Void)?
     var onSessionStateChange: (() -> Void)?
+    var onUserWindowGeometryChange: (() -> Void)?
+    var windowPlacementMemory = WorkspaceWindowPlacementMemory()
     var onRequestPathRename: ((URL, String) -> Result<URL, Error>)?
 
     private(set) var workspaceURL: URL?
@@ -312,7 +314,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
             displays: displays
         ) else { return }
         pendingInitialWindowFrame = nil
-        window.setFrame(frame, display: true, animate: false)
+        if window.frame != frame {
+            window.setFrame(frame, display: true, animate: false)
+        }
     }
 
     func refreshTabPresentation() {
@@ -1024,12 +1028,34 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         onSessionStateChange?()
     }
 
+    func windowWillMove(_ notification: Notification) {
+        if let event = NSApp.currentEvent,
+           event.window === window,
+           event.type == .leftMouseDown || event.type == .leftMouseDragged {
+            onUserWindowGeometryChange?()
+        }
+    }
+
     func windowDidMove(_ notification: Notification) {
         onSessionStateChange?()
     }
 
+    func windowDidResize(_ notification: Notification) {
+        if window?.inLiveResize != true { onSessionStateChange?() }
+    }
+
+    func windowWillStartLiveResize(_ notification: Notification) {
+        onUserWindowGeometryChange?()
+    }
+
     func windowDidEndLiveResize(_ notification: Notification) {
+        onUserWindowGeometryChange?()
         onSessionStateChange?()
+    }
+
+    func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
+        onUserWindowGeometryChange?()
+        return true
     }
 
     func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame newFrame: NSRect) -> NSRect {

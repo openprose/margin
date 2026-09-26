@@ -206,6 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var isRestoringSession = false
     private var isSessionPersistScheduled = false
     private var terminationSession: WorkspaceSession?
+    private var isDisplayLayoutScheduled = false
     private lazy var spaceRestorationBackend = WorkspaceSpaceRestorationBackendFactory.make()
 
     override init() {
@@ -343,6 +344,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let window = notification.object as? NSWindow,
               window.windowController is WorkspaceWindowController else { return }
         schedulePersistSession()
+    }
+
+    func applicationDidChangeScreenParameters(_ notification: Notification) {
+        guard didFinishLaunching, !MarginRuntimeEnvironment.isPerformanceBenchmark else { return }
+        let displays = workspaceDisplayGeometries()
+        workspaceWindows.forEach {
+            $0.windowPlacementMemory.displayConfigurationChanged(to: displays)
+        }
+        if workspaceWindows.contains(where: { $0.windowPlacementMemory.needsDisplayAdjustment }) {
+            scheduleDisplayLayoutAdjustment()
+        }
+    }
+
+    private func scheduleDisplayLayoutAdjustment() {
+        guard !isDisplayLayoutScheduled else { return }
+        isDisplayLayoutScheduled = true
+        // Coalesce a display reconfiguration on the main queue. No polling,
+        // active-Space observer, activation, or private Space moves are needed.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            defer { self.isDisplayLayoutScheduled = false }
+            guard !self.isRestoringSession, self.terminationSession == nil else { return }
+            var visited = Set<ObjectIdentifier>()
+            for controller in self.workspaceWindows {
+                guard let window = controller.window else { continue }
+                let selected = window.tabGroup?.selectedWindow ?? window
+                guard visited.insert(ObjectIdentifier(selected)).inserted,
+                      !selected.styleMask.contains(.fullScreen),
+                      !selected.isMiniaturized,
+                      !selected.inLiveResize,
+                      let selectedController = selected.windowController as? WorkspaceWindowController,
+                      let frame = selectedController.windowPlacementMemory.takeFrameForDisplayChange() else { continue }
+                selectedController.applyRestoredWindowFrame(frame)
+            }
+            self.schedulePersistSession()
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -838,6 +875,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             controller?.invalidateRestorableState()
             controller?.window?.invalidateRestorableState()
             self?.schedulePersistSession()
+            if controller?.windowPlacementMemory.needsDisplayAdjustment == true {
+                self?.scheduleDisplayLayoutAdjustment()
+            }
+        }
+        controller.onUserWindowGeometryChange = { [weak controller] in
+            guard let window = controller?.window else { return }
+            for tab in window.tabGroup?.windows ?? [window] {
+                (tab.windowController as? WorkspaceWindowController)?
+                    .windowPlacementMemory.userWillChangeFrame()
+            }
         }
         controller.onRequestPathRename = { [weak self] sourceURL, proposedName in
             guard let self else {
@@ -866,6 +913,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 break
             }
             controller.prepareForTabAttachment()
+            if let parent = parentWindow.windowController as? WorkspaceWindowController {
+                controller.windowPlacementMemory = parent.windowPlacementMemory
+            }
             parentWindow.addTabbedWindow(window, ordered: .above)
             switch parentWindow.windowController {
             case let parent as WorkspaceWindowController:
@@ -1136,7 +1186,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 tabs: tabs,
                 selectedIndex: selectedIndex,
                 frame: window.frame,
-                space: window.space
+                space: window.space,
+                preferredFrame: window.preferredFrame
             ))
         }
         let windows = indexedWindows.map(\.1)
@@ -1153,7 +1204,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             restorationState: firstTab,
             ordersFront: false
         )
-        firstWindow.frame.map(firstController.applyRestoredWindowFrame)
+        let firstFrame = firstWindow.preferredFrame ?? firstWindow.frame
+        firstController.windowPlacementMemory = WorkspaceWindowPlacementMemory(preferredFrame: firstFrame)
+        firstFrame.map(firstController.applyRestoredWindowFrame)
 
         DispatchQueue.main.async { [weak self, weak firstController] in
             guard let self, let firstController else { return }
@@ -1179,7 +1232,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     tabAnchor = controller.window
                 }
 
-                if let frame = windowState.frame {
+                let preferredFrame = windowState.preferredFrame ?? windowState.frame
+                for controller in controllers {
+                    controller.windowPlacementMemory = WorkspaceWindowPlacementMemory(preferredFrame: preferredFrame)
+                }
+                if let frame = preferredFrame {
                     controllers.first?.applyRestoredWindowFrame(frame)
                 }
                 let selectedIndex = min(
@@ -1355,6 +1412,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard let self else { return }
             self.isRestoringSession = false
             self.persistSession()
+            if self.workspaceWindows.contains(where: { $0.windowPlacementMemory.needsDisplayAdjustment }) {
+                self.scheduleDisplayLayoutAdjustment()
+            }
         }
     }
 
@@ -1383,6 +1443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         var visitedWindows = Set<ObjectIdentifier>()
         var windowSessions: [WorkspaceWindowSession] = []
         var controllerWindowIndices: [ObjectIdentifier: Int] = [:]
+        let displays = workspaceDisplayGeometries()
 
         for controller in workspaceWindows {
             guard let window = controller.window,
@@ -1399,6 +1460,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard !tabs.isEmpty else { continue }
 
             let selectedWindow = window.tabGroup?.selectedWindow ?? window
+            let selectedController = selectedWindow.windowController as? WorkspaceWindowController
+                ?? controller
+            let currentFrame = WorkspaceWindowFrame(
+                selectedWindow.frame,
+                displayIdentifier: WorkspaceScreenIdentity.identifier(for: selectedWindow.screen),
+                displayFrame: selectedWindow.screen?.visibleFrame
+            )
+            var placement = selectedController.windowPlacementMemory
+            if !selectedWindow.styleMask.contains(.fullScreen) {
+                placement.capture(currentFrame, displays: displays)
+            }
+            controllers.forEach { $0.windowPlacementMemory = placement }
             let selectedIndex = controllers.firstIndex {
                 $0.window === selectedWindow
             } ?? 0
@@ -1412,16 +1485,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             windowSessions.append(WorkspaceWindowSession(
                 tabs: tabs,
                 selectedIndex: selectedIndex,
-                frame: WorkspaceWindowFrame(
-                    selectedWindow.frame,
-                    displayIdentifier: WorkspaceScreenIdentity.identifier(
-                        for: selectedWindow.screen
-                    ),
-                    displayFrame: selectedWindow.screen?.visibleFrame
-                ),
+                frame: currentFrame,
                 space: spaceRestorationBackend.captureAssignment(
                     forWindowIDs: windowIDs
-                )
+                ),
+                preferredFrame: placement.preferredFrame
             ))
         }
 
@@ -1437,6 +1505,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     var workspaceSessionForTesting: WorkspaceSession? {
         captureWorkspaceSession()
+    }
+
+    private func workspaceDisplayGeometries() -> [WorkspaceDisplayGeometry] {
+        NSScreen.screens.map {
+            WorkspaceDisplayGeometry(
+                identifier: WorkspaceScreenIdentity.identifier(for: $0),
+                visibleFrame: $0.visibleFrame,
+                screenFrame: $0.frame
+            )
+        }
     }
 
     var isTerminatingApplication: Bool {

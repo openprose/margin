@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 struct EditorContinuityState: Codable, Equatable {
@@ -81,6 +82,9 @@ struct WorkspaceWindowFrame: Codable, Equatable {
 struct WorkspaceDisplayGeometry: Equatable {
     var identifier: String?
     var visibleFrame: CGRect
+    // Physical display bounds, independent of Dock/menu-bar/Space visibility.
+    // Placement still uses visibleFrame; only configuration comparison uses this.
+    var screenFrame: CGRect? = nil
 }
 
 enum WorkspaceWindowPlacementResolver {
@@ -146,11 +150,83 @@ enum WorkspaceWindowPlacementResolver {
     }
 }
 
+/// The frame the user chose is distinct from AppKit's temporary screen fit.
+/// Keep just one preference, not an unbounded history of display arrangements.
+struct WorkspaceWindowPlacementMemory: Equatable {
+    private(set) var preferredFrame: WorkspaceWindowFrame?
+    private var displays: [WorkspaceDisplayGeometry]?
+    private var protectsPreferredFrame = false
+    private(set) var needsDisplayAdjustment = false
+
+    init(preferredFrame: WorkspaceWindowFrame? = nil) {
+        self.preferredFrame = preferredFrame
+        protectsPreferredFrame = preferredFrame != nil
+    }
+
+    mutating func capture(
+        _ currentFrame: WorkspaceWindowFrame,
+        displays currentDisplays: [WorkspaceDisplayGeometry]
+    ) {
+        // An unchanged launch frame needs no special protection. Keep normal
+        // native geometry changes (including tiling) working as before.
+        if displays == nil, preferredFrame == currentFrame {
+            protectsPreferredFrame = false
+        }
+        // Check here as well as in the display notification: AppKit may send
+        // window move/resize notifications before the application notification.
+        _ = displayConfigurationChanged(to: currentDisplays)
+        if preferredFrame == nil || !protectsPreferredFrame {
+            preferredFrame = currentFrame
+        }
+    }
+
+    @discardableResult
+    mutating func displayConfigurationChanged(to currentDisplays: [WorkspaceDisplayGeometry]) -> Bool {
+        let changed = displays.map { !Self.sameDisplays($0, currentDisplays) } ?? false
+        displays = currentDisplays
+        if changed {
+            protectsPreferredFrame = true
+            needsDisplayAdjustment = true
+        }
+        return changed
+    }
+
+    mutating func takeFrameForDisplayChange() -> WorkspaceWindowFrame? {
+        guard needsDisplayAdjustment else { return nil }
+        needsDisplayAdjustment = false
+        return preferredFrame
+    }
+
+    mutating func userWillChangeFrame() {
+        // A deliberate move, live resize, or Zoom supersedes the old preference,
+        // including when the user chooses a new layout on a fallback display.
+        protectsPreferredFrame = false
+        needsDisplayAdjustment = false
+        displays = nil
+    }
+
+    private static func sameDisplays(
+        _ left: [WorkspaceDisplayGeometry],
+        _ right: [WorkspaceDisplayGeometry]
+    ) -> Bool {
+        left.count == right.count && left.allSatisfy { previous in
+            right.contains { current in
+                previous.identifier == current.identifier
+                    && (previous.screenFrame ?? previous.visibleFrame)
+                        == (current.screenFrame ?? current.visibleFrame)
+            }
+        }
+    }
+}
+
 struct WorkspaceWindowSession: Codable, Equatable {
     var tabs: [WorkspaceTabSession]
     var selectedIndex: Int
     var frame: WorkspaceWindowFrame?
     var space: WorkspaceSpaceAssignment? = nil
+    // Optional for compatibility with existing version-2 sessions. `frame`
+    // remains the actual last frame, usable by older builds.
+    var preferredFrame: WorkspaceWindowFrame? = nil
 }
 
 struct WorkspaceSpaceAssignment: Codable, Equatable {
