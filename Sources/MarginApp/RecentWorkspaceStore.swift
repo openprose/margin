@@ -21,13 +21,16 @@ final class RecentWorkspaceStore {
 
     private let defaults: UserDefaults
     private let key: String
+    private let persistenceEnabled: Bool
 
     init(
         defaults: UserDefaults = .standard,
-        key: String = "MarginRecentWorkspaces.v1"
+        key: String = "MarginRecentWorkspaces.v1",
+        persistenceEnabled: Bool = true
     ) {
         self.defaults = defaults
         self.key = key
+        self.persistenceEnabled = persistenceEnabled
     }
 
     func workspaces(limit: Int = 10) -> [RecentWorkspace] {
@@ -67,6 +70,7 @@ final class RecentWorkspaceStore {
     }
 
     func record(_ url: URL, at date: Date = Date(), limit: Int = 12) {
+        guard persistenceEnabled else { return }
         let standardizedURL = url.standardizedFileURL
         var entries = workspaces(limit: max(limit, 12)).map {
             PersistedWorkspace(

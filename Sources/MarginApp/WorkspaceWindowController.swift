@@ -3,10 +3,15 @@ import MarginCore
 
 protocol WorkspaceDocumentPresenting: AnyObject {
     func presentDocument(at url: URL)
+    func presentScratchpad(at url: URL, title: String)
     func clearDocument()
 }
 
 extension WorkspaceDocumentPresenting {
+    func presentScratchpad(at url: URL, title: String) {
+        presentDocument(at: url)
+    }
+
     func clearDocument() {}
 }
 
@@ -21,6 +26,10 @@ protocol WorkspaceReaderModeToggling: AnyObject {
 
 @objc protocol WorkspaceDocumentSaving: AnyObject {
     func saveDocument(_ sender: Any?)
+}
+
+protocol WorkspaceDocumentSavingAs: AnyObject {
+    func saveDocument(to url: URL) -> Bool
 }
 
 protocol WorkspaceDocumentPathRelocating: AnyObject {
@@ -54,10 +63,13 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         case empty
         case file(URL)
         case directory(URL)
+        case scratchpad(ScratchpadDescriptor)
     }
 
     var onClose: (() -> Void)?
     var onSessionStateChange: (() -> Void)?
+    var onUserWindowGeometryChange: (() -> Void)?
+    var windowPlacementMemory = WorkspaceWindowPlacementMemory()
     var onRequestPathRename: ((URL, String) -> Result<URL, Error>)?
 
     private(set) var workspaceURL: URL?
@@ -72,6 +84,8 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     private let editorItem: NSSplitViewItem
     private let commentsItem: NSSplitViewItem
     private let recentWorkspaceStore: RecentWorkspaceStore
+    private let scratchpadStore: ScratchpadStore
+    let restorationIdentifier: String
     private var navigationPaletteController: NavigationPaletteController?
     private var recentWorkspaceStartViewController: RecentWorkspaceStartViewController?
     private var recentWorkspaceLoadGeneration = UUID()
@@ -87,6 +101,11 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
     var isEmpty: Bool {
         if case .empty = workspaceKind { return true }
+        return false
+    }
+
+    var isScratchpad: Bool {
+        if case .scratchpad = workspaceKind { return true }
         return false
     }
 
@@ -115,6 +134,10 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
     var canSaveDocument: Bool {
         documentURL != nil && editorViewController is WorkspaceDocumentSaving
+    }
+
+    var canSaveDocumentAs: Bool {
+        isScratchpad && editorViewController is WorkspaceDocumentSavingAs
     }
 
     var canQuickOpen: Bool { quickOpenDirectoryURL != nil }
@@ -167,13 +190,22 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         guard let workspaceURL else { return nil }
         let editorState = (editorViewController as? WorkspaceContinuityProviding)?
             .captureContinuityState() ?? .beginning
+        let scratchpad: ScratchpadDescriptor?
+        if case .scratchpad(let descriptor) = workspaceKind {
+            scratchpad = descriptor
+        } else {
+            scratchpad = nil
+        }
         return WorkspaceTabSession(
             workspacePath: workspaceURL.path,
             documentPath: documentURL?.path,
             readerMode: isReaderModeActive,
             navigatorVisible: isNavigatorVisible,
             commentsVisible: isCommentsVisible,
-            editor: editorState
+            editor: editorState,
+            scratchpadID: scratchpad?.id,
+            scratchpadTitle: scratchpad?.title,
+            restorationIdentifier: restorationIdentifier
         )
     }
 
@@ -181,16 +213,23 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         switch workspaceKind {
         case .directory(let url): return url
         case .file(let url): return url.deletingLastPathComponent()
-        case .empty: return nil
+        case .empty, .scratchpad: return nil
         }
     }
 
     init(
         workspaceURL: URL?,
+        scratchpad: ScratchpadDescriptor? = nil,
         restorationState: WorkspaceTabSession? = nil,
-        recentWorkspaceStore: RecentWorkspaceStore = RecentWorkspaceStore()
+        recentWorkspaceStore: RecentWorkspaceStore = RecentWorkspaceStore(),
+        scratchpadStore: ScratchpadStore = ScratchpadStore(),
+        restorationIdentifier: String? = nil
     ) {
         self.recentWorkspaceStore = recentWorkspaceStore
+        self.scratchpadStore = scratchpadStore
+        self.restorationIdentifier = restorationIdentifier
+            ?? restorationState?.restorationIdentifier
+            ?? UUID().uuidString
         editorViewController = WorkspacePaneFactory.makeEditor()
         commentsViewController = WorkspacePaneFactory.makeComments()
 
@@ -216,6 +255,8 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
         if let restorationState {
             restore(restorationState)
+        } else if let scratchpad {
+            openScratchpad(scratchpad)
         } else if let workspaceURL {
             open(workspaceURL)
         } else {
@@ -250,14 +291,42 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         scheduleRecentWorkspaceStartScreenIfNeeded()
     }
 
+    override func encodeRestorableState(with coder: NSCoder) {
+        super.encodeRestorableState(with: coder)
+        coder.encode(restorationIdentifier, forKey: "MarginRestorationIdentifier")
+    }
+
     func prepareForTabAttachment() {
         isExplicitlyTabbed = true
         pendingInitialWindowFrame = nil
     }
 
+    func applyRestoredWindowFrame(_ state: WorkspaceWindowFrame) {
+        guard let window else { return }
+        let displays = NSScreen.screens.map {
+            WorkspaceDisplayGeometry(
+                identifier: WorkspaceScreenIdentity.identifier(for: $0),
+                visibleFrame: $0.visibleFrame
+            )
+        }
+        guard let frame = WorkspaceWindowPlacementResolver.resolve(
+            state,
+            displays: displays
+        ) else { return }
+        pendingInitialWindowFrame = nil
+        if window.frame != frame {
+            window.setFrame(frame, display: true, animate: false)
+        }
+    }
+
     func refreshTabPresentation() {
         guard isExplicitlyTabbed, let window else { return }
-        window.tab.toolTip = (window.representedURL?.path).flatMap { $0.isEmpty ? nil : $0 } ?? "Margin"
+        if case .scratchpad(let descriptor) = workspaceKind {
+            window.tab.toolTip = "\(descriptor.title) · Scratchpad"
+        } else {
+            window.tab.toolTip = (window.representedURL?.path)
+                .flatMap { $0.isEmpty ? nil : $0 } ?? "Margin"
+        }
     }
 
     func open(_ url: URL) {
@@ -282,7 +351,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         recentWorkspaceStore.recordAfterLaunch(recentDirectoryURL)
     }
 
-    var documentURLForPathRename: URL? { documentURL }
+    var documentURLForPathRename: URL? {
+        isScratchpad ? nil : documentURL
+    }
 
     func prepareForPathRename(from sourceURL: URL) -> Bool {
         guard let documentURL,
@@ -317,6 +388,8 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
             workspaceKind = .directory(
                 WorkspacePathRelocation.relocatedURL(url, from: sourceURL, to: destinationURL) ?? url
             )
+        case .scratchpad:
+            break
         }
 
         indexedFileURLs = indexedFileURLs.map {
@@ -381,6 +454,51 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         guard documentURL != nil else { return }
         setCommentsVisible(true, explicit: true, animated: true)
         _ = NSApp.sendAction(NSSelectorFromString("beginComment:"), to: editorViewController, from: sender)
+    }
+
+    @objc func saveDocumentAs(_ sender: Any?) {
+        guard canSaveDocumentAs, let window else { return }
+        let panel = scratchpadSavePanel()
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let destination = panel.url else { return }
+            _ = self?.saveScratchpad(to: destination)
+        }
+    }
+
+    @discardableResult
+    func saveScratchpad(to destinationURL: URL) -> Bool {
+        let destinationURL = destinationURL.standardizedFileURL
+        guard case .scratchpad(let descriptor) = workspaceKind,
+              destinationURL != scratchpadStore.url(for: descriptor.id).standardizedFileURL,
+              let editor = editorViewController as? WorkspaceDocumentSavingAs,
+              editor.saveDocument(to: destinationURL) else { return false }
+
+        try? scratchpadStore.remove(descriptor)
+        workspaceKind = .file(destinationURL)
+        workspaceURL = destinationURL
+        documentURL = destinationURL
+        fileTreeViewController.trackActiveDocument(nil)
+        (commentsViewController as? WorkspaceCommentsPresenting)?
+            .presentComments(for: destinationURL)
+        updateWindowTitle(documentURL: destinationURL, workspaceURL: destinationURL)
+        window?.toolbar?.validateVisibleItems()
+        recentWorkspaceStore.recordAfterLaunch(destinationURL.deletingLastPathComponent())
+        onSessionStateChange?()
+        return true
+    }
+
+    private var suggestedScratchpadFilename: String {
+        guard case .scratchpad(let descriptor) = workspaceKind else { return "Untitled.md" }
+        return descriptor.title + ".md"
+    }
+
+    private func scratchpadSavePanel() -> NSSavePanel {
+        let panel = NSSavePanel()
+        panel.title = "Save Scratchpad"
+        panel.prompt = "Save"
+        panel.nameFieldStringValue = suggestedScratchpadFilename
+        panel.canCreateDirectories = true
+        return panel
     }
 
     @objc func quickOpen(_ sender: Any?) {
@@ -456,6 +574,16 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
                     symbolName: isReaderModeActive ? "text.cursor" : "text.book.closed",
                     searchText: "reader source render preview"
                 ) { [weak self] in self?.toggleReaderMode(nil) }
+            )
+        }
+        if canSaveDocumentAs {
+            items.append(
+                NavigationPaletteItem(
+                    title: "Save Scratchpad As",
+                    subtitle: "⌘⇧S",
+                    symbolName: "square.and.arrow.down",
+                    searchText: "save export name scratchpad markdown file"
+                ) { [weak self] in self?.saveDocumentAs(nil) }
             )
         }
         if canShowComments {
@@ -846,7 +974,50 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard let editor = editorViewController as? EditorViewController else { return true }
+        guard editor.prepareToClose() else { return false }
+        guard case .scratchpad(let descriptor) = workspaceKind,
+              (NSApp.delegate as? AppDelegate)?.isTerminatingApplication != true else {
+            return true
+        }
+        return confirmScratchpadClose(descriptor)
+    }
+
+    func prepareForApplicationTermination() -> Bool {
+        guard let editor = editorViewController as? EditorViewController else { return true }
         return editor.prepareToClose()
+    }
+
+    private func confirmScratchpadClose(_ descriptor: ScratchpadDescriptor) -> Bool {
+        let scratchURL = scratchpadStore.url(for: descriptor.id)
+        if (try? Data(contentsOf: scratchURL).isEmpty) == true {
+            try? scratchpadStore.remove(descriptor)
+            return true
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Save \(descriptor.title) as a Markdown file?"
+        alert.informativeText = "The scratchpad is safely stored inside Margin. Save it as a normal file, or explicitly discard it before closing this tab."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Save As…")
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Discard Scratchpad")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            let panel = scratchpadSavePanel()
+            guard panel.runModal() == .OK, let destination = panel.url else { return false }
+            return saveScratchpad(to: destination)
+        case .alertThirdButtonReturn:
+            do {
+                try scratchpadStore.remove(descriptor)
+                return true
+            } catch {
+                NSAlert(error: error).runModal()
+                return false
+            }
+        default:
+            return false
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -855,6 +1026,36 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
     func windowDidBecomeKey(_ notification: Notification) {
         onSessionStateChange?()
+    }
+
+    func windowWillMove(_ notification: Notification) {
+        if let event = NSApp.currentEvent,
+           event.window === window,
+           event.type == .leftMouseDown || event.type == .leftMouseDragged {
+            onUserWindowGeometryChange?()
+        }
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        onSessionStateChange?()
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        if window?.inLiveResize != true { onSessionStateChange?() }
+    }
+
+    func windowWillStartLiveResize(_ notification: Notification) {
+        onUserWindowGeometryChange?()
+    }
+
+    func windowDidEndLiveResize(_ notification: Notification) {
+        onUserWindowGeometryChange?()
+        onSessionStateChange?()
+    }
+
+    func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
+        onUserWindowGeometryChange?()
+        return true
     }
 
     func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame newFrame: NSRect) -> NSRect {
@@ -870,6 +1071,11 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         window.titlebarSeparatorStyle = .none
         window.toolbarStyle = .unified
         window.backgroundColor = MarginTheme.documentBackground
+        window.identifier = WorkspaceRestorationIdentifier.make(restorationIdentifier)
+        // Margin's Space-aware session is the single restoration authority.
+        // AppKit restoration can activate a remote saved window before Margin
+        // has selected the launch Space, so these windows must not participate
+        // in the competing system snapshot.
         window.isRestorable = false
         // Let AppKit own live resize and full-screen sizing. Explicit frame
         // maxima are ignored by Auto Layout and can interact poorly with
@@ -891,8 +1097,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     }
 
     private func configureInitialWindowFrame(_ window: NSWindow) {
-        let frameName = "MarginWorkspaceWindow.v3"
-        let restored = window.setFrameUsingName(frameName)
+        let frameName = "MarginWorkspaceWindow.v4.\(restorationIdentifier)"
+        let usesAutosavedLayout = !MarginRuntimeEnvironment.isPerformanceBenchmark
+        let restored = usesAutosavedLayout && window.setFrameUsingName(frameName)
         let restoredFrame = window.frame
         let restoredIsUsable = restored
             && restoredFrame.width >= 720
@@ -913,7 +1120,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
         // Version the frame key when the window layout changes materially so
         // an old, cramped frame does not become the new product default.
-        window.setFrameAutosaveName(frameName)
+        if usesAutosavedLayout {
+            window.setFrameAutosaveName(frameName)
+        }
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -1008,7 +1217,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     private func configureSplitView() {
         splitViewController.splitView.isVertical = true
         splitViewController.splitView.dividerStyle = .thin
-        splitViewController.splitView.autosaveName = "MarginWorkspaceSplitView"
+        if !MarginRuntimeEnvironment.isPerformanceBenchmark {
+            splitViewController.splitView.autosaveName = "MarginWorkspaceSplitView"
+        }
 
         navigatorItem.minimumThickness = 190
         navigatorItem.maximumThickness = 350
@@ -1099,6 +1310,20 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
     }
 
     private func restore(_ state: WorkspaceTabSession) {
+        if let id = state.scratchpadID {
+            let descriptor = ScratchpadDescriptor(
+                id: id,
+                title: state.scratchpadTitle ?? "Untitled"
+            )
+            guard scratchpadStore.exists(descriptor) else {
+                showEmptyState()
+                return
+            }
+            openScratchpad(descriptor)
+            restorePresentationState(state)
+            return
+        }
+
         let rootURL = URL(fileURLWithPath: state.workspacePath).standardizedFileURL
         var isDirectory = ObjCBool(false)
         let exists = FileManager.default.fileExists(atPath: rootURL.path, isDirectory: &isDirectory)
@@ -1119,6 +1344,10 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
             openStandaloneFile(rootURL)
         }
 
+        restorePresentationState(state)
+    }
+
+    private func restorePresentationState(_ state: WorkspaceTabSession) {
         if canShowNavigator {
             navigatorItem.isCollapsed = !state.navigatorVisible
         }
@@ -1219,6 +1448,17 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         resetUnreadComments()
         navigatorItem.isCollapsed = true
         presentDocument(fileURL)
+    }
+
+    private func openScratchpad(_ descriptor: ScratchpadDescriptor) {
+        dismissRecentWorkspaceStartScreen()
+        let fileURL = scratchpadStore.url(for: descriptor.id)
+        workspaceKind = .scratchpad(descriptor)
+        workspaceURL = fileURL
+        documentURL = fileURL
+        resetUnreadComments()
+        navigatorItem.isCollapsed = true
+        presentDocument(fileURL, scratchpadTitle: descriptor.title)
     }
 
     private func openDirectory(
@@ -1684,11 +1924,16 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
         }
     }
 
-    private func presentDocument(_ fileURL: URL) {
+    private func presentDocument(_ fileURL: URL, scratchpadTitle: String? = nil) {
         commentsVisibilityChoice = .automatic
         resetUnreadComments()
         commentsItem.isCollapsed = true
-        (editorViewController as? WorkspaceDocumentPresenting)?.presentDocument(at: fileURL)
+        if let scratchpadTitle {
+            (editorViewController as? WorkspaceDocumentPresenting)?
+                .presentScratchpad(at: fileURL, title: scratchpadTitle)
+        } else {
+            (editorViewController as? WorkspaceDocumentPresenting)?.presentDocument(at: fileURL)
+        }
         if case .directory = workspaceKind {
             fileTreeViewController.trackActiveDocument(fileURL)
         }
@@ -1728,6 +1973,13 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate, NST
 
     private func updateWindowTitle(documentURL: URL?, workspaceURL: URL?) {
         guard let window else { return }
+        if case .scratchpad(let descriptor) = workspaceKind {
+            window.representedURL = nil
+            window.title = descriptor.title
+            window.subtitle = "Scratchpad · Saved automatically"
+            refreshTabPresentation()
+            return
+        }
         let representedURL = documentURL ?? workspaceURL
         window.representedURL = representedURL
         refreshTabPresentation()

@@ -222,7 +222,9 @@ final class ComparisonWindowController: NSWindowController, NSWindowDelegate {
         window.tabbingMode = .disallowed
         window.minSize = NSSize(width: 620, height: 460)
         window.collectionBehavior.insert(.fullScreenPrimary)
-        window.setFrameAutosaveName("MarginComparisonWindow")
+        if !MarginRuntimeEnvironment.isPerformanceBenchmark {
+            window.setFrameAutosaveName("MarginComparisonWindow")
+        }
 
         if let visible = NSScreen.main?.visibleFrame {
             let width = min(1180, max(620, visible.width - 96))

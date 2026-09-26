@@ -32,9 +32,19 @@ var targets: [Target] = [
 #if os(macOS)
 products.append(.executable(name: "MarginAppBinary", targets: ["MarginApp"]))
 targets.append(
+    .target(
+        name: "MarginPrivateSupport",
+        path: "Sources/MarginPrivateSupport",
+        publicHeadersPath: "include",
+        linkerSettings: [
+            .linkedFramework("CoreFoundation"),
+        ]
+    )
+)
+targets.append(
     .executableTarget(
         name: "MarginApp",
-        dependencies: ["MarginCore"],
+        dependencies: ["MarginCore", "MarginPrivateSupport"],
         path: "Sources/MarginApp"
     )
 )

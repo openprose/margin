@@ -34,6 +34,7 @@ final class WorkspaceBehaviorTests: XCTestCase {
         XCTAssertFalse(controller.isNavigatorVisible)
         XCTAssertFalse(controller.isCommentsVisible)
         XCTAssertFalse(controller.canShowComments)
+        XCTAssertNil(controller.sessionState)
 
         let initialWidth = window.frame.width
         let untitled = FileManager.default.temporaryDirectory
@@ -177,6 +178,10 @@ final class WorkspaceBehaviorTests: XCTestCase {
         XCTAssertEqual(newTab?.keyEquivalent, "t")
         XCTAssertEqual(newTab?.keyEquivalentModifierMask, [.command])
 
+        let saveScratchpadAs = menuItem(named: "Save Scratchpad As…")
+        XCTAssertEqual(saveScratchpadAs?.keyEquivalent, "s")
+        XCTAssertEqual(saveScratchpadAs?.keyEquivalentModifierMask, [.command, .shift])
+
         let focusEditor = menuItem(named: "Focus Editor")
         XCTAssertEqual(focusEditor?.keyEquivalent, "2")
         XCTAssertEqual(focusEditor?.keyEquivalentModifierMask, [.control])
@@ -253,28 +258,399 @@ final class WorkspaceBehaviorTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let store = WorkspaceSessionStore(defaults: defaults, key: "session")
         let value = WorkspaceSession(
-            tabs: [
-                WorkspaceTabSession(
-                    workspacePath: "/tmp/workspace",
-                    documentPath: "/tmp/workspace/note.md",
-                    readerMode: true,
-                    navigatorVisible: true,
-                    commentsVisible: false,
-                    editor: EditorContinuityState(
-                        selectionLocation: 42,
-                        selectionLength: 7,
-                        scrollFraction: 0.5,
-                        selectedThreadID: "urn:uuid:test"
+            windows: [
+                WorkspaceWindowSession(
+                    tabs: [
+                        WorkspaceTabSession(
+                            workspacePath: "/tmp/workspace",
+                            documentPath: "/tmp/workspace/note.md",
+                            readerMode: true,
+                            navigatorVisible: true,
+                            commentsVisible: false,
+                            editor: EditorContinuityState(
+                                selectionLocation: 42,
+                                selectionLength: 7,
+                                scrollFraction: 0.5,
+                                selectedThreadID: "urn:uuid:test"
+                            ),
+                            restorationIdentifier: "window-restoration-test"
+                        )
+                    ],
+                    selectedIndex: 0,
+                    frame: WorkspaceWindowFrame(
+                        CGRect(x: 40, y: 80, width: 1180, height: 780),
+                        displayIdentifier: "display-test",
+                        displayFrame: CGRect(x: 0, y: 0, width: 1440, height: 900)
+                    ),
+                    space: WorkspaceSpaceAssignment(
+                        spaceUUID: "space-test",
+                        managedSpaceID: 42,
+                        displayIdentifier: "display-test",
+                        desktopOrdinal: 1,
+                        spaceType: 0
                     )
                 )
             ],
-            selectedIndex: 0
+            selectedWindowIndex: 0
         )
 
         store.save(value)
         XCTAssertEqual(store.load(), value)
         store.save(nil)
         XCTAssertNil(store.load())
+    }
+
+    func testVersionTwoSessionWithoutPlacementMetadataStillLoads() throws {
+        let suite = "margin-session-compatibility-tests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            return XCTFail("Expected isolated defaults")
+        }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let data = Data("""
+        {
+          "version": 2,
+          "windows": [{
+            "selectedIndex": 0,
+            "frame": {"x": 40, "y": 80, "width": 1180, "height": 780},
+            "tabs": [{
+              "workspacePath": "/tmp/legacy-v2.md",
+              "documentPath": "/tmp/legacy-v2.md",
+              "readerMode": false,
+              "navigatorVisible": false,
+              "commentsVisible": false,
+              "editor": {
+                "selectionLocation": 0,
+                "selectionLength": 0,
+                "scrollFraction": 0
+              }
+            }]
+          }],
+          "selectedWindowIndex": 0
+        }
+        """.utf8)
+        defaults.set(data, forKey: "session")
+
+        let session = try XCTUnwrap(
+            WorkspaceSessionStore(defaults: defaults, key: "session").load()
+        )
+        XCTAssertNil(session.windows[0].tabs[0].restorationIdentifier)
+        XCTAssertNil(session.windows[0].frame?.displayIdentifier)
+        XCTAssertNil(session.windows[0].space)
+    }
+
+    func testSpaceResolverPrefersStableUUIDOverTransientSpaceID() throws {
+        let assignment = WorkspaceSpaceAssignment(
+            spaceUUID: "target-space",
+            managedSpaceID: 12,
+            displayIdentifier: "display-a",
+            desktopOrdinal: 0,
+            spaceType: 0
+        )
+        let resolved = try XCTUnwrap(WorkspaceSpaceResolver.resolve(
+            assignment,
+            in: [
+                spaceDescriptor(id: 12, uuid: "recycled-space", ordinal: 0),
+                spaceDescriptor(id: 99, uuid: "target-space", ordinal: 3),
+            ]
+        ))
+
+        XCTAssertEqual(resolved.managedSpaceID, 99)
+    }
+
+    func testSpaceResolverFallsBackToDesktopOrdinalThenActiveDesktop() throws {
+        let ordinalAssignment = WorkspaceSpaceAssignment(
+            spaceUUID: "deleted-space",
+            managedSpaceID: 12,
+            displayIdentifier: "display-a",
+            desktopOrdinal: 1,
+            spaceType: 0
+        )
+        let catalog = [
+            spaceDescriptor(id: 20, uuid: "first", ordinal: 0),
+            spaceDescriptor(id: 21, uuid: "second", ordinal: 1),
+            spaceDescriptor(id: 22, uuid: "active", ordinal: 2, isActive: true),
+        ]
+        XCTAssertEqual(
+            WorkspaceSpaceResolver.resolve(ordinalAssignment, in: catalog)?.managedSpaceID,
+            21
+        )
+
+        var activeAssignment = ordinalAssignment
+        activeAssignment.desktopOrdinal = 8
+        XCTAssertEqual(
+            WorkspaceSpaceResolver.resolve(activeAssignment, in: catalog)?.managedSpaceID,
+            22
+        )
+    }
+
+    func testSpaceResolverNeverTargetsFullscreenOrAnotherDisplay() {
+        let assignment = WorkspaceSpaceAssignment(
+            spaceUUID: "missing",
+            managedSpaceID: 12,
+            displayIdentifier: "display-a",
+            desktopOrdinal: 1,
+            spaceType: 0
+        )
+        let catalog = [
+            spaceDescriptor(
+                id: 20,
+                uuid: "fullscreen",
+                display: "display-a",
+                ordinal: nil,
+                type: 4,
+                isActive: true
+            ),
+            spaceDescriptor(
+                id: 21,
+                uuid: "other-display",
+                display: "display-b",
+                ordinal: 1,
+                isActive: true
+            ),
+        ]
+
+        XCTAssertNil(WorkspaceSpaceResolver.resolve(assignment, in: catalog))
+    }
+
+    func testLaunchPolicyKeepsThePreviouslySelectedWindowWhenItIsLocal() {
+        XCTAssertEqual(
+            WorkspaceLaunchPolicy.action(
+                previouslySelectedIndex: 1,
+                restoredWindowsOnActiveSpace: [true, true, false]
+            ),
+            .focusRestoredWindow(1)
+        )
+    }
+
+    func testLaunchPolicyUsesAnotherLocalWindowInsteadOfSwitchingSpaces() {
+        XCTAssertEqual(
+            WorkspaceLaunchPolicy.action(
+                previouslySelectedIndex: 2,
+                restoredWindowsOnActiveSpace: [false, true, false]
+            ),
+            .focusRestoredWindow(1)
+        )
+    }
+
+    func testLaunchPolicyCreatesAnEmptyWindowWhenOnlySavedWindowIsRemote() {
+        XCTAssertEqual(
+            WorkspaceLaunchPolicy.action(
+                previouslySelectedIndex: 0,
+                restoredWindowsOnActiveSpace: [false]
+            ),
+            .createEmptyWindow
+        )
+    }
+
+    func testLaunchPolicyCreatesAnEmptyWindowWhenEverySavedWindowIsRemote() {
+        XCTAssertEqual(
+            WorkspaceLaunchPolicy.action(
+                previouslySelectedIndex: 1,
+                restoredWindowsOnActiveSpace: [false, false, false]
+            ),
+            .createEmptyWindow
+        )
+    }
+
+    func testWindowPlacementFollowsTheSameDisplayWhenItsLayoutChanges() throws {
+        let state = WorkspaceWindowFrame(
+            CGRect(x: 1560, y: 80, width: 900, height: 650),
+            displayIdentifier: "external",
+            displayFrame: CGRect(x: 1440, y: 0, width: 1920, height: 1080)
+        )
+        let restored = try XCTUnwrap(WorkspaceWindowPlacementResolver.resolve(
+            state,
+            displays: [
+                WorkspaceDisplayGeometry(
+                    identifier: "built-in",
+                    visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 900)
+                ),
+                WorkspaceDisplayGeometry(
+                    identifier: "external",
+                    visibleFrame: CGRect(x: -1920, y: 0, width: 1920, height: 1080)
+                ),
+            ]
+        ))
+
+        XCTAssertEqual(restored.origin.x, -1800, accuracy: 0.5)
+        XCTAssertEqual(restored.origin.y, 80, accuracy: 0.5)
+        XCTAssertEqual(restored.size, state.rect.size)
+    }
+
+    func testWindowPlacementFallsBackOnscreenWhenDisplayIsDisconnected() throws {
+        let state = WorkspaceWindowFrame(
+            CGRect(x: 1600, y: 100, width: 900, height: 650),
+            displayIdentifier: "disconnected",
+            displayFrame: CGRect(x: 1440, y: 0, width: 1920, height: 1080)
+        )
+        let restored = try XCTUnwrap(WorkspaceWindowPlacementResolver.resolve(
+            state,
+            displays: [WorkspaceDisplayGeometry(
+                identifier: "built-in",
+                visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 900)
+            )]
+        ))
+
+        XCTAssertEqual(restored.origin.x, 160, accuracy: 0.5)
+        XCTAssertEqual(restored.origin.y, 100, accuracy: 0.5)
+        XCTAssertTrue(CGRect(x: 0, y: 0, width: 1440, height: 900).contains(restored))
+    }
+
+    func testScratchpadIsPrivateEditableAndCanBecomeANamedMarkdownFile() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("margin-scratch-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let suite = "margin-scratch-defaults-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            return XCTFail("Expected isolated defaults")
+        }
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let scratchStore = ScratchpadStore(
+            rootURL: directory.appendingPathComponent("private", isDirectory: true),
+            defaults: defaults,
+            counterKey: "counter"
+        )
+        let descriptor = try scratchStore.create()
+        let controller = WorkspaceWindowController(
+            workspaceURL: nil,
+            scratchpad: descriptor,
+            scratchpadStore: scratchStore
+        )
+        defer { controller.close() }
+        controller.showWindow(nil)
+
+        XCTAssertTrue(controller.isScratchpad)
+        XCTAssertEqual(controller.window?.title, "Untitled 1")
+        XCTAssertNil(controller.window?.representedURL)
+        XCTAssertEqual(controller.sessionState?.scratchpadID, descriptor.id)
+        XCTAssertEqual(
+            controller.sessionState?.restorationIdentifier,
+            controller.restorationIdentifier
+        )
+        XCTAssertEqual(
+            controller.window?.identifier,
+            WorkspaceRestorationIdentifier.make(controller.restorationIdentifier)
+        )
+        XCTAssertFalse(controller.window?.isRestorable == true)
+        XCTAssertNil(controller.window?.restorationClass)
+
+        let textView = try XCTUnwrap(descendantTextView(in: controller.window?.contentView))
+        waitUntil { textView.isEditable }
+        textView.insertText("# Durable scratch\n", replacementRange: NSRange(location: 0, length: 0))
+        let scratchURL = scratchStore.url(for: descriptor.id)
+        XCTAssertTrue(controller.prepareForApplicationTermination())
+        XCTAssertEqual(
+            try String(contentsOf: scratchURL, encoding: .utf8),
+            "# Durable scratch\n"
+        )
+
+        let destination = directory.appendingPathComponent("named.md")
+        XCTAssertTrue(controller.saveScratchpad(to: destination))
+        XCTAssertFalse(controller.isScratchpad)
+        XCTAssertFalse(scratchStore.exists(descriptor))
+        XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), "# Durable scratch\n")
+        XCTAssertEqual(controller.window?.representedURL, destination.standardizedFileURL)
+    }
+
+    func testLegacyFlatSessionMigratesToOneWindow() throws {
+        let suite = "margin-legacy-session-tests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            return XCTFail("Expected isolated defaults")
+        }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let tab = WorkspaceTabSession(
+            workspacePath: "/tmp/legacy.md",
+            documentPath: "/tmp/legacy.md",
+            readerMode: false,
+            navigatorVisible: false,
+            commentsVisible: false,
+            editor: .beginning
+        )
+        let tabJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(tab))
+        let data = try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "tabs": [tabJSON],
+            "selectedIndex": 0,
+        ])
+        defaults.set(data, forKey: "session")
+
+        let migrated = try XCTUnwrap(
+            WorkspaceSessionStore(defaults: defaults, key: "session").load()
+        )
+        XCTAssertEqual(migrated.windows.count, 1)
+        XCTAssertEqual(migrated.windows[0].tabs, [tab])
+        XCTAssertEqual(migrated.windows[0].selectedIndex, 0)
+    }
+
+    func testSessionCapturePreservesIndependentWindowsAndTheirTabGroups() throws {
+        let originalWindows = Set(NSApplication.shared.windows.map(ObjectIdentifier.init))
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("margin-window-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer {
+            NSApplication.shared.windows
+                .filter { !originalWindows.contains(ObjectIdentifier($0)) }
+                .forEach { $0.close() }
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let suite = "margin-window-session-defaults-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            return XCTFail("Expected isolated defaults")
+        }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let scratchStore = ScratchpadStore(
+            rootURL: directory.appendingPathComponent("scratch", isDirectory: true),
+            defaults: defaults,
+            counterKey: "counter"
+        )
+        let delegate = AppDelegate(
+            sessionStore: WorkspaceSessionStore(defaults: defaults, key: "session"),
+            scratchpadStore: scratchStore
+        )
+
+        delegate.newWindow(nil)
+        delegate.newWindowForTab(nil)
+        var captured = try XCTUnwrap(delegate.workspaceSessionForTesting)
+        XCTAssertEqual(captured.windows.count, 1)
+        XCTAssertEqual(captured.windows[0].tabs.count, 2)
+
+        delegate.newWindow(nil)
+        captured = try XCTUnwrap(delegate.workspaceSessionForTesting)
+        XCTAssertEqual(captured.windows.count, 2)
+        XCTAssertEqual(captured.windows.map { $0.tabs.count }.sorted(), [1, 2])
+        XCTAssertEqual(captured.windows.flatMap(\.tabs).compactMap(\.scratchpadID).count, 3)
+        let restorationIdentifiers = captured.windows
+            .flatMap(\.tabs)
+            .compactMap(\.restorationIdentifier)
+        XCTAssertEqual(restorationIdentifiers.count, 3)
+        XCTAssertEqual(Set(restorationIdentifiers).count, 3)
+        XCTAssertNotNil(captured.windows[0].frame?.displayIdentifier)
+
+        // A tab selection must not replace its group's preserved layout with
+        // the hidden tab's frame. Explicit native resize resets the whole group.
+        let groupWindow = try XCTUnwrap(NSApplication.shared.windows.first {
+            !originalWindows.contains(ObjectIdentifier($0)) && ($0.tabGroup?.windows.count ?? 0) == 2
+        })
+        let selectedWindow = try XCTUnwrap(groupWindow.tabGroup?.selectedWindow)
+        let selectedController = try XCTUnwrap(selectedWindow.windowController as? WorkspaceWindowController)
+        let preferred = WorkspaceWindowFrame(
+            CGRect(x: 1500, y: 50, width: 1900, height: 1100),
+            displayIdentifier: "disconnected-display",
+            displayFrame: CGRect(x: 1440, y: 0, width: 2560, height: 1440)
+        )
+        selectedController.windowPlacementMemory = WorkspaceWindowPlacementMemory(preferredFrame: preferred)
+        captured = try XCTUnwrap(delegate.workspaceSessionForTesting)
+        XCTAssertEqual(captured.windows.first { $0.tabs.count == 2 }?.preferredFrame, preferred)
+        for tab in groupWindow.tabGroup?.windows ?? [] {
+            let controller = try XCTUnwrap(tab.windowController as? WorkspaceWindowController)
+            XCTAssertEqual(controller.windowPlacementMemory.preferredFrame, preferred)
+        }
+        selectedController.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification, object: selectedWindow))
+        captured = try XCTUnwrap(delegate.workspaceSessionForTesting)
+        let resized = try XCTUnwrap(captured.windows.first { $0.tabs.count == 2 })
+        XCTAssertEqual(resized.preferredFrame, resized.frame)
     }
 
     func testUnreadCommentBadgeIsLazyAndPersistsUntilActivityIsRead() throws {
@@ -314,6 +690,24 @@ final class WorkspaceBehaviorTests: XCTestCase {
         store.record(first, limit: 2)
 
         XCTAssertEqual(store.urls(limit: 10), [first, second])
+    }
+
+    func testRecentWorkspaceStoreCanDisablePersistenceForBenchmarks() {
+        let suite = "margin-recents-disabled-tests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            return XCTFail("Expected isolated defaults")
+        }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = RecentWorkspaceStore(
+            defaults: defaults,
+            key: "recents",
+            persistenceEnabled: false
+        )
+
+        store.record(URL(fileURLWithPath: "/tmp/benchmark.md"))
+
+        XCTAssertNil(defaults.object(forKey: "recents"))
+        XCTAssertTrue(store.urls().isEmpty)
     }
 
     func testCollaborationOverviewIsLazyAndLoadsDurableActorActivityOnDemand() throws {
@@ -369,6 +763,24 @@ final class WorkspaceBehaviorTests: XCTestCase {
         wait(for: [expectation], timeout: timeout + 0.2)
     }
 
+    private func spaceDescriptor(
+        id: UInt64,
+        uuid: String,
+        display: String = "display-a",
+        ordinal: Int?,
+        type: Int = 0,
+        isActive: Bool = false
+    ) -> WorkspaceSpaceDescriptor {
+        WorkspaceSpaceDescriptor(
+            managedSpaceID: id,
+            spaceUUID: uuid,
+            displayIdentifier: display,
+            desktopOrdinal: ordinal,
+            spaceType: type,
+            isActive: isActive
+        )
+    }
+
     private func makeDocument(_ source: String) throws -> (directory: URL, file: URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("margin-workspace-tests-\(UUID().uuidString)", isDirectory: true)
@@ -394,5 +806,11 @@ final class WorkspaceBehaviorTests: XCTestCase {
         guard let view else { return [] }
         let own = (view as? NSTextField).map { [$0.stringValue] } ?? []
         return own + view.subviews.flatMap { descendantText(in: $0) }
+    }
+
+    private func descendantTextView(in view: NSView?) -> NSTextView? {
+        guard let view else { return nil }
+        if let textView = view as? NSTextView { return textView }
+        return view.subviews.lazy.compactMap { descendantTextView(in: $0) }.first
     }
 }

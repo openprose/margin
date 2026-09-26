@@ -221,10 +221,20 @@ private func measureOnce(options: Options) throws -> Sample {
     let process = Process()
     process.executableURL = executable
     process.arguments = [options.documentPath]
+    let preferencesSuite = "ink.margin.editor.benchmark.\(UUID().uuidString)"
     let readyURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("margin-ready-\(UUID().uuidString)", isDirectory: false)
+    let preferencesRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("margin-benchmark-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(
+        at: preferencesRoot.appendingPathComponent("Library/Preferences", isDirectory: true),
+        withIntermediateDirectories: true
+    )
     process.environment = ProcessInfo.processInfo.environment.merging([
+        "CFFIXED_USER_HOME": preferencesRoot.path,
+        "CFPREFERENCES_AVOID_DAEMON": "1",
         "MARGIN_BENCHMARK_READY_FILE": readyURL.path,
+        "MARGIN_PREFERENCES_SUITE": preferencesSuite,
     ]) { _, benchmarkValue in benchmarkValue }
     process.standardOutput = FileHandle.nullDevice
     process.standardError = FileHandle.nullDevice
@@ -237,7 +247,17 @@ private func measureOnce(options: Options) throws -> Sample {
     }
     defer {
         stop(process)
+        if let benchmarkDefaults = UserDefaults(suiteName: preferencesSuite) {
+            benchmarkDefaults.removePersistentDomain(forName: preferencesSuite)
+            benchmarkDefaults.synchronize()
+        }
+        let preferencesFile = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Preferences", isDirectory: true)
+            .appendingPathComponent(preferencesSuite)
+            .appendingPathExtension("plist")
+        try? FileManager.default.removeItem(at: preferencesFile)
         try? FileManager.default.removeItem(at: readyURL)
+        try? FileManager.default.removeItem(at: preferencesRoot)
     }
 
     let timeout = UInt64(options.timeoutMilliseconds) * 1_000_000
